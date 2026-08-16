@@ -35,7 +35,7 @@ export interface Document {
 }
 
 /**
- * What the line shows a reader, with the characters that show nothing removed.
+ * What the line shows a reader, with everything that draws as nothing removed.
  *
  * `trim` alone is not enough. It strips U+00A0 and U+FEFF, but a zero-width
  * space, a word joiner or a bidi mark survives it, and a delimiter carrying one
@@ -44,15 +44,12 @@ export interface Document {
  * The removed set is named by the property Unicode gives it — the code points a
  * renderer is expected to show as nothing — rather than by a list of the ones
  * that have been run into. A list closes the holes someone thought of; the
- * property closes the class.
+ * property closes the class. The braille blank is added to it because it is the
+ * exception the property does not cover: Unicode files it as a graphic
+ * character, and it still draws as an empty cell.
  */
 function visibleTextOf(line: string): string {
-  // Splitting on a lone carriage return first catches a file written with
-  // classic Mac line endings, whose whole text is one line here.
-  return line
-    .split("\r")[0]
-    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
-    .trim();
+  return line.replace(/[\p{Default_Ignorable_Code_Point}\u2800]/gu, "").trim();
 }
 
 /** True for a line a reader would take for the delimiter, exact or not. */
@@ -90,18 +87,20 @@ export function splitDocument(text: string, site?: string): Document {
   const normalized = text.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
   if (lines[0] !== FRONTMATTER_DELIMITER) {
-    if (readsAsDelimiter(lines[0])) {
+    // The guard reads the document the way a person does: a lone carriage
+    // return is a line break to every editor, so it breaks a line here too.
+    // Only here. `canonicalBody` below keeps treating one as content, because
+    // changing that would change what an already pinned document digests to.
+    const shown = normalized.split(/\r|\n/);
+    const opening = shown.findIndex((line) => visibleTextOf(line) !== "");
+    if (opening !== -1 && readsAsDelimiter(shown[opening])) {
       throw new ConfigError(
-        `${where}: the line opening the frontmatter is not exactly '---': ${JSON.stringify(
-          lines[0],
-        )}`,
-      );
-    }
-    const opening = lines.findIndex((line) => visibleTextOf(line) !== "");
-    if (opening > 0 && readsAsDelimiter(lines[opening])) {
-      throw new ConfigError(
-        `${where}: frontmatter has to open on the first line, and this ` +
-          `document reaches '---' only below a blank one`,
+        opening === 0
+          ? `${where}: the line opening the frontmatter is not exactly '---': ${JSON.stringify(
+              shown[0],
+            )}`
+          : `${where}: frontmatter has to open on the first line, and this ` +
+              `document reaches '---' only below a blank one`,
       );
     }
     return { frontmatter: [], body: normalized };
