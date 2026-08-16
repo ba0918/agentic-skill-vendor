@@ -35,6 +35,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   being read as "this skill declares nothing". That covers frontmatter YAML cannot parse,
   a tab in the indentation, a `metadata` key that is not a mapping, a `contracts` value
   that is not a non-empty list, and an entry that is not text.
+- A document whose opening `---` is not exactly `---` — a trailing space, a tab, a lone
+  carriage return — stops the run with exit `2`. It was read as "this document has no
+  frontmatter", which dropped the entire declaration block: `gen` then finished cleanly
+  while deleting the skill's vendored copies and its dependency edge. The same refusal
+  applies to a contract document, whose frontmatter would otherwise be digested as body.
+- `--root` given an empty path is a usage error. It was reduced to `/`, so an unset shell
+  variable pointed the run at the file system root.
 - `provenance.contracts` names only the contracts whose canonical file the tree holds, so a
   withdrawn contract no longer leaves a source path pointing at a file that is not there.
 
