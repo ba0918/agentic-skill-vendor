@@ -26,7 +26,7 @@
     "fmt": "biome format --write .",
     "fmt:check": "biome format .",
     "build": "bun build src/cli.ts --target node --packages external --outdir dist",
-    "prepublishOnly": "bun run build"
+    "prepack": "bun run build"
   },
   "dependencies": {
     "ignore": "7.0.6",

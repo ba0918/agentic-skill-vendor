@@ -34,6 +34,14 @@ jobs:
       - name: Check the types
         run: bun run typecheck
 
+      - name: Check the lint rules
+        run: bun run lint
+
+      # Formatting is checked rather than applied. A workflow that rewrote the
+      # source would be a workflow whose output nobody reviewed.
+      - name: Check the formatting
+        run: bun run fmt:check
+
       # The same command PROJECT.md documents for local runs, so CI and the
       # documentation cannot drift apart.
       - name: Run the tool's own tests
