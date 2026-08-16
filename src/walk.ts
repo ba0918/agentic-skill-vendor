@@ -5,6 +5,14 @@
 // following one would let it read a file outside the tree or have the tree's
 // output written over one. Refusing costs nothing and closes the escape
 // structurally rather than case by case.
+//
+// A second rule governs how those messages name a path: as the tree spells it,
+// whether the message reports a refusal or a read that failed. One file that
+// reads as two different paths depending on which call happened to fail on it
+// is the harder thing to follow, and the machine's own location reaches the
+// reader anyway — the underlying error is quoted, and it carries the absolute
+// path. The tree root itself is the one exception: named as it was given, there
+// being nothing yet for it to be relative to.
 
 import * as fs from "node:fs/promises";
 import type { Stats } from "node:fs";
@@ -45,13 +53,20 @@ export interface DirectoryEntry {
  * with a described refusal instead of an exception escaping as a stack trace.
  * The two calls fail independently: a directory readable but not searchable
  * lists its names and refuses every stat under it.
+ *
+ * `site` is how those two refusals name the directory. A caller inside a tree
+ * passes the path the tree spells, which is what the reader of the message
+ * holds; the absolute path it reads from is no answer to "which file".
  */
-export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
+export async function readEntries(
+  dir: string,
+  site = dir,
+): Promise<DirectoryEntry[]> {
   let names: string[];
   try {
     names = await fs.readdir(dir);
   } catch (cause) {
-    throw new ConfigError(`cannot read ${dir}: ${describeCause(cause)}`);
+    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
   }
   const entries: DirectoryEntry[] = [];
   for (const name of names.sort(compareStrings)) {
@@ -60,7 +75,7 @@ export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
       info = await fs.lstat(`${dir}/${name}`);
     } catch (cause) {
       throw new ConfigError(
-        `cannot inspect ${dir}/${name}: ${describeCause(cause)}`,
+        `cannot inspect ${site}/${name}: ${describeCause(cause)}`,
       );
     }
     entries.push({
@@ -72,15 +87,7 @@ export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
   return entries;
 }
 
-/**
- * True for a real directory; a symlink in its place is refused outright.
- *
- * A refusal names the path as the tree spells it, a failure names it as the
- * machine does. The two say different things: a refusal is a fact about the
- * tree, readable by anyone holding the same checkout, while a failure to look
- * at all is a fact about this machine, where the absolute path is what a reader
- * needs to go and look.
- */
+/** True for a real directory; a symlink in its place is refused outright. */
 export async function isDirectory(
   root: string,
   relative: string,
@@ -90,9 +97,7 @@ export async function isDirectory(
     info = await fs.lstat(`${root}/${relative}`);
   } catch (cause) {
     if (isNotFound(cause)) return false;
-    throw new ConfigError(
-      `cannot read ${root}/${relative}: ${describeCause(cause)}`,
-    );
+    throw new ConfigError(`cannot read ${relative}: ${describeCause(cause)}`);
   }
   if (info.isSymbolicLink()) {
     throw new ConfigError(
@@ -110,26 +115,33 @@ export async function isDirectory(
  * and generated vendoring state has no legitimate reason to contain links, so
  * refusing costs nothing and closes the escape structurally.
  */
-export async function walkFiles(dir: string): Promise<string[]> {
+export async function walkFiles(dir: string, site = dir): Promise<string[]> {
   const found: string[] = [];
-  await walkInto(dir, "", found);
+  await walkInto(dir, site, "", found);
   return found.sort(compareStrings);
 }
 
+/**
+ * Two names travel down together, and they answer different questions. `prefix`
+ * is where a file sits within the walk, which is what the caller collects;
+ * `site` is where it sits within the tree, which is what a refusal names.
+ */
 async function walkInto(
   dir: string,
+  site: string,
   prefix: string,
   into: string[],
 ): Promise<void> {
-  for (const entry of await readEntries(dir)) {
+  for (const entry of await readEntries(dir, site)) {
     const path = `${dir}/${entry.name}`;
+    const named = `${site}/${entry.name}`;
     const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
     if (entry.isSymlink) {
       throw new ConfigError(
-        `symlink is not allowed inside a scanned tree: ${path}`,
+        `symlink is not allowed inside a scanned tree: ${named}`,
       );
     }
-    if (entry.isDirectory) await walkInto(path, relative, into);
+    if (entry.isDirectory) await walkInto(path, named, relative, into);
     else into.push(relative);
   }
 }
@@ -253,7 +265,7 @@ export async function isRegularFile(
   } catch (cause) {
     if (isNotFound(cause)) return false;
     throw new ConfigError(
-      `cannot inspect ${root}/${relative}: ${describeCause(cause)}`,
+      `cannot inspect ${relative}: ${describeCause(cause)}`,
     );
   }
   if (info.isSymbolicLink()) {

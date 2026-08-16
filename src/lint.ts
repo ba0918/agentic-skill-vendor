@@ -145,7 +145,7 @@ async function lintInto(
   relative: string,
   violations: string[],
 ): Promise<void> {
-  for (const entry of await readEntries(dir)) {
+  for (const entry of await readEntries(dir, relative)) {
     const path = `${dir}/${entry.name}`;
     const site = `${relative}/${entry.name}`;
     if (entry.isSymlink) {

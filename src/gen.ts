@@ -176,7 +176,7 @@ export async function listVendorEntries(
   if (!(await isDirectory(root, relative))) return [];
   const dir = `${root}/${relative}`;
   const names: string[] = [];
-  for (const entry of await readEntries(dir)) {
+  for (const entry of await readEntries(dir, relative)) {
     if (entry.isSymlink) {
       throw new ConfigError(
         `symlink is not allowed inside the tree: ${relative}/${entry.name}`,

@@ -5,6 +5,9 @@ import {
   atomicWriteFile,
   decodeUtf8,
   ensureParentDirectory,
+  isDirectory,
+  isRegularFile,
+  readEntries,
   walkFiles,
 } from "./walk.ts";
 import {
@@ -241,6 +244,119 @@ describeRead(
     });
   },
 );
+
+// One spelling for every path a message names: the one the tree uses. A reader
+// holding the same checkout can find any of them, and the same file no longer
+// reads as two different paths depending on which call happened to fail on it.
+//
+// Each case asserts the message up to and including the path, because that is
+// what tells the two spellings apart: the absolute form puts the tree's own
+// location between the verb and the path, so the fragment below is absent from
+// it however the message ends.
+
+describeRead(
+  "a file whose kind cannot be read is named as the tree spells it",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "skills/review-writer/references/vendor/verdict-format.md";
+      const vendor = "skills/review-writer/references/vendor";
+      await withUnreadable(`${root}/${vendor}`, async () => {
+        const error = await rejectedBy(
+          () => isRegularFile(root, site),
+          ConfigError,
+        );
+        expect(error.message).toContain(`cannot inspect ${site}`);
+      });
+    });
+  },
+);
+
+describeRead(
+  "a directory whose kind cannot be read is named as the tree spells it",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "skills/review-writer/references/vendor";
+      await withUnreadable(
+        `${root}/skills/review-writer/references`,
+        async () => {
+          const error = await rejectedBy(
+            () => isDirectory(root, site),
+            ConfigError,
+          );
+          expect(error.message).toContain(`cannot read ${site}`);
+        },
+      );
+    });
+  },
+);
+
+describeRead(
+  "an entry of a directory that lists but cannot be searched is named as the tree spells it",
+  async () => {
+    await withGoodTree(async (root) => {
+      // Readable and not searchable: the names come back and every stat under
+      // them fails, which is the half of the listing that speaks for itself.
+      const site = "skills/review-writer/references/vendor";
+      const path = `${root}/${site}`;
+      const { mode } = await fs.stat(path);
+      await fs.chmod(path, 0o444);
+      try {
+        const error = await rejectedBy(
+          () => readEntries(path, site),
+          ConfigError,
+        );
+        expect(error.message).toContain(`cannot inspect ${site}/`);
+      } finally {
+        await fs.chmod(path, mode);
+      }
+    });
+  },
+);
+
+describeRead(
+  "a vendor directory gen may not list is named as the tree spells it",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "skills/release-notes/references/vendor";
+      await withUnreadable(`${root}/${site}`, async () => {
+        const result = await runCli(["gen", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stderr.join("\n")).toContain(`cannot read ${site}`);
+      });
+    });
+  },
+);
+
+describeRead(
+  "a directory the linter may not list is named as the tree spells it",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "skills/release-notes/references";
+      await withUnreadable(`${root}/${site}`, async () => {
+        const result = await runCli(["lint-selfcontain", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stderr.join("\n")).toContain(`cannot read ${site}`);
+      });
+    });
+  },
+);
+
+test("a symlink found inside a conformance tree is named as the tree spells it", async () => {
+  await withGoodTree(async (root) => {
+    const site = "contracts/changelog-entry/conformance/cases/escape.md";
+    await replaceWithSymlink(
+      `${root}/${site}`,
+      await plantOutsideFile(root, "secret.md"),
+    );
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      `symlink is not allowed inside a scanned tree: ${site}`,
+    );
+  });
+});
 
 test("content that is not valid UTF-8 is a configuration error naming the file", () => {
   const error = thrownBy(
