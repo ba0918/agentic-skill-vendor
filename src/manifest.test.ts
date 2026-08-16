@@ -49,7 +49,7 @@ test("the manifest records no wall-clock timestamp", async () => {
 test("the manifest names where the tool and each contract came from", async () => {
   await withGoodTree(async (root) => {
     const provenance = (await readManifest(root)).provenance;
-    expect(provenance.generator.name).toStrictEqual("vendor.ts");
+    expect(provenance.generator.name).toStrictEqual("agentic-skill-vendor");
     expect(provenance.generator.source).toContain("github.com");
     expect(provenance.contracts["verdict-format"].source).toStrictEqual(
       "contracts/verdict-format.md",

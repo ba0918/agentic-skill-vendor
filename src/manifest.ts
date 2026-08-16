@@ -5,6 +5,7 @@
 // One rendering, stated here, is what makes it decidable.
 
 import * as fs from "node:fs/promises";
+import packageManifest from "../package.json" with { type: "json" };
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
@@ -27,14 +28,24 @@ const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
  * What generated the artifacts, recorded in provenance and in every vendored
  * copy's header.
  *
- * The name stays `vendor.ts` although the tool is no longer one file of that
- * name. It is a value on the wire, not a path: it sits in bytes that verify
- * compares exactly, so changing it would report every already generated copy in
- * every consuming repository as drift.
+ * The name is frozen at `agentic-skill-vendor` from here on. It is a value on
+ * the wire, not a path: it sits in bytes that verify compares exactly, so
+ * changing it reports every already generated copy in every consuming
+ * repository as drift. It was `vendor.ts` — the name of the single file the
+ * tool used to be — and moving it to the published name is the last time it
+ * may move, taken while no version has been released and no copy exists to
+ * break.
+ *
+ * The version is the package's own, read from the one place it is written.
+ * Kept as a second literal it would be a number that means nothing: it stood
+ * at 1.0.0 while the package stood at 0.1.0, so provenance named a release
+ * that had never happened. A JSON import is what carries this identically on
+ * every runtime — the bundler inlines it, so the published artifact holds the
+ * value rather than a read that would have to find the file again.
  */
 export const GENERATOR = {
-  name: "vendor.ts",
-  version: "1.0.0",
+  name: "agentic-skill-vendor",
+  version: packageManifest.version,
   source: "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
 } as const;
 

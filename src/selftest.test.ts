@@ -6,6 +6,9 @@ import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const SOURCE_DIR = fileURLToPath(new URL(".", import.meta.url));
 const MODULES = fileURLToPath(new URL("../node_modules", import.meta.url));
+const PACKAGE_MANIFEST = fileURLToPath(
+  new URL("../package.json", import.meta.url),
+);
 const ENTRY = "cli.ts";
 
 /**
@@ -28,6 +31,11 @@ async function runAltered(
   // would find no node_modules at all. Linking the real one beside the copy
   // is what lets the copy import what the original imports.
   await fs.symlink(MODULES, `${dir}/node_modules`);
+  // The tool reads its own version out of the package manifest one directory
+  // above it, so the copy needs one there too. Without it the copy fails to
+  // load at all, and every case here would report that instead of what its
+  // edit changed.
+  await fs.copyFile(PACKAGE_MANIFEST, `${dir}/package.json`);
   const path = `${tool}/${file}`;
   const source = await fs.readFile(path, "utf8");
   expect(source).toContain(find);

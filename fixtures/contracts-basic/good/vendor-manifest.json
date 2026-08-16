@@ -31,9 +31,9 @@
       }
     },
     "generator": {
-      "name": "vendor.ts",
+      "name": "agentic-skill-vendor",
       "source": "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
-      "version": "1.0.0"
+      "version": "0.1.0"
     }
   }
 }
