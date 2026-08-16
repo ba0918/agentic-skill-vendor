@@ -211,6 +211,26 @@ test("accepting a contract with no canonical file is a usage error", async () =>
   });
 });
 
+test("naming the same contract twice in one accept is a usage error", async () => {
+  await withGoodTree(async (root) => {
+    // Approval means naming what is being approved. A repeated name is a
+    // reviewer's slip, and adopting it twice in silence reports the same
+    // adoption twice as though two things had been approved.
+    const result = await runCli([
+      "accept",
+      "verdict-format",
+      "verdict-format",
+      "--root",
+      root,
+    ]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "accept was given verdict-format more than once",
+    );
+  });
+});
+
 test("accepting an unusable contract id is a usage error", async () => {
   await withGoodTree(async (root) => {
     const result = await runCli(["accept", "../escape", "--root", root]);

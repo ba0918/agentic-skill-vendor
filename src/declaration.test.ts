@@ -14,8 +14,19 @@ function parse(frontmatter: string): string[] {
   );
 }
 
-function assertRefused(frontmatter: string): void {
-  expect(() => parse(frontmatter)).toThrow(ConfigError);
+/**
+ * Requires the frontmatter to be refused, and refused for the stated reason.
+ *
+ * The message fragment is not decoration. Several of these shapes are refused
+ * by more than one thing — the YAML parser has its own opinion about a tab, and
+ * a schema rule and a parse failure look identical from the outside — so a case
+ * that checked only the error class would keep passing with the guard it names
+ * removed. Naming the reason is what makes each case answer for its own guard.
+ */
+function assertRefused(frontmatter: string, because: string): void {
+  expect(thrownBy(() => parse(frontmatter), ConfigError).message).toContain(
+    because,
+  );
 }
 
 test("contract ids are read in declaration order", () => {
@@ -67,12 +78,14 @@ test("an entry that carries a digest is a configuration error", () => {
     "metadata:\n  contracts:\n    - id: verdict-format\n      digest: sha256:" +
       "0".repeat(64) +
       "\n",
+    "metadata.contracts entries name a contract id and nothing else",
   );
 });
 
 test("declaring the same contract twice is a configuration error", () => {
   assertRefused(
     "metadata:\n  contracts:\n    - verdict-format\n    - verdict-format\n",
+    "contract declared more than once",
   );
 });
 
@@ -101,31 +114,46 @@ test("a quoted contract id declares the same contract as a bare one", () => {
 });
 
 test("a contracts key with no entries under it is a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n");
+  assertRefused(
+    "metadata:\n  contracts:\n",
+    "metadata.contracts must be a list of contract ids",
+  );
 });
 
 test("an empty contracts list is a configuration error", () => {
-  assertRefused("metadata:\n  contracts: []\n");
+  assertRefused(
+    "metadata:\n  contracts: []\n",
+    "metadata.contracts is present but declares no contract",
+  );
 });
 
 test("a contracts value that is not a list is a configuration error", () => {
-  assertRefused("metadata:\n  contracts: verdict-format\n");
+  assertRefused(
+    "metadata:\n  contracts: verdict-format\n",
+    "metadata.contracts must be a list of contract ids",
+  );
 });
 
 test("an entry that is not a string is a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n    - 12\n");
+  assertRefused(
+    "metadata:\n  contracts:\n    - 12\n",
+    "metadata.contracts entries must be contract ids written as text",
+  );
 });
 
 test("an empty entry in the contracts list is a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n    -\n");
+  assertRefused(
+    "metadata:\n  contracts:\n    -\n",
+    "metadata.contracts entries must be contract ids written as text",
+  );
 });
 
 test("a metadata key that is not a mapping is a configuration error", () => {
-  assertRefused("metadata: internal\n");
+  assertRefused("metadata: internal\n", "metadata must be a mapping");
 });
 
 test("a metadata key with no value at all is a configuration error", () => {
-  assertRefused("metadata:\n");
+  assertRefused("metadata:\n", "metadata must be a mapping");
 });
 
 test("frontmatter that is not a mapping is a configuration error", () => {
@@ -140,7 +168,10 @@ test("frontmatter that is not a mapping is a configuration error", () => {
 test("a metadata key indented under nothing is a configuration error", () => {
   // The shape that was read as "this skill declares nothing" before: the key is
   // indented, so it belongs to no mapping the document opens.
-  assertRefused(" metadata:\n   contracts:\n     - verdict-format\n");
+  assertRefused(
+    " metadata:\n   contracts:\n     - verdict-format\n",
+    "frontmatter is not readable YAML",
+  );
 });
 
 test("a tab-indented contracts key is a configuration error", () => {
@@ -150,11 +181,15 @@ test("a tab-indented contracts key is a configuration error", () => {
   // "declares nothing" for a skill that declared something.
   assertRefused(
     "metadata:\n  audience: internal\n\tcontracts:\n\t  - verdict\n",
+    "frontmatter is indented with a tab",
   );
 });
 
 test("a tab-indented contracts entry is a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n\t- verdict-format\n");
+  assertRefused(
+    "metadata:\n  contracts:\n\t- verdict-format\n",
+    "frontmatter is indented with a tab",
+  );
 });
 
 test("a delimiter line further down the document opens no second declaration block", () => {
@@ -168,30 +203,37 @@ test("a delimiter line further down the document opens no second declaration blo
 });
 
 test("an unusable contract id in a declaration is a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n    - ../escape\n");
+  assertRefused(
+    "metadata:\n  contracts:\n    - ../escape\n",
+    "not a usable contract id",
+  );
 });
 
 test("a second metadata key holding the contracts is a configuration error", () => {
   assertRefused(
     "metadata:\n  audience: internal\nmetadata:\n  contracts:\n    - verdict-format\n",
+    "frontmatter is not readable YAML",
   );
 });
 
 test("a contracts key indented deeper than its sibling keys is a configuration error", () => {
   assertRefused(
     "metadata:\n  audience: internal\n    contracts:\n      - verdict-format\n",
+    "frontmatter is not readable YAML",
   );
 });
 
 test("a contracts key indented shallower than its sibling keys is a configuration error", () => {
   assertRefused(
     "metadata:\n    audience: internal\n  contracts:\n    - verdict-format\n",
+    "frontmatter is not readable YAML",
   );
 });
 
 test("a second contracts key in the same metadata block is a configuration error", () => {
   assertRefused(
     "metadata:\n  contracts:\n    - verdict-format\n  contracts:\n    - changelog-entry\n",
+    "frontmatter is not readable YAML",
   );
 });
 

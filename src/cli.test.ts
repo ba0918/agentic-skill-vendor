@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { runCli } from "./testing.ts";
+import { runCli, withEmptyDir } from "./testing.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
 
@@ -81,6 +81,20 @@ test("the entry point reaches the file system only to answer whether it was star
     ...SOURCE.matchAll(/import \{([^}]*)\} from "node:fs[^"]*";/g),
   ].flatMap((match) => match[1].split(",").map((name) => name.trim()));
   expect(bound).toStrictEqual(["realpathSync"]);
+});
+
+test("a --root path ending in a slash names the same tree as one that does not", async () => {
+  // Stated through a message that quotes the path back, because that is the
+  // only place the difference between "dir" and "dir/" is visible: the file
+  // system reads both the same way, and every path the run reports would
+  // otherwise carry a doubled separator from wherever the argument came from.
+  await withEmptyDir(async (dir) => {
+    const result = await runCli(["lint-selfcontain", "--root", `${dir}/`]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toStrictEqual(
+      `error: skills/ does not exist under ${dir}`,
+    );
+  });
 });
 
 test("--root given an empty path is a usage error", async () => {

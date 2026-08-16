@@ -106,6 +106,38 @@ test("a write whose target is a directory fails and names the path", async () =>
   });
 });
 
+test("a write refuses a symlink standing where the file belongs", async () => {
+  await withGoodTree(async (root) => {
+    // The rename would replace the link rather than follow it, so nothing
+    // outside is overwritten — and that is exactly why nothing else catches
+    // this. What is lost is the link itself, silently swapped for a file the
+    // run wrote, which is a change to the tree nobody asked for.
+    const secret = await plantOutsideFile(root, "target.md");
+    const path = `${root}/skills/release-notes/note.md`;
+    await replaceWithSymlink(path, secret);
+
+    const error = await rejectedBy(
+      () => atomicWriteFile(path, encoder.encode("written\n")),
+      ConfigError,
+    );
+    expect(error.message).toContain("refusing to write through a symlink");
+    expect((await fs.lstat(path)).isSymbolicLink()).toStrictEqual(true);
+  });
+});
+
+test("a write that fails leaves no temporary file behind", async () => {
+  await withEmptyDir(async (dir) => {
+    // The bytes reach the temporary file and only the rename fails, so the
+    // cleanup is the one thing standing between a failed run and a stray
+    // sibling that every later listing of the directory has to explain.
+    await fs.mkdir(`${dir}/out.md`);
+    await expect(
+      atomicWriteFile(`${dir}/out.md`, encoder.encode("written\n")),
+    ).rejects.toThrow(ConfigError);
+    expect((await fs.readdir(dir)).sort()).toStrictEqual(["out.md"]);
+  });
+});
+
 test("a write refuses a symlink pre-planted at its temporary path", async () => {
   await withGoodTree(async (root) => {
     const secret = await plantOutsideFile(root, "manifest-target.json");

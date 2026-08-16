@@ -348,6 +348,109 @@ test("verify refuses a skills directory symlinked outside the tree", async () =>
   });
 });
 
+test("gen refuses a skill directory that is itself a symlink", async () => {
+  await withGoodTree(async (root) => {
+    // Read as an ordinary entry the link is not a directory, so the skill drops
+    // out of the list without a word: its declarations stop being seen and its
+    // dependency edge leaves the lock. Refusing is what keeps that silent.
+    await escapeThrough(root, "skills/release-notes");
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: skills/release-notes",
+    );
+  });
+});
+
+test("gen refuses a symlink standing among a skill's vendored copies", async () => {
+  await withGoodTree(async (root) => {
+    // Treated as an ordinary name it answers to no declaration, so the run
+    // would quietly delete it as an unaccounted copy.
+    const link = "skills/release-notes/references/vendor/orphan.md";
+    await replaceWithSymlink(`${root}/${link}`, `${root}/${COPY}`);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      `symlink is not allowed inside the tree: ${link}`,
+    );
+  });
+});
+
+test("gen refuses a vendor directory reached through a symlinked parent", async () => {
+  await withGoodTree(async (root) => {
+    // The link is one level above the vendor directory, so checking only the
+    // directory itself finds a plain directory and reports nothing — while
+    // every copy written and every stray removed lands outside the tree.
+    const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+    await writeFile(`${outside}/references/vendor/stray.md`, "not ours\n");
+    await replaceWithSymlink(
+      `${root}/skills/release-notes/references`,
+      `${outside}/references`,
+    );
+    const outsideBefore = await snapshotTree(outside);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: skills/release-notes/references/vendor",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+  });
+});
+
+test("gen refuses a manifest symlinked outside the tree before reading it", async () => {
+  await withGoodTree(async (root) => {
+    // Refused where it is read, not merely where it is written. Left to the
+    // write, the run would first adopt an outside lock and expand the whole
+    // tree from it, and only then stop.
+    const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+    await fs.mkdir(outside, { recursive: true });
+    await fs.rename(`${root}/${MANIFEST}`, `${outside}/${MANIFEST}`);
+    await fs.symlink(`${outside}/${MANIFEST}`, `${root}/${MANIFEST}`);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      `symlink is not allowed inside the tree: ${MANIFEST}`,
+    );
+  });
+});
+
+test("a run stopped by an unwritable copy has removed nothing and rewritten no lock", async () => {
+  await withGoodTree(async (root) => {
+    // Copies, then the manifest, then the removals. The order is what decides
+    // what an interrupted run leaves: a removal done first would lose a file
+    // the run never replaced, and a manifest written first would describe a
+    // tree that was never built.
+    const orphan = "skills/release-notes/references/vendor/orphan.md";
+    await writeFile(`${root}/${orphan}`, "left over from an old declaration\n");
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - changelog-entry\n",
+        "    - changelog-entry\n    - verdict-format\n",
+      ),
+    );
+    const blocked = "skills/review-writer/references/vendor/changelog-entry.md";
+    await fs.rm(`${root}/${blocked}`);
+    await fs.mkdir(`${root}/${blocked}`);
+    const manifestBefore = await fs.readFile(`${root}/${MANIFEST}`, "utf8");
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(2);
+    expect((await snapshotTree(root)).has(orphan)).toStrictEqual(true);
+    expect(await fs.readFile(`${root}/${MANIFEST}`, "utf8")).toStrictEqual(
+      manifestBefore,
+    );
+  });
+});
+
 test("gen refuses a skill whose opening delimiter is not exactly the delimiter and keeps its vendored copies", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;
