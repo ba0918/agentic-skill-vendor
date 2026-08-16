@@ -64,7 +64,7 @@ export async function readIgnoreRules(
     (a, b) => depthOf(a) - depthOf(b) || compareStrings(a, b),
   )) {
     const site = joinRelative(directory, IGNORE_FILE);
-    if (!(await isRegularFile(`${root}/${site}`))) continue;
+    if (!(await isRegularFile(root, site))) continue;
     levels.push({
       directory,
       matcher: ignore().add(await readTextFile(`${root}/${site}`, site)),

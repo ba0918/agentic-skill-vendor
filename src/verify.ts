@@ -5,7 +5,12 @@
 
 import type { Sink } from "./errors.ts";
 import { compareStrings, digestOfBytes } from "./digest.ts";
-import { decodeUtf8, isRegularFile, readBytes } from "./walk.ts";
+import {
+  assertTreeRoot,
+  decodeUtf8,
+  isRegularFile,
+  readBytes,
+} from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
 import {
   declaredIds,
@@ -51,7 +56,7 @@ async function copyViolations(
       const resolution = resolutions[id];
       if (resolution === undefined) continue;
       const site = `${dir}/${id}.md`;
-      if (!(await isRegularFile(`${root}/${site}`))) {
+      if (!(await isRegularFile(root, site))) {
         violations.push(`drift: ${site} is missing`);
         continue;
       }
@@ -94,8 +99,7 @@ async function manifestViolations(
   skills: SkillDeclaration[],
   resolutions: Resolutions,
 ): Promise<string[]> {
-  const path = `${root}/${MANIFEST_FILE}`;
-  if (!(await isRegularFile(path))) {
+  if (!(await isRegularFile(root, MANIFEST_FILE))) {
     return [`manifest: ${MANIFEST_FILE} is missing`];
   }
   const expected = canonicalJson(
@@ -106,7 +110,7 @@ async function manifestViolations(
     ),
   );
   const actual = decodeUtf8(
-    await readBytes(path, MANIFEST_FILE),
+    await readBytes(`${root}/${MANIFEST_FILE}`, MANIFEST_FILE),
     MANIFEST_FILE,
   );
   if (actual === expected) return [];
@@ -145,6 +149,7 @@ async function conformanceViolations(
  * meaningful while another is failing.
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
+  await assertTreeRoot(root);
   const skills = await readSkills(root);
   const resolutions = await readResolutions(root);
   const contracts = await readContracts(root, declaredIds(skills));

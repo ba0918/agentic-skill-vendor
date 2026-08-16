@@ -7,7 +7,13 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
-import { isDirectory, readBytes, readEntries } from "./walk.ts";
+import {
+  assertTreeRoot,
+  dirNameOf,
+  isDirectory,
+  readBytes,
+  readEntries,
+} from "./walk.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
@@ -68,12 +74,6 @@ function lintLines(site: string, text: string): string[] {
     }
   }
   return violations;
-}
-
-/** The directory the path sits in; the current directory when it names none. */
-export function dirNameOf(path: string): string {
-  const cut = path.lastIndexOf("/");
-  return cut === -1 ? "." : path.slice(0, cut);
 }
 
 function baseNameOf(path: string): string {
@@ -163,8 +163,9 @@ async function lintInto(
 }
 
 export async function commandLint(root: string, out: Sink): Promise<number> {
+  await assertTreeRoot(root);
   const skillsDir = `${root}/${SKILLS_DIR}`;
-  if (!(await isDirectory(skillsDir))) {
+  if (!(await isDirectory(root, SKILLS_DIR))) {
     throw new ConfigError(`${SKILLS_DIR}/ does not exist under ${root}`);
   }
   const violations: string[] = [];

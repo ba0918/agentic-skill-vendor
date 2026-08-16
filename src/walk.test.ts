@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
-import { atomicWriteFile, decodeUtf8, walkFiles } from "./walk.ts";
+import {
+  atomicWriteFile,
+  decodeUtf8,
+  ensureParentDirectory,
+  walkFiles,
+} from "./walk.ts";
 import {
   PERMISSIONS_APPLY,
   rejectedBy,
@@ -78,7 +83,7 @@ test("a refused walk reads nothing through the symlink and changes nothing outsi
 
 test("an atomic write leaves no temporary file behind", async () => {
   await withEmptyDir(async (dir) => {
-    await atomicWriteFile(`${dir}/out.md`, encoder.encode("written\n"));
+    await atomicWriteFile(dir, "out.md", encoder.encode("written\n"));
     const names = (await fs.readdir(dir)).sort();
     expect(names).toStrictEqual(["out.md"]);
     expect(await fs.readFile(`${dir}/out.md`, "utf8")).toStrictEqual(
@@ -90,7 +95,7 @@ test("an atomic write leaves no temporary file behind", async () => {
 test("an atomic write replaces the previous content whole", async () => {
   await withEmptyDir(async (dir) => {
     await fs.writeFile(`${dir}/out.md`, "a much longer previous content\n");
-    await atomicWriteFile(`${dir}/out.md`, encoder.encode("short\n"));
+    await atomicWriteFile(dir, "out.md", encoder.encode("short\n"));
     expect(await fs.readFile(`${dir}/out.md`, "utf8")).toStrictEqual("short\n");
   });
 });
@@ -99,10 +104,20 @@ test("a write whose target is a directory fails and names the path", async () =>
   await withEmptyDir(async (dir) => {
     await fs.mkdir(`${dir}/out.md`);
     const error = await rejectedBy(
-      () => atomicWriteFile(`${dir}/out.md`, encoder.encode("written\n")),
+      () => atomicWriteFile(dir, "out.md", encoder.encode("written\n")),
       ConfigError,
     );
     expect(error.message).toContain("out.md");
+  });
+});
+
+test("a parent directory is made for a name sitting at the tree root", async () => {
+  await withEmptyDir(async (dir) => {
+    // The name carries no separator, so a parent found by cutting at the last
+    // one is the name with its final character removed: a directory beside the
+    // file instead of the one holding it.
+    await ensureParentDirectory(dir, "out.md");
+    expect(await fs.readdir(dir)).toStrictEqual([]);
   });
 });
 
@@ -113,15 +128,17 @@ test("a write refuses a symlink standing where the file belongs", async () => {
     // this. What is lost is the link itself, silently swapped for a file the
     // run wrote, which is a change to the tree nobody asked for.
     const secret = await plantOutsideFile(root, "target.md");
-    const path = `${root}/skills/release-notes/note.md`;
-    await replaceWithSymlink(path, secret);
+    const site = "skills/release-notes/note.md";
+    await replaceWithSymlink(`${root}/${site}`, secret);
 
     const error = await rejectedBy(
-      () => atomicWriteFile(path, encoder.encode("written\n")),
+      () => atomicWriteFile(root, site, encoder.encode("written\n")),
       ConfigError,
     );
     expect(error.message).toContain("refusing to write through a symlink");
-    expect((await fs.lstat(path)).isSymbolicLink()).toStrictEqual(true);
+    expect((await fs.lstat(`${root}/${site}`)).isSymbolicLink()).toStrictEqual(
+      true,
+    );
   });
 });
 
@@ -132,7 +149,7 @@ test("a write that fails leaves no temporary file behind", async () => {
     // sibling that every later listing of the directory has to explain.
     await fs.mkdir(`${dir}/out.md`);
     await expect(
-      atomicWriteFile(`${dir}/out.md`, encoder.encode("written\n")),
+      atomicWriteFile(dir, "out.md", encoder.encode("written\n")),
     ).rejects.toThrow(ConfigError);
     expect((await fs.readdir(dir)).sort()).toStrictEqual(["out.md"]);
   });
@@ -146,7 +163,7 @@ test("a write refuses a symlink pre-planted at its temporary path", async () => 
     const treeBefore = await snapshotTree(root);
     await replaceWithSymlink(`${root}/vendor-manifest.json.tmp`, secret);
     await expect(
-      atomicWriteFile(`${root}/vendor-manifest.json`, encoder.encode("{}\n")),
+      atomicWriteFile(root, "vendor-manifest.json", encoder.encode("{}\n")),
     ).rejects.toThrow(ConfigError);
     expect(await snapshotTree(outside)).toStrictEqual(before);
     const treeAfter = await snapshotTree(root);

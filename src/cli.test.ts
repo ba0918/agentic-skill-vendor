@@ -97,6 +97,39 @@ test("a --root path ending in a slash names the same tree as one that does not",
   });
 });
 
+test("--root followed by another flag is a usage error, not a tree named after it", async () => {
+  // What a forgotten path looks like. Swallowed as a directory name it would
+  // run against a tree called "--help" and never print the help it was asked
+  // for, which is a wrong answer given confidently.
+  const result = await runCli(["verify", "--root", "--help"]);
+  expect(result.code).toStrictEqual(2);
+  expect(result.stdout).toStrictEqual([]);
+  expect(result.stderr.join("\n")).toContain("--root");
+});
+
+test("every command that reads a tree refuses a root that is not there", async () => {
+  // Answered the same way by each of them. Left to whatever each command opens
+  // first, a mistyped path was a usage error under gen and a list of drift
+  // under verify: a tree that does not exist reads as one where every file is
+  // missing, which is a report about a tree rather than about the mistake.
+  for (const command of ["gen", "verify", "lint-selfcontain"]) {
+    const result = await runCli([command, "--root", "/no/such/tree"]);
+    expect(result.code, command).toStrictEqual(2);
+    expect(result.stdout, command).toStrictEqual([]);
+    expect(result.stderr.join("\n"), command).toContain(
+      "no such tree: /no/such/tree",
+    );
+  }
+  const accepted = await runCli([
+    "accept",
+    "verdict-format",
+    "--root",
+    "/no/such/tree",
+  ]);
+  expect(accepted.code).toStrictEqual(2);
+  expect(accepted.stderr.join("\n")).toContain("no such tree: /no/such/tree");
+});
+
 test("--root given an empty path is a usage error", async () => {
   // What an unset shell variable expands to. Reduced to "/" it would point the
   // run at the file system root.

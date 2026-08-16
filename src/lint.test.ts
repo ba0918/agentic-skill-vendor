@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { dirNameOf } from "./lint.ts";
+import { dirNameOf } from "./walk.ts";
 import {
   replaceWithSymlink,
   runCli,

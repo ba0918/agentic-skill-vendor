@@ -76,7 +76,7 @@ export async function collectConformanceEntries(
 ): Promise<ConformanceEntry[]> {
   await assertPlainChain(root, relative);
   const dir = `${root}/${relative}`;
-  if (!(await isDirectory(dir))) return [];
+  if (!(await isDirectory(root, relative))) return [];
   const found = await walkFiles(dir);
   const rules = await readIgnoreRules(root, [
     ...ancestorDirectories(relative),

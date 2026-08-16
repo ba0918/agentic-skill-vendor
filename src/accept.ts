@@ -12,6 +12,7 @@ import {
   contractPath,
 } from "./digest.ts";
 import { conformanceDigest } from "./conformance.ts";
+import { assertTreeRoot } from "./walk.ts";
 import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
 import {
   readResolutions,
@@ -55,6 +56,7 @@ export async function commandAccept(
     }
   }
 
+  await assertTreeRoot(root);
   const skills = await readSkills(root);
   const previous = await readResolutions(root);
   const wanted = [...new Set([...ids, ...declaredIds(skills)])].sort(
@@ -88,7 +90,10 @@ export async function commandAccept(
     for (const violation of violations) out(violation);
     return 1;
   }
-  await executePlan(await planExpansion(root, skills, contracts, resolutions));
+  await executePlan(
+    root,
+    await planExpansion(root, skills, contracts, resolutions),
+  );
 
   for (const record of records) {
     const dependents = dependentsOf(skills, record.id);

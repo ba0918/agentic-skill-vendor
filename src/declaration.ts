@@ -193,8 +193,8 @@ export interface SkillDeclaration {
 
 /** Every skill directly under skills/, with the contracts it declares. */
 export async function readSkills(root: string): Promise<SkillDeclaration[]> {
+  if (!(await isDirectory(root, SKILLS_DIR))) return [];
   const skillsDir = `${root}/${SKILLS_DIR}`;
-  if (!(await isDirectory(skillsDir))) return [];
   const names: string[] = [];
   for (const entry of await readEntries(skillsDir)) {
     if (entry.isSymlink) {
@@ -211,7 +211,7 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
     // A directory with no SKILL.md declares nothing, but it is still listed:
     // otherwise a vendored copy left under it would be invisible to both the
     // check for unaccounted copies and the removal that clears them.
-    const contracts = (await isRegularFile(`${root}/${site}`))
+    const contracts = (await isRegularFile(root, site))
       ? parseContractDeclarations(
           await readTextFile(`${root}/${site}`, site),
           site,

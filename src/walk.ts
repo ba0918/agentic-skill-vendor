@@ -72,17 +72,32 @@ export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
   return entries;
 }
 
-/** True for a real directory; a symlink in its place is refused outright. */
-export async function isDirectory(path: string): Promise<boolean> {
+/**
+ * True for a real directory; a symlink in its place is refused outright.
+ *
+ * A refusal names the path as the tree spells it, a failure names it as the
+ * machine does. The two say different things: a refusal is a fact about the
+ * tree, readable by anyone holding the same checkout, while a failure to look
+ * at all is a fact about this machine, where the absolute path is what a reader
+ * needs to go and look.
+ */
+export async function isDirectory(
+  root: string,
+  relative: string,
+): Promise<boolean> {
   let info: Stats;
   try {
-    info = await fs.lstat(path);
+    info = await fs.lstat(`${root}/${relative}`);
   } catch (cause) {
     if (isNotFound(cause)) return false;
-    throw new ConfigError(`cannot read ${path}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot read ${root}/${relative}: ${describeCause(cause)}`,
+    );
   }
   if (info.isSymbolicLink()) {
-    throw new ConfigError(`symlink is not allowed here: ${path}`);
+    throw new ConfigError(
+      `symlink is not allowed inside the tree: ${relative}`,
+    );
   }
   return info.isDirectory();
 }
@@ -127,31 +142,33 @@ async function walkInto(
  * on another one.
  */
 export async function atomicWriteFile(
-  path: string,
+  root: string,
+  relative: string,
   content: Uint8Array,
 ): Promise<void> {
+  const path = `${root}/${relative}`;
   const temporary = `${path}.tmp`;
-  await refuseSymlink(temporary);
-  await refuseSymlink(path);
+  await refuseSymlink(temporary, `${relative}.tmp`);
+  await refuseSymlink(path, relative);
   try {
     await fs.writeFile(temporary, content);
     await fs.rename(temporary, path);
   } catch (cause) {
     await fs.rm(temporary).catch(() => {});
-    throw new ConfigError(`cannot write ${path}: ${describeCause(cause)}`);
+    throw new ConfigError(`cannot write ${relative}: ${describeCause(cause)}`);
   }
 }
 
-async function refuseSymlink(path: string): Promise<void> {
+async function refuseSymlink(path: string, site: string): Promise<void> {
   try {
     const info = await fs.lstat(path);
     if (info.isSymbolicLink()) {
-      throw new ConfigError(`refusing to write through a symlink: ${path}`);
+      throw new ConfigError(`refusing to write through a symlink: ${site}`);
     }
   } catch (cause) {
     if (cause instanceof ConfigError) throw cause;
     if (isNotFound(cause)) return;
-    throw new ConfigError(`cannot inspect ${path}: ${describeCause(cause)}`);
+    throw new ConfigError(`cannot inspect ${site}: ${describeCause(cause)}`);
   }
 }
 
@@ -226,25 +243,66 @@ export async function assertPlainChain(
   }
 }
 
-export async function isRegularFile(path: string): Promise<boolean> {
+export async function isRegularFile(
+  root: string,
+  relative: string,
+): Promise<boolean> {
   let info: Stats;
   try {
-    info = await fs.lstat(path);
+    info = await fs.lstat(`${root}/${relative}`);
   } catch (cause) {
     if (isNotFound(cause)) return false;
-    throw new ConfigError(`cannot inspect ${path}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot inspect ${root}/${relative}: ${describeCause(cause)}`,
+    );
   }
   if (info.isSymbolicLink()) {
-    throw new ConfigError(`symlink is not allowed inside the tree: ${path}`);
+    throw new ConfigError(
+      `symlink is not allowed inside the tree: ${relative}`,
+    );
   }
   return info.isFile();
 }
 
-export async function ensureParentDirectory(path: string): Promise<void> {
-  const parent = path.slice(0, path.lastIndexOf("/"));
+/** The directory the path sits in; the current directory when it names none. */
+export function dirNameOf(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? "." : path.slice(0, cut);
+}
+
+export async function ensureParentDirectory(
+  root: string,
+  relative: string,
+): Promise<void> {
+  const parent = dirNameOf(relative);
   try {
-    await fs.mkdir(parent, { recursive: true });
+    await fs.mkdir(`${root}/${parent}`, { recursive: true });
   } catch (cause) {
     throw new ConfigError(`cannot create ${parent}: ${describeCause(cause)}`);
+  }
+}
+
+/**
+ * Refuses a root that names no directory.
+ *
+ * Answered once, before any command reads anything, rather than by whichever
+ * file each command happens to open first. Left to that, the same mistyped path
+ * was a usage error under gen and a list of drift under verify — the tree that
+ * is not there reads as a tree where everything is missing.
+ *
+ * The path is followed rather than inspected. The refusal of links is about
+ * links planted inside the tree; a tree reached through one — a symlinked home
+ * or temporary directory — is how the user named it, not an escape from it.
+ */
+export async function assertTreeRoot(root: string): Promise<void> {
+  let info: Stats;
+  try {
+    info = await fs.stat(root);
+  } catch (cause) {
+    if (isNotFound(cause)) throw new ConfigError(`no such tree: ${root}`);
+    throw new ConfigError(`cannot inspect ${root}: ${describeCause(cause)}`);
+  }
+  if (!info.isDirectory()) {
+    throw new ConfigError(`not a directory: ${root}`);
   }
 }

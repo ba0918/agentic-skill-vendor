@@ -20,6 +20,7 @@ import {
 } from "./digest.ts";
 import {
   assertPlainChain,
+  assertTreeRoot,
   atomicWriteFile,
   ensureParentDirectory,
   isDirectory,
@@ -105,7 +106,7 @@ export async function readContracts(
   for (const id of ids) {
     const site = contractPath(id);
     await assertPlainChain(root, site);
-    if (!(await isRegularFile(`${root}/${site}`))) {
+    if (!(await isRegularFile(root, site))) {
       contracts.set(id, null);
       continue;
     }
@@ -159,8 +160,8 @@ export async function listVendorEntries(
 ): Promise<string[]> {
   const relative = vendorDirOf(skill);
   await assertPlainChain(root, relative);
+  if (!(await isDirectory(root, relative))) return [];
   const dir = `${root}/${relative}`;
-  if (!(await isDirectory(dir))) return [];
   const names: string[] = [];
   for (const entry of await readEntries(dir)) {
     if (entry.isSymlink) {
@@ -173,9 +174,14 @@ export async function listVendorEntries(
   return names;
 }
 
+/**
+ * Every path in a plan is relative to the tree, never absolute. The plan is
+ * then a statement about the tree rather than about where the tree happens to
+ * sit, and it is the same relative path that every refusal quotes back.
+ */
 interface WritePlan {
-  files: { path: string; content: Uint8Array }[];
-  manifest: { path: string; content: Uint8Array };
+  files: { site: string; content: Uint8Array }[];
+  manifest: { site: string; content: Uint8Array };
   removals: string[];
 }
 
@@ -200,7 +206,7 @@ export async function planExpansion(
       if (contract === null || contract === undefined) continue;
       expected.add(`${id}.md`);
       files.push({
-        path: `${root}/${vendorDirOf(skill.name)}/${id}.md`,
+        site: `${vendorDirOf(skill.name)}/${id}.md`,
         content: encoder.encode(
           renderVendorFile(id, contract.digest, contract.body),
         ),
@@ -208,14 +214,14 @@ export async function planExpansion(
     }
     for (const name of await listVendorEntries(root, skill.name)) {
       if (!expected.has(name)) {
-        removals.push(`${root}/${vendorDirOf(skill.name)}/${name}`);
+        removals.push(`${vendorDirOf(skill.name)}/${name}`);
       }
     }
   }
   return {
     files,
     manifest: {
-      path: `${root}/${MANIFEST_FILE}`,
+      site: MANIFEST_FILE,
       content: encoder.encode(
         canonicalJson(
           buildManifest(
@@ -237,18 +243,21 @@ export async function planExpansion(
  * and the state it leaves is one verify reports as a violation rather than one
  * that looks finished.
  */
-export async function executePlan(plan: WritePlan): Promise<void> {
+export async function executePlan(
+  root: string,
+  plan: WritePlan,
+): Promise<void> {
   for (const file of plan.files) {
-    await ensureParentDirectory(file.path);
-    await atomicWriteFile(file.path, file.content);
+    await ensureParentDirectory(root, file.site);
+    await atomicWriteFile(root, file.site, file.content);
   }
-  await atomicWriteFile(plan.manifest.path, plan.manifest.content);
-  for (const path of plan.removals) {
+  await atomicWriteFile(root, plan.manifest.site, plan.manifest.content);
+  for (const site of plan.removals) {
     // A removal that fails leaves a file no declaration accounts for, which
     // verify reports as an extra. Stopping here instead would abandon the run
     // after the copies and the manifest are already written, turning a
     // reportable leftover into a half-finished tree.
-    await fs.rm(path, { recursive: true }).catch(() => {});
+    await fs.rm(`${root}/${site}`, { recursive: true }).catch(() => {});
   }
 }
 
@@ -302,6 +311,7 @@ export function acceptanceViolations(
  * state continuous integration has to be able to judge.
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
+  await assertTreeRoot(root);
   const skills = await readSkills(root);
   const resolutions = await readResolutions(root);
   const contracts = await readContracts(root, declaredIds(skills));
@@ -311,6 +321,9 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     for (const violation of violations) out(violation);
     return 1;
   }
-  await executePlan(await planExpansion(root, skills, contracts, resolutions));
+  await executePlan(
+    root,
+    await planExpansion(root, skills, contracts, resolutions),
+  );
   return 0;
 }

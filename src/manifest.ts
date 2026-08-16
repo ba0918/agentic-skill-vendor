@@ -128,7 +128,7 @@ export async function presentContractIds(
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
     const site = contractPath(id);
     await assertPlainChain(root, site);
-    if (await isRegularFile(`${root}/${site}`)) present.push(id);
+    if (await isRegularFile(root, site)) present.push(id);
   }
   return present;
 }

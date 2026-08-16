@@ -50,7 +50,12 @@ function parseArguments(argv: string[]): Invocation | "help" {
       // An empty argument is what an unset shell variable expands to. Reduced
       // to "/" it would silently point the run at the file system root instead
       // of saying that no path was named.
-      if (value === undefined || value === "") {
+      //
+      // A value that opens with '-' is refused for the same reason: it is what
+      // a forgotten path looks like, and swallowing the next flag as a
+      // directory name turns `--root --help` into a run against a tree called
+      // "--help". A real path spelled that way is still reachable as `./-name`.
+      if (value === undefined || value === "" || value.startsWith("-")) {
         throw new ConfigError("--root needs a path");
       }
       root = value.replace(/\/+$/, "") || "/";
