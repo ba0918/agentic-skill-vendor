@@ -15,10 +15,10 @@
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check"
   },
-  // Dev-only, and pinned to exact versions because deno.lock is not committed:
-  // the range would otherwise be the only thing fixing the test suite's
-  // dependencies. The distributed artifact src/vendor.ts imports nothing, so
-  // these never reach a consumer.
+  // Dev-only, and pinned to exact versions rather than ranges so that the
+  // version a run resolves is stated here and not only in deno.lock. The
+  // distributed artifact src/vendor.ts imports nothing, so these never reach a
+  // consumer.
   "imports": {
     "@std/assert": "jsr:@std/assert@1.0.19",
     "@std/fs": "jsr:@std/fs@1.0.24"
