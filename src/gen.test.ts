@@ -353,6 +353,33 @@ test("gen and verify both refuse a contract's own directory symlinked outside th
   });
 });
 
+test("a contract's own directory symlinked outside the tree is refused before what the lock lacks is reported", async () => {
+  await withGoodTree(async (root) => {
+    // The link stands where a violation would otherwise be reported: with the
+    // resolution dropped, the contract reads as unresolved, which is a fact
+    // about the tree stated on standard output with exit 1. A planted link is
+    // not that. The run could not find out what the tree says, so it stops
+    // before it has anything to report — and it stops here, on the way to the
+    // canonical text, rather than later while provenance is built, which is
+    // never reached once a violation has been found.
+    const manifest = await readManifest(root);
+    delete manifest.lock.resolutions["changelog-entry"];
+    await writeManifest(root, manifest);
+    const outside = await escapeThrough(root, "contracts/changelog-entry");
+    const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: contracts/changelog-entry",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
+  });
+});
+
 test("accept refuses a contract file symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     const outside = await escapeThrough(root, "contracts/verdict-format.md");
