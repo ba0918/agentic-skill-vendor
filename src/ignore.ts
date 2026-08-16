@@ -60,13 +60,11 @@ export async function readIgnoreRules(
   directories: string[],
 ): Promise<IgnoreRules> {
   const levels: IgnoreLevel[] = [];
-  for (
-    const directory of [...new Set(directories)].sort(
-      (a, b) => depthOf(a) - depthOf(b) || compareStrings(a, b),
-    )
-  ) {
+  for (const directory of [...new Set(directories)].sort(
+    (a, b) => depthOf(a) - depthOf(b) || compareStrings(a, b),
+  )) {
     const site = joinRelative(directory, IGNORE_FILE);
-    if (!await isRegularFile(`${root}/${site}`)) continue;
+    if (!(await isRegularFile(`${root}/${site}`))) continue;
     levels.push({
       directory,
       matcher: ignore().add(await readTextFile(`${root}/${site}`, site)),
@@ -102,12 +100,13 @@ function verdictFor(
   for (const level of levels) {
     // A .gitignore inside the candidate directory, or beside it in a sibling
     // one, has no say about the candidate itself.
-    const inside = level.directory === "" ||
-      candidate.startsWith(`${level.directory}/`);
+    const inside =
+      level.directory === "" || candidate.startsWith(`${level.directory}/`);
     if (!inside) continue;
-    const local = level.directory === ""
-      ? candidate
-      : candidate.slice(level.directory.length + 1);
+    const local =
+      level.directory === ""
+        ? candidate
+        : candidate.slice(level.directory.length + 1);
     // A directory is probed with a trailing slash: that is what tells a
     // `name/` rule apart from a `name` one.
     const verdict = level.matcher.test(isDirectory ? `${local}/` : local);

@@ -177,9 +177,9 @@ function pickObject(value: unknown, path: string): Record<string, unknown> {
 function requireDigest(value: unknown, path: string): string {
   if (typeof value !== "string" || !DIGEST_FORM.test(value)) {
     throw new ConfigError(
-      `${MANIFEST_FILE}: ${path} must be a sha256 digest, found ${
-        JSON.stringify(value)
-      }`,
+      `${MANIFEST_FILE}: ${path} must be a sha256 digest, found ${JSON.stringify(
+        value,
+      )}`,
     );
   }
   return value;

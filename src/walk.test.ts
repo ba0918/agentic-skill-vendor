@@ -115,10 +115,7 @@ Deno.test("a write refuses a symlink pre-planted at its temporary path", async (
     await replaceWithSymlink(`${root}/vendor-manifest.json.tmp`, secret);
     await assertRejects(
       () =>
-        atomicWriteFile(
-          `${root}/vendor-manifest.json`,
-          encoder.encode("{}\n"),
-        ),
+        atomicWriteFile(`${root}/vendor-manifest.json`, encoder.encode("{}\n")),
       ConfigError,
     );
     assertEquals(await snapshotTree(outside), before);

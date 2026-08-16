@@ -26,11 +26,15 @@ async function runAltered(
   assertStringIncludes(source, find);
   await Deno.writeTextFile(path, source.replace(find, replaceWith));
 
-  const module = await import(`file://${tool}/${ENTRY}`) as {
+  const module = (await import(`file://${tool}/${ENTRY}`)) as {
     run: (argv: string[], out: Sink, err: Sink) => Promise<number>;
   };
   const stdout: string[] = [];
-  const code = await module.run(["self-test"], (l) => stdout.push(l), () => {});
+  const code = await module.run(
+    ["self-test"],
+    (l) => stdout.push(l),
+    () => {},
+  );
   return { code, stdout };
 }
 

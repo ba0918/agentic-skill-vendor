@@ -67,10 +67,7 @@ Deno.test("a rule closer to the file wins over one further up", async () => {
     await excludedIn(
       { ".gitignore": "*.log\n", "a/b/.gitignore": "!keep.log\n" },
       "a/b",
-      [
-        "a/b/keep.log",
-        "a/b/drop.log",
-      ],
+      ["a/b/keep.log", "a/b/drop.log"],
     ),
     ["a/b/drop.log"],
   );

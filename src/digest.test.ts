@@ -72,39 +72,35 @@ Deno.test("the digest is rendered as a sha256 prefix and lowercase hex", async (
 });
 
 Deno.test("well-formed contract ids are accepted", () => {
-  for (
-    const id of [
-      "verdict-format",
-      "a",
-      "log.v2",
-      "x_1-y",
-      "0start",
-      "x".repeat(64),
-    ]
-  ) {
+  for (const id of [
+    "verdict-format",
+    "a",
+    "log.v2",
+    "x_1-y",
+    "0start",
+    "x".repeat(64),
+  ]) {
     assertEquals(isValidContractId(id), true, id);
   }
 });
 
 Deno.test("ids that could escape or break a path are rejected", () => {
-  for (
-    const id of [
-      "",
-      "..",
-      "../evil",
-      "a/b",
-      "a\\b",
-      "/absolute",
-      "Upper",
-      ".hidden",
-      "-dash-start",
-      "a..b",
-      "a b",
-      "a:b",
-      "~home",
-      "x".repeat(65),
-    ]
-  ) {
+  for (const id of [
+    "",
+    "..",
+    "../evil",
+    "a/b",
+    "a\\b",
+    "/absolute",
+    "Upper",
+    ".hidden",
+    "-dash-start",
+    "a..b",
+    "a b",
+    "a:b",
+    "~home",
+    "x".repeat(65),
+  ]) {
     assertEquals(isValidContractId(id), false, id);
   }
 });

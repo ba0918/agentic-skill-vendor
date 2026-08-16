@@ -31,24 +31,22 @@ Deno.test("asking for help prints the commands and exits cleanly", async () => {
   const result = await runCli(["--help"]);
   assertEquals(result.code, 0);
   const text = result.stdout.join("\n");
-  for (
-    const command of [
-      "gen",
-      "verify",
-      "accept",
-      "lint-selfcontain",
-      "self-test",
-    ]
-  ) {
+  for (const command of [
+    "gen",
+    "verify",
+    "accept",
+    "lint-selfcontain",
+    "self-test",
+  ]) {
     assertStringIncludes(text, command);
   }
 });
 
 Deno.test("every command the entry point names is answered by a module of its own", () => {
   const imported = new Set(
-    [...SOURCE.matchAll(/import \{ (\w+) \} from "\.\/(\w+)\.ts";/g)].map((
-      match,
-    ) => match[1]),
+    [...SOURCE.matchAll(/import \{ (\w+) \} from "\.\/(\w+)\.ts";/g)].map(
+      (match) => match[1],
+    ),
   );
   const routed = [
     ...SOURCE.matchAll(/case "([\w-]+)":\n\s+return await (\w+)\(/g),

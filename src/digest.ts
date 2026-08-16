@@ -44,7 +44,10 @@ export interface Document {
 function visibleTextOf(line: string): string {
   // Splitting on a lone carriage return first catches a file written with
   // classic Mac line endings, whose whole text is one line here.
-  return line.split("\r")[0].replace(/[\u200b-\u200d]/g, "").trim();
+  return line
+    .split("\r")[0]
+    .replace(/[\u200b-\u200d]/g, "")
+    .trim();
 }
 
 /** True for a line a reader would take for the delimiter, exact or not. */
@@ -84,9 +87,9 @@ export function splitDocument(text: string, site?: string): Document {
   if (lines[0] !== FRONTMATTER_DELIMITER) {
     if (readsAsDelimiter(lines[0])) {
       throw new ConfigError(
-        `${where}: the line opening the frontmatter is not exactly '---': ${
-          JSON.stringify(lines[0])
-        }`,
+        `${where}: the line opening the frontmatter is not exactly '---': ${JSON.stringify(
+          lines[0],
+        )}`,
       );
     }
     const opening = lines.findIndex((line) => visibleTextOf(line) !== "");
@@ -141,7 +144,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /** Digest of exactly these bytes, in `sha256:<hex>` form. */
 export async function digestOfBytes(bytes: Uint8Array): Promise<string> {
-  return DIGEST_PREFIX + await sha256Hex(bytes);
+  return DIGEST_PREFIX + (await sha256Hex(bytes));
 }
 
 /** Digest of this text's UTF-8 bytes, with no canonicalization applied. */
@@ -159,9 +162,11 @@ export function isValidContractId(id: string): boolean {
   // The pattern alone accepts `a..b`, because a dot is a legal character in the
   // middle of an id. The explicit `..` check is the part that rejects it, and
   // it rejects every embedded double dot rather than only `../`.
-  return id.length <= CONTRACT_ID_LIMIT &&
+  return (
+    id.length <= CONTRACT_ID_LIMIT &&
     !id.includes("..") &&
-    CONTRACT_ID_PATTERN.test(id);
+    CONTRACT_ID_PATTERN.test(id)
+  );
 }
 
 export function assertValidContractId(id: string, site: string): void {

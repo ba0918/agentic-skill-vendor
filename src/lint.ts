@@ -22,7 +22,7 @@ const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
 // ':' or by an ordinary character, never by a boundary, so no URL can match. A
 // dedicated URL pattern would have to be kept in step with every scheme.
 const ABSOLUTE_PATH =
-  /(?:^|(?<=[\s"'`=(\[,;]))(?:\/[^\s"'`)\]\/]+\/[^\s"'`)\]]+|~\/[^\s"'`)\]]*|[A-Za-z]:[\\\/][^\s"'`)\]]+)/g;
+  /(?:^|(?<=[\s"'`=([,;]))(?:\/[^\s"'`)\]/]+\/[^\s"'`)\]]+|~\/[^\s"'`)\]]*|[A-Za-z]:[\\/][^\s"'`)\]]+)/g;
 
 function decodeForScan(bytes: Uint8Array): string {
   try {
@@ -56,15 +56,15 @@ function lintLines(site: string, text: string): string[] {
       // real path later on the same line is still found.
       const interpreter = /^#!\s*\S*/.exec(line);
       if (interpreter !== null) {
-        line = " ".repeat(interpreter[0].length) +
-          line.slice(interpreter[0].length);
+        line =
+          " ".repeat(interpreter[0].length) + line.slice(interpreter[0].length);
       }
     }
     for (const match of line.matchAll(ABSOLUTE_PATH)) {
       violations.push(
-        `absolute-path: ${where}: absolute reference ${
-          JSON.stringify(match[0])
-        }`,
+        `absolute-path: ${where}: absolute reference ${JSON.stringify(
+          match[0],
+        )}`,
       );
     }
   }
@@ -148,7 +148,7 @@ async function lintInto(
     const path = `${dir}/${entry.name}`;
     const site = `${relative}/${entry.name}`;
     if (entry.isSymlink) {
-      violations.push(...await symlinkViolations(root, path, site));
+      violations.push(...(await symlinkViolations(root, path, site)));
       continue;
     }
     if (entry.isDirectory) {
@@ -163,7 +163,7 @@ async function lintInto(
 
 export async function commandLint(root: string, out: Sink): Promise<number> {
   const skillsDir = `${root}/${SKILLS_DIR}`;
-  if (!await isDirectory(skillsDir)) {
+  if (!(await isDirectory(skillsDir))) {
     throw new ConfigError(`${SKILLS_DIR}/ does not exist under ${root}`);
   }
   const violations: string[] = [];

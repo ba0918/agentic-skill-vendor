@@ -25,8 +25,8 @@ async function plantOutsideFile(root: string, name: string): Promise<string> {
 
 /** The relative paths a conformance collection found, in the order it read them. */
 async function collectedPaths(root: string): Promise<string[]> {
-  return (await collectConformanceEntries(root, CONFORMANCE)).map((entry) =>
-    entry.path
+  return (await collectConformanceEntries(root, CONFORMANCE)).map(
+    (entry) => entry.path,
   );
 }
 
@@ -48,10 +48,7 @@ Deno.test("a symlink under an ignored directory is still refused", async () => {
   await withGoodTree(async (root) => {
     const secret = await plantOutsideFile(root, "case.md");
     await writeFile(`${root}/.gitignore`, "skipped/\n");
-    await replaceWithSymlink(
-      `${root}/${CONFORMANCE}/skipped/link.md`,
-      secret,
-    );
+    await replaceWithSymlink(`${root}/${CONFORMANCE}/skipped/link.md`, secret);
     // Excluding a file from the digest is not a reason to stop looking at it:
     // the scan that refuses links has to see the whole tree.
     await assertRejects(

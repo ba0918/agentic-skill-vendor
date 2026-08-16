@@ -46,9 +46,9 @@ function parseFrontmatter(lines: string[], site: string): unknown {
   const tabbed = lines.find((line) => /^[ \t]*\t/.test(line));
   if (tabbed !== undefined) {
     throw new ConfigError(
-      `${site}: frontmatter is indented with a tab, which YAML does not allow: ${
-        JSON.stringify(tabbed)
-      }`,
+      `${site}: frontmatter is indented with a tab, which YAML does not allow: ${JSON.stringify(
+        tabbed,
+      )}`,
     );
   }
   try {
@@ -66,9 +66,7 @@ function requireMapping(
   label: string,
   site: string,
 ): Record<string, unknown> {
-  if (
-    value === null || typeof value !== "object" || Array.isArray(value)
-  ) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new ConfigError(
       `${site}: ${label} must be a mapping, found ${JSON.stringify(value)}`,
     );
@@ -108,9 +106,9 @@ export function parseContractDeclarations(
 function readContractIds(value: unknown, site: string): string[] {
   if (!Array.isArray(value)) {
     throw new ConfigError(
-      `${site}: metadata.contracts must be a list of contract ids, found ${
-        JSON.stringify(value)
-      }`,
+      `${site}: metadata.contracts must be a list of contract ids, found ${JSON.stringify(
+        value,
+      )}`,
     );
   }
   const ids: string[] = [];
@@ -155,7 +153,7 @@ export interface SkillDeclaration {
 /** Every skill directly under skills/, with the contracts it declares. */
 export async function readSkills(root: string): Promise<SkillDeclaration[]> {
   const skillsDir = `${root}/${SKILLS_DIR}`;
-  if (!await isDirectory(skillsDir)) return [];
+  if (!(await isDirectory(skillsDir))) return [];
   const names: string[] = [];
   for await (const entry of Deno.readDir(skillsDir)) {
     if (entry.isSymlink) {
@@ -173,11 +171,11 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
     // A directory with no SKILL.md declares nothing, but it is still listed:
     // otherwise a vendored copy left under it would be invisible to both the
     // check for unaccounted copies and the removal that clears them.
-    const contracts = await isRegularFile(`${root}/${site}`)
+    const contracts = (await isRegularFile(`${root}/${site}`))
       ? parseContractDeclarations(
-        await readTextFile(`${root}/${site}`, site),
-        site,
-      )
+          await readTextFile(`${root}/${site}`, site),
+          site,
+        )
       : [];
     skills.push({ name, contracts });
   }
@@ -192,9 +190,9 @@ export function declaredIds(skills: SkillDeclaration[]): string[] {
 }
 
 export function dependentsOf(skills: SkillDeclaration[], id: string): string[] {
-  return skills.filter((skill) => skill.contracts.includes(id)).map((skill) =>
-    skill.name
-  )
+  return skills
+    .filter((skill) => skill.contracts.includes(id))
+    .map((skill) => skill.name)
     .sort(compareStrings);
 }
 

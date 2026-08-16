@@ -3,7 +3,7 @@
 // The three checks below do not depend on one another, and each is written so
 // that it stays meaningful while the others are failing.
 
-import { type Sink } from "./errors.ts";
+import type { Sink } from "./errors.ts";
 import { compareStrings, digestOfBytes } from "./digest.ts";
 import { decodeUtf8, isRegularFile } from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
@@ -51,7 +51,7 @@ async function copyViolations(
       const resolution = resolutions[id];
       if (resolution === undefined) continue;
       const site = `${dir}/${id}.md`;
-      if (!await isRegularFile(`${root}/${site}`)) {
+      if (!(await isRegularFile(`${root}/${site}`))) {
         violations.push(`drift: ${site} is missing`);
         continue;
       }
@@ -95,7 +95,7 @@ async function manifestViolations(
   resolutions: Resolutions,
 ): Promise<string[]> {
   const path = `${root}/${MANIFEST_FILE}`;
-  if (!await isRegularFile(path)) {
+  if (!(await isRegularFile(path))) {
     return [`manifest: ${MANIFEST_FILE} is missing`];
   }
   const expected = canonicalJson(
@@ -129,8 +129,7 @@ async function conformanceViolations(
     violations.push(
       `conformance-mismatch: ${id} now has ${
         current ?? "no conformance tests"
-      }` +
-        `, the lock records ${locked ?? "none"}`,
+      }` + `, the lock records ${locked ?? "none"}`,
     );
   }
   return violations;
@@ -149,9 +148,9 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
 
   const violations = [
     ...acceptanceViolations(skills, contracts, resolutions),
-    ...await copyViolations(root, skills, resolutions),
-    ...await manifestViolations(root, skills, resolutions),
-    ...await conformanceViolations(root, resolutions),
+    ...(await copyViolations(root, skills, resolutions)),
+    ...(await manifestViolations(root, skills, resolutions)),
+    ...(await conformanceViolations(root, resolutions)),
   ];
   for (const violation of violations) out(violation);
   return violations.length > 0 ? 1 : 0;

@@ -21,7 +21,7 @@ async function writeManifest(root: string, manifest: Json): Promise<void> {
 }
 
 async function append(path: string, text: string): Promise<void> {
-  await Deno.writeTextFile(path, await Deno.readTextFile(path) + text);
+  await Deno.writeTextFile(path, (await Deno.readTextFile(path)) + text);
 }
 
 async function forget(root: string, id: string): Promise<void> {
@@ -56,14 +56,14 @@ Deno.test("a first adoption is reported as having no previous digest", async () 
 
 Deno.test("accepting an updated contract reports the old digest, the new one and its dependents", async () => {
   await withGoodTree(async (root) => {
-    const before =
-      (await readManifest(root)).lock.resolutions["verdict-format"].digest;
+    const before = (await readManifest(root)).lock.resolutions["verdict-format"]
+      .digest;
     await append(`${root}/${CONTRACT}`, "\n- One further rule.\n");
 
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     assertEquals(result.code, 0, result.stderr.join("\n"));
-    const after =
-      (await readManifest(root)).lock.resolutions["verdict-format"].digest;
+    const after = (await readManifest(root)).lock.resolutions["verdict-format"]
+      .digest;
     assertEquals(result.stdout, [
       "accepted: verdict-format",
       `  old-digest: ${before}`,
@@ -98,9 +98,9 @@ Deno.test("accepting an updated contract leaves every SKILL.md untouched", async
     );
     const after = await snapshotTree(root);
 
-    for (
-      const path of [...before.keys()].filter((p) => p.endsWith("SKILL.md"))
-    ) {
+    for (const path of [...before.keys()].filter((p) =>
+      p.endsWith("SKILL.md"),
+    )) {
       assertEquals(after.get(path), before.get(path), path);
     }
     // What a contract update is allowed to move: the lock and the copies.
@@ -126,9 +126,9 @@ Deno.test("accepting rewrites the vendored copies to the newly accepted text", a
 
 Deno.test("accepting adopts the conformance tree alongside the text", async () => {
   await withGoodTree(async (root) => {
-    const before =
-      (await readManifest(root)).lock.resolutions["changelog-entry"]
-        .conformance;
+    const before = (await readManifest(root)).lock.resolutions[
+      "changelog-entry"
+    ].conformance;
     await append(`${root}/${CONFORMANCE}`, "\nAnd one more expectation.\n");
 
     assertEquals(
@@ -158,8 +158,9 @@ Deno.test("accepting records the version written in the contract frontmatter", a
 
 Deno.test("accepting one contract leaves the resolution of another alone", async () => {
   await withGoodTree(async (root) => {
-    const before =
-      (await readManifest(root)).lock.resolutions["changelog-entry"];
+    const before = (await readManifest(root)).lock.resolutions[
+      "changelog-entry"
+    ];
     await append(`${root}/${CONTRACT}`, "\n- One further rule.\n");
     assertEquals(
       (await runCli(["accept", "verdict-format", "--root", root])).code,
@@ -201,7 +202,10 @@ Deno.test("accepting writes nothing while another declared contract stays unacce
 
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     assertEquals(result.code, 1);
-    assertEquals(result.stdout.some((l) => l.startsWith("unresolved:")), true);
+    assertEquals(
+      result.stdout.some((l) => l.startsWith("unresolved:")),
+      true,
+    );
     assertEquals(await snapshotTree(root), before);
   });
 });
@@ -249,7 +253,7 @@ Deno.test("accepting refuses a skill whose opening delimiter carries a zero-widt
 Deno.test("accepting refuses a skill reaching its opening delimiter only after a blank line", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;
-    await Deno.writeTextFile(skill, "\n" + await Deno.readTextFile(skill));
+    await Deno.writeTextFile(skill, "\n" + (await Deno.readTextFile(skill)));
     const before = await snapshotTree(root);
 
     const result = await runCli(["accept", "verdict-format", "--root", root]);

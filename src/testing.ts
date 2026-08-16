@@ -97,9 +97,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
  * how a test states "this run changed nothing", and links are described rather
  * than followed so that a link swapped for a file still shows up as a change.
  */
-export async function snapshotTree(
-  root: string,
-): Promise<Map<string, string>> {
+export async function snapshotTree(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
   await walk(root, "", snapshot);
   return snapshot;
@@ -111,7 +109,7 @@ async function walk(
   into: Map<string, string>,
 ): Promise<void> {
   const entries = [...Deno.readDirSync(dir)].sort((a, b) =>
-    a.name < b.name ? -1 : 1
+    a.name < b.name ? -1 : 1,
   );
   for (const entry of entries) {
     const path = `${dir}/${entry.name}`;

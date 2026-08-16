@@ -20,7 +20,7 @@ async function verify(root: string) {
 }
 
 async function append(path: string, text: string): Promise<void> {
-  await Deno.writeTextFile(path, await Deno.readTextFile(path) + text);
+  await Deno.writeTextFile(path, (await Deno.readTextFile(path)) + text);
 }
 
 Deno.test("a freshly generated tree verifies clean", async () => {
@@ -306,7 +306,7 @@ Deno.test("a SKILL.md whose opening delimiter carries a zero-width character mak
 Deno.test("a SKILL.md reaching its opening delimiter only after a blank line makes verify exit 2", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;
-    await Deno.writeTextFile(skill, "\n" + await Deno.readTextFile(skill));
+    await Deno.writeTextFile(skill, "\n" + (await Deno.readTextFile(skill)));
 
     const result = await verify(root);
     assertEquals(result.code, 2);

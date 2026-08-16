@@ -42,10 +42,9 @@ Deno.test("a skill with no frontmatter at all declares nothing", () => {
 });
 
 Deno.test("metadata children indented four spaces still declare their contracts", () => {
-  assertEquals(
-    parse("metadata:\n    contracts:\n        - verdict-format\n"),
-    ["verdict-format"],
-  );
+  assertEquals(parse("metadata:\n    contracts:\n        - verdict-format\n"), [
+    "verdict-format",
+  ]);
 });
 
 Deno.test("a trailing comment on a key does not drop the declarations under it", () => {
@@ -69,7 +68,8 @@ Deno.test("a comment line inside the list does not drop the declarations around 
 Deno.test("an entry that carries a digest is a configuration error", () => {
   assertRefused(
     "metadata:\n  contracts:\n    - id: verdict-format\n      digest: sha256:" +
-      "0".repeat(64) + "\n",
+      "0".repeat(64) +
+      "\n",
   );
 });
 

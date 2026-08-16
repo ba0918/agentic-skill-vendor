@@ -71,13 +71,13 @@ export async function collectConformanceEntries(
   relative: string,
 ): Promise<ConformanceEntry[]> {
   const dir = `${root}/${relative}`;
-  if (!await isDirectory(dir)) return [];
+  if (!(await isDirectory(dir))) return [];
   const found = await walkFiles(dir);
   const rules = await readIgnoreRules(root, [
     ...ancestorDirectories(relative),
     ...found
-      .filter((path) =>
-        path === IGNORE_FILE || path.endsWith(`/${IGNORE_FILE}`)
+      .filter(
+        (path) => path === IGNORE_FILE || path.endsWith(`/${IGNORE_FILE}`),
       )
       .map((path) => joinRelative(relative, treeDirectoryOf(path))),
   ]);
