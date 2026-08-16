@@ -6,6 +6,7 @@
 // ever recorded, so it is stated once, here, and tested against a vector that
 // was framed and hashed by hand outside this code.
 
+import * as fs from "node:fs/promises";
 import {
   compareStrings,
   concatBytes,
@@ -84,7 +85,7 @@ export async function collectConformanceEntries(
   const entries: ConformanceEntry[] = [];
   for (const path of found) {
     if (rules.excludes(joinRelative(relative, path))) continue;
-    entries.push({ path, content: await Deno.readFile(`${dir}/${path}`) });
+    entries.push({ path, content: await fs.readFile(`${dir}/${path}`) });
   }
   return entries;
 }

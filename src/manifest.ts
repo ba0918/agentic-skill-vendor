@@ -4,13 +4,19 @@
 // has to be a decidable question rather than a question about JSON formatting.
 // One rendering, stated here, is what makes it decidable.
 
+import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
   compareStrings,
   contractPath,
 } from "./digest.ts";
-import { assertPlainChain, decodeUtf8, isRegularFile } from "./walk.ts";
+import {
+  assertPlainChain,
+  decodeUtf8,
+  isNotFound,
+  isRegularFile,
+} from "./walk.ts";
 import type { Dependencies } from "./declaration.ts";
 
 /** The one file the lock and the provenance record live in. */
@@ -114,9 +120,9 @@ export async function readResolutions(root: string): Promise<Resolutions> {
   await assertPlainChain(root, MANIFEST_FILE);
   let bytes: Uint8Array;
   try {
-    bytes = await Deno.readFile(`${root}/${MANIFEST_FILE}`);
+    bytes = await fs.readFile(`${root}/${MANIFEST_FILE}`);
   } catch (cause) {
-    if (cause instanceof Deno.errors.NotFound) return {};
+    if (isNotFound(cause)) return {};
     throw new ConfigError(
       `cannot read ${MANIFEST_FILE}: ${describeCause(cause)}`,
     );

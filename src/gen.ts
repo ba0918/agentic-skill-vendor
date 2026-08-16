@@ -10,10 +10,10 @@
 // this module to write it. Both therefore share this module's answer to "may
 // this tree be expanded at all" instead of restating it.
 
+import * as fs from "node:fs/promises";
 import { ConfigError, type Sink } from "./errors.ts";
 import {
   canonicalBody,
-  compareStrings,
   contractPath,
   digestOfText,
   splitDocument,
@@ -24,6 +24,7 @@ import {
   ensureParentDirectory,
   isDirectory,
   isRegularFile,
+  readEntries,
   readTextFile,
 } from "./walk.ts";
 import {
@@ -153,7 +154,7 @@ export async function listVendorEntries(
   const dir = `${root}/${relative}`;
   if (!(await isDirectory(dir))) return [];
   const names: string[] = [];
-  for await (const entry of Deno.readDir(dir)) {
+  for (const entry of await readEntries(dir)) {
     if (entry.isSymlink) {
       throw new ConfigError(
         `symlink is not allowed inside the tree: ${relative}/${entry.name}`,
@@ -161,7 +162,7 @@ export async function listVendorEntries(
     }
     names.push(entry.name);
   }
-  return names.sort(compareStrings);
+  return names;
 }
 
 interface WritePlan {
@@ -239,7 +240,7 @@ export async function executePlan(plan: WritePlan): Promise<void> {
     // verify reports as an extra. Stopping here instead would abandon the run
     // after the copies and the manifest are already written, turning a
     // reportable leftover into a half-finished tree.
-    await Deno.remove(path, { recursive: true }).catch(() => {});
+    await fs.rm(path, { recursive: true }).catch(() => {});
   }
 }
 

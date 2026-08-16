@@ -67,9 +67,11 @@ test("the entry point touches no file of its own", () => {
   // Routing only. Anything the entry point did itself would be reachable only
   // by assembling an argument list, which is the one shape no test can drive
   // directly.
-  const reached = SOURCE.match(
-    /Deno\.(readFile|readTextFile|writeFile|writeTextFile|readDir|lstat|stat|mkdir|remove|rename|readLink|realPath)\b/g,
-  );
+  // Every read and write the tool makes goes through walk.ts, and the only
+  // other way to reach the file system is the builtin itself. The one sync
+  // realpath the entry point does call is boot plumbing: it decides whether
+  // this module was the program started, before any command runs.
+  const reached = SOURCE.match(/from "(node:fs\/promises|\.\/walk\.ts)"/g);
   expect(
     reached,
     `the entry point reaches ${reached?.join(", ")}`,

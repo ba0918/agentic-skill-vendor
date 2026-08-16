@@ -118,7 +118,11 @@ export async function replaceWithSymlink(
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  // Copied rather than cast. Web Crypto asks for bytes backed by a plain
+  // ArrayBuffer, while a file read hands back a view that may sit in the
+  // runtime's shared pool, and the two are reconciled here by making one — an
+  // assertion would silence the difference instead of resolving it.
+  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

@@ -5,9 +5,9 @@
 // does, kept apart from gen and accept (which change the distributed state) and
 // from verify (which decides identity).
 
+import * as fs from "node:fs/promises";
 import { ConfigError, type Sink } from "./errors.ts";
-import { compareStrings } from "./digest.ts";
-import { isDirectory } from "./walk.ts";
+import { isDirectory, readEntries } from "./walk.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
@@ -30,10 +30,9 @@ function decodeForScan(bytes: Uint8Array): string {
   } catch {
     // Every one of the 256 bytes maps to a character here, so a file that is
     // not UTF-8 is still scanned to its last line instead of being skipped.
-    // The label resolves to windows-1252 rather than true ISO-8859-1, which
-    // does not matter: the patterns above are pure ASCII, and the two
-    // encodings agree throughout the ASCII range.
-    return new TextDecoder("latin1").decode(bytes);
+    // Which single-byte encoding it is does not matter: the patterns above are
+    // pure ASCII, and every one of them agrees throughout the ASCII range.
+    return new TextDecoder("windows-1252").decode(bytes);
   }
 }
 
@@ -93,7 +92,7 @@ function normalizePath(path: string): string {
 
 async function realPathOrNull(path: string): Promise<string | null> {
   try {
-    return await Deno.realPath(path);
+    return await fs.realpath(path);
   } catch {
     return null;
   }
@@ -101,7 +100,7 @@ async function realPathOrNull(path: string): Promise<string | null> {
 
 /** Where a link points, resolved without requiring the target to exist. */
 async function resolveLink(path: string): Promise<string> {
-  const target = await Deno.readLink(path);
+  const target = await fs.readlink(path);
   const joined = target.startsWith("/")
     ? target
     : `${dirNameOf(path)}/${target}`;
@@ -141,10 +140,7 @@ async function lintInto(
   relative: string,
   violations: string[],
 ): Promise<void> {
-  const entries: Deno.DirEntry[] = [];
-  for await (const entry of Deno.readDir(dir)) entries.push(entry);
-  entries.sort((a, b) => compareStrings(a.name, b.name));
-  for (const entry of entries) {
+  for (const entry of await readEntries(dir)) {
     const path = `${dir}/${entry.name}`;
     const site = `${relative}/${entry.name}`;
     if (entry.isSymlink) {
@@ -155,7 +151,7 @@ async function lintInto(
       await lintInto(root, path, site, violations);
     } else {
       violations.push(
-        ...lintLines(site, decodeForScan(await Deno.readFile(path))),
+        ...lintLines(site, decodeForScan(await fs.readFile(path))),
       );
     }
   }

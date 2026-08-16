@@ -3,6 +3,7 @@
 // The three checks below do not depend on one another, and each is written so
 // that it stays meaningful while the others are failing.
 
+import * as fs from "node:fs/promises";
 import type { Sink } from "./errors.ts";
 import { compareStrings, digestOfBytes } from "./digest.ts";
 import { decodeUtf8, isRegularFile } from "./walk.ts";
@@ -55,7 +56,7 @@ async function copyViolations(
         violations.push(`drift: ${site} is missing`);
         continue;
       }
-      const bytes = await Deno.readFile(`${root}/${site}`);
+      const bytes = await fs.readFile(`${root}/${site}`);
       const header = encoder.encode(vendorHeader(id, resolution.digest));
       // Compared as bytes and never decoded, so a corrupted copy is drift
       // rather than an error about the tool's own input.
@@ -105,7 +106,7 @@ async function manifestViolations(
       await presentContractIds(root, resolutions),
     ),
   );
-  const actual = decodeUtf8(await Deno.readFile(path), MANIFEST_FILE);
+  const actual = decodeUtf8(await fs.readFile(path), MANIFEST_FILE);
   if (actual === expected) return [];
   return [
     `manifest: ${MANIFEST_FILE} differs from what the declarations and the lock render to`,

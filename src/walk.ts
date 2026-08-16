@@ -6,22 +6,66 @@
 // output written over one. Refusing costs nothing and closes the escape
 // structurally rather than case by case.
 
+import * as fs from "node:fs/promises";
+import type { Stats } from "node:fs";
 import { ConfigError, describeCause } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
 
+/**
+ * True when the reason a file system call failed is that nothing is there.
+ *
+ * The runtimes agree on the errno and disagree on everything around it, so the
+ * code is what this reads. Every other failure means the tool could not find
+ * out what the tree says, which is a refusal rather than an absence.
+ */
+export function isNotFound(cause: unknown): boolean {
+  return (cause as { code?: string } | null)?.code === "ENOENT";
+}
+
+/** One entry of a directory, with its kind resolved without following it. */
+export interface DirectoryEntry {
+  name: string;
+  isSymlink: boolean;
+  isDirectory: boolean;
+}
+
+/**
+ * The entries of `dir`, sorted by name, each with its own kind.
+ *
+ * Every entry is stat'd rather than taken from the kind the directory listing
+ * reports. A listing answers from the file system's `d_type`, which not every
+ * file system fills in, and an entry that came back as "unknown" would be read
+ * as an ordinary file — silently retiring the symlink refusal this module is
+ * built around. One extra call per entry is what keeps that refusal a fact
+ * about the file rather than about the file system it happens to sit on.
+ */
+export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
+  const names = await fs.readdir(dir);
+  const entries: DirectoryEntry[] = [];
+  for (const name of names.sort(compareStrings)) {
+    const info = await fs.lstat(`${dir}/${name}`);
+    entries.push({
+      name,
+      isSymlink: info.isSymbolicLink(),
+      isDirectory: info.isDirectory(),
+    });
+  }
+  return entries;
+}
+
 /** True for a real directory; a symlink in its place is refused outright. */
 export async function isDirectory(path: string): Promise<boolean> {
-  let info: Deno.FileInfo;
+  let info: Stats;
   try {
-    info = await Deno.lstat(path);
+    info = await fs.lstat(path);
   } catch (cause) {
-    if (cause instanceof Deno.errors.NotFound) return false;
+    if (isNotFound(cause)) return false;
     throw new ConfigError(`cannot read ${path}: ${describeCause(cause)}`);
   }
-  if (info.isSymlink) {
+  if (info.isSymbolicLink()) {
     throw new ConfigError(`symlink is not allowed here: ${path}`);
   }
-  return info.isDirectory;
+  return info.isDirectory();
 }
 
 /**
@@ -43,13 +87,12 @@ async function walkInto(
   prefix: string,
   into: string[],
 ): Promise<void> {
-  const entries: Deno.DirEntry[] = [];
+  let entries: DirectoryEntry[];
   try {
-    for await (const entry of Deno.readDir(dir)) entries.push(entry);
+    entries = await readEntries(dir);
   } catch (cause) {
     throw new ConfigError(`cannot read ${dir}: ${describeCause(cause)}`);
   }
-  entries.sort((a, b) => compareStrings(a.name, b.name));
   for (const entry of entries) {
     const path = `${dir}/${entry.name}`;
     const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
@@ -78,23 +121,23 @@ export async function atomicWriteFile(
   await refuseSymlink(temporary);
   await refuseSymlink(path);
   try {
-    await Deno.writeFile(temporary, content);
-    await Deno.rename(temporary, path);
+    await fs.writeFile(temporary, content);
+    await fs.rename(temporary, path);
   } catch (cause) {
-    await Deno.remove(temporary).catch(() => {});
+    await fs.rm(temporary).catch(() => {});
     throw new ConfigError(`cannot write ${path}: ${describeCause(cause)}`);
   }
 }
 
 async function refuseSymlink(path: string): Promise<void> {
   try {
-    const info = await Deno.lstat(path);
-    if (info.isSymlink) {
+    const info = await fs.lstat(path);
+    if (info.isSymbolicLink()) {
       throw new ConfigError(`refusing to write through a symlink: ${path}`);
     }
   } catch (cause) {
     if (cause instanceof ConfigError) throw cause;
-    if (cause instanceof Deno.errors.NotFound) return;
+    if (isNotFound(cause)) return;
     throw new ConfigError(`cannot inspect ${path}: ${describeCause(cause)}`);
   }
 }
@@ -119,7 +162,7 @@ export async function readTextFile(
 ): Promise<string> {
   let bytes: Uint8Array;
   try {
-    bytes = await Deno.readFile(path);
+    bytes = await fs.readFile(path);
   } catch (cause) {
     throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
   }
@@ -140,16 +183,16 @@ export async function assertPlainChain(
   let path = root;
   for (const part of relative.split("/")) {
     path = `${path}/${part}`;
-    let info: Deno.FileInfo;
+    let info: Stats;
     try {
-      info = await Deno.lstat(path);
+      info = await fs.lstat(path);
     } catch (cause) {
-      if (cause instanceof Deno.errors.NotFound) return;
+      if (isNotFound(cause)) return;
       throw new ConfigError(
         `cannot inspect ${relative}: ${describeCause(cause)}`,
       );
     }
-    if (info.isSymlink) {
+    if (info.isSymbolicLink()) {
       throw new ConfigError(
         `symlink is not allowed inside the tree: ${relative}`,
       );
@@ -158,23 +201,23 @@ export async function assertPlainChain(
 }
 
 export async function isRegularFile(path: string): Promise<boolean> {
-  let info: Deno.FileInfo;
+  let info: Stats;
   try {
-    info = await Deno.lstat(path);
+    info = await fs.lstat(path);
   } catch (cause) {
-    if (cause instanceof Deno.errors.NotFound) return false;
+    if (isNotFound(cause)) return false;
     throw new ConfigError(`cannot inspect ${path}: ${describeCause(cause)}`);
   }
-  if (info.isSymlink) {
+  if (info.isSymbolicLink()) {
     throw new ConfigError(`symlink is not allowed inside the tree: ${path}`);
   }
-  return info.isFile;
+  return info.isFile();
 }
 
 export async function ensureParentDirectory(path: string): Promise<void> {
   const parent = path.slice(0, path.lastIndexOf("/"));
   try {
-    await Deno.mkdir(parent, { recursive: true });
+    await fs.mkdir(parent, { recursive: true });
   } catch (cause) {
     throw new ConfigError(`cannot create ${parent}: ${describeCause(cause)}`);
   }

@@ -1,13 +1,18 @@
 // declaration.ts — what a skill says it depends on.
 //
-import { parse as parseYaml } from "@std/yaml";
+import { parse as parseYaml } from "yaml";
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
   compareStrings,
   splitDocument,
 } from "./digest.ts";
-import { isDirectory, isRegularFile, readTextFile } from "./walk.ts";
+import {
+  isDirectory,
+  isRegularFile,
+  readEntries,
+  readTextFile,
+} from "./walk.ts";
 
 /** Where the skills live, and what names a skill's own document. */
 export const SKILLS_DIR = "skills";
@@ -155,7 +160,7 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
   const skillsDir = `${root}/${SKILLS_DIR}`;
   if (!(await isDirectory(skillsDir))) return [];
   const names: string[] = [];
-  for await (const entry of Deno.readDir(skillsDir)) {
+  for (const entry of await readEntries(skillsDir)) {
     if (entry.isSymlink) {
       throw new ConfigError(
         `symlink is not allowed inside the tree: ${SKILLS_DIR}/${entry.name}`,
@@ -163,7 +168,6 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
     }
     if (entry.isDirectory) names.push(entry.name);
   }
-  names.sort(compareStrings);
 
   const skills: SkillDeclaration[] = [];
   for (const name of names) {

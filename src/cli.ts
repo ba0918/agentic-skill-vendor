@@ -5,6 +5,8 @@
 // would be logic reachable only by assembling an argument list, which is the
 // one shape none of the tests can drive directly.
 
+import { realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { ConfigError, type Sink } from "./errors.ts";
 import { commandGen } from "./gen.ts";
 import { commandVerify } from "./verify.ts";
@@ -106,12 +108,32 @@ export async function run(
   }
 }
 
-if (import.meta.main) {
-  Deno.exit(
-    await run(
-      Deno.args,
-      (line) => console.log(line),
-      (line) => console.error(line),
-    ),
+/**
+ * True when this module is the program the runtime was started with.
+ *
+ * `import.meta.main` says it in one word, but Node only learned it in v24 and
+ * this package supports Node 20. The started path is resolved through realpath
+ * because an npm bin is installed as a symlink: run through npx the process
+ * starts at `.bin/<name>` while this module's own URL names the file that link
+ * points at, and comparing the two unresolved never matches.
+ */
+function startedThisProgram(): boolean {
+  const started = process.argv[1];
+  if (started === undefined) return false;
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(started)).href;
+  } catch {
+    return false;
+  }
+}
+
+if (startedThisProgram()) {
+  // The code is set rather than exited on, so anything already queued still
+  // finishes: an exit here would cut off output that has been written but not
+  // yet flushed.
+  process.exitCode = await run(
+    process.argv.slice(2),
+    (line) => console.log(line),
+    (line) => console.error(line),
   );
 }

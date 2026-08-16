@@ -5,6 +5,7 @@ import type { Sink } from "./errors.ts";
 import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const SOURCE_DIR = fileURLToPath(new URL(".", import.meta.url));
+const MODULES = fileURLToPath(new URL("../node_modules", import.meta.url));
 const ENTRY = "cli.ts";
 
 /**
@@ -22,6 +23,11 @@ async function runAltered(
 ): Promise<{ code: number; stdout: string[] }> {
   const tool = `${dir}/tool`;
   await fs.cp(SOURCE_DIR, tool, { recursive: true });
+  // A package specifier is resolved by walking the directories above the
+  // module, so a copy of the tool placed under the OS temporary directory
+  // would find no node_modules at all. Linking the real one beside the copy
+  // is what lets the copy import what the original imports.
+  await fs.symlink(MODULES, `${dir}/node_modules`);
   const path = `${tool}/${file}`;
   const source = await fs.readFile(path, "utf8");
   expect(source).toContain(find);
