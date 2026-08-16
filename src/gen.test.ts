@@ -322,18 +322,27 @@ test("verify refuses a contracts directory symlinked outside the tree", async ()
   });
 });
 
-test("verify refuses a contract's conformance parent symlinked outside the tree", async () => {
+test("gen and verify both refuse a contract's own directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
+    // A link at the directory a contract's conformance tests live in. Only
+    // verify ever reads through that directory, so the two commands used to
+    // answer the same planted link differently: verify stopped, gen expanded
+    // the tree and said nothing. Whether a link is refused is a fact about the
+    // tree, so it cannot depend on which command is looking.
     const outside = await escapeThrough(root, "contracts/changelog-entry");
     const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
 
-    const result = await runCli(["verify", "--root", root]);
-    expect(result.code).toStrictEqual(2);
-    expect(result.stdout).toStrictEqual([]);
-    expect(result.stderr.join("\n")).toContain(
-      "symlink is not allowed inside the tree: contracts/changelog-entry",
-    );
+    for (const command of ["gen", "verify"]) {
+      const result = await runCli([command, "--root", root]);
+      expect(result.code, command).toStrictEqual(2);
+      expect(result.stdout, command).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command).toContain(
+        "symlink is not allowed inside the tree: contracts/changelog-entry",
+      );
+    }
     expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
   });
 });
 
