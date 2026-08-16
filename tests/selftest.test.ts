@@ -59,7 +59,7 @@ Deno.test("self-test fails when the digest it computes stops matching its vector
     // the separator, which changes what every contract digests to.
     const result = await runAltered(
       dir,
-      ENTRY,
+      "digest.ts",
       'while (start < lines.length && lines[start] === "") start++;',
       'while (start < lines.length && lines[start] === "\\u0000") start++;',
     );

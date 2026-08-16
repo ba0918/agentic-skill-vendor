@@ -1,10 +1,6 @@
 import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
-import {
-  canonicalBody,
-  ConfigError,
-  contractDigest,
-  isValidContractId,
-} from "../src/vendor.ts";
+import { ConfigError } from "./errors.ts";
+import { canonicalBody, contractDigest, isValidContractId } from "./digest.ts";
 
 Deno.test("the canonical body drops the frontmatter and the blank lines after it", () => {
   assertEquals(

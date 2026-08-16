@@ -8,112 +8,25 @@
 import { parse as parseYaml } from "@std/yaml";
 import ignore, { type Ignore } from "ignore";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
+import {
+  assertValidContractId,
+  canonicalBody,
+  compareStrings,
+  concatBytes,
+  contractDigest,
+  contractPath,
+  CONTRACTS_DIR,
+  DIGEST_PREFIX,
+  digestOfBytes,
+  digestOfText,
+  splitDocument,
+} from "./digest.ts";
 
 export { ConfigError };
 export type { Sink };
+export * from "./digest.ts";
 
-const DIGEST_PREFIX = "sha256:";
-const CONTRACT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
-const CONTRACT_ID_LIMIT = 64;
-const FRONTMATTER_DELIMITER = "---";
 const IGNORE_FILE = ".gitignore";
-
-// --- text canonicalization -------------------------------------------------
-
-interface Document {
-  frontmatter: string[];
-  body: string;
-}
-
-/**
- * Splits a document into its frontmatter lines and its body. Blank lines
- * directly after the closing delimiter belong to the separator, not the body.
- *
- * An opening `---` with no closing `---` is an error rather than a document
- * that happens to have no frontmatter: reading it as all-body would silently
- * drop every declaration the unterminated block holds, and a pin that vanishes
- * quietly is the worst failure this tool can have.
- */
-function splitDocument(text: string, site?: string): Document {
-  const normalized = text.replace(/\r\n/g, "\n");
-  const lines = normalized.split("\n");
-  if (lines[0] !== FRONTMATTER_DELIMITER) {
-    return { frontmatter: [], body: normalized };
-  }
-  for (let index = 1; index < lines.length; index++) {
-    if (lines[index] !== FRONTMATTER_DELIMITER) continue;
-    let start = index + 1;
-    while (start < lines.length && lines[start] === "") start++;
-    return {
-      frontmatter: lines.slice(1, index),
-      body: lines.slice(start).join("\n"),
-    };
-  }
-  throw new ConfigError(
-    `${
-      site ?? "document"
-    }: frontmatter opens with '---' but the closing '---' line is missing`,
-  );
-}
-
-/** Frontmatter stripped, LF endings, exactly one trailing newline. */
-export function canonicalBody(text: string, site?: string): string {
-  // Only line endings and the end of file are canonicalized. Whitespace at the
-  // end of a line is content: in Markdown two trailing spaces are a hard line
-  // break, so trimming per line would change what the document means.
-  return splitDocument(text, site).body.replace(/\n+$/, "") + "\n";
-}
-
-function concatBytes(chunks: Uint8Array[]): Uint8Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const joined = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    joined.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return joined;
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Digest of exactly these bytes, in `sha256:<hex>` form. */
-export async function digestOfBytes(bytes: Uint8Array): Promise<string> {
-  return DIGEST_PREFIX + await sha256Hex(bytes);
-}
-
-/** Digest of this text's UTF-8 bytes, with no canonicalization applied. */
-export function digestOfText(text: string): Promise<string> {
-  return digestOfBytes(new TextEncoder().encode(text));
-}
-
-/** Digest of a contract document's canonical body. */
-export function contractDigest(text: string, site?: string): Promise<string> {
-  return digestOfText(canonicalBody(text, site));
-}
-
-/** True when the id is safe to place in a path: an allowlist with no traversal. */
-export function isValidContractId(id: string): boolean {
-  // The pattern alone accepts `a..b`, because a dot is a legal character in the
-  // middle of an id. The explicit `..` check is the part that rejects it, and
-  // it rejects every embedded double dot rather than only `../`.
-  return id.length <= CONTRACT_ID_LIMIT &&
-    !id.includes("..") &&
-    CONTRACT_ID_PATTERN.test(id);
-}
-
-export function assertValidContractId(id: string, site: string): void {
-  if (!isValidContractId(id)) {
-    throw new ConfigError(
-      `${site}: not a usable contract id: ${JSON.stringify(id)}`,
-    );
-  }
-}
 
 // --- declaration parsing ---------------------------------------------------
 
@@ -437,10 +350,6 @@ function verdictFor(
 
 // --- file system boundary --------------------------------------------------
 
-function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 /** True for a real directory; a symlink in its place is refused outright. */
 async function isDirectory(path: string): Promise<boolean> {
   let info: Deno.FileInfo;
@@ -561,7 +470,6 @@ export async function readTextFile(
 // --- tree layout -----------------------------------------------------------
 
 const MANIFEST_FILE = "vendor-manifest.json";
-const CONTRACTS_DIR = "contracts";
 const SKILLS_DIR = "skills";
 const VENDOR_SUBPATH = "references/vendor";
 const SKILL_FILE = "SKILL.md";
@@ -572,10 +480,6 @@ const GENERATOR = {
   version: "1.0.0",
   source: "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
 } as const;
-
-function contractPath(id: string): string {
-  return `${CONTRACTS_DIR}/${id}.md`;
-}
 
 function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
