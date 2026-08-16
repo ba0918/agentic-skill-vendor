@@ -1246,8 +1246,10 @@ function lintLines(site: string, text: string): string[] {
   return violations;
 }
 
-function dirNameOf(path: string): string {
-  return path.slice(0, path.lastIndexOf("/"));
+/** The directory the path sits in; the current directory when it names none. */
+export function dirNameOf(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? "." : path.slice(0, cut);
 }
 
 function baseNameOf(path: string): string {

@@ -1,4 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { dirNameOf } from "../src/vendor.ts";
 import {
   replaceWithSymlink,
   runCli,
@@ -234,4 +235,15 @@ Deno.test("linting a tree with no skills directory is a usage error", async () =
     assertEquals(result.code, 2);
     assertEquals(result.stdout, []);
   });
+});
+
+Deno.test("the directory of a path naming no directory is the current one", () => {
+  // A link target is resolved against the directory its link sits in. When that
+  // path names no directory at all, the answer is the current directory, not
+  // the path with its last character cut off.
+  assertEquals(
+    dirNameOf("skills/release-notes/notes.md"),
+    "skills/release-notes",
+  );
+  assertEquals(dirNameOf("notes.md"), ".");
 });
