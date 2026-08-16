@@ -1,4 +1,4 @@
-import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import {
   replaceWithSymlink,
   runCli,

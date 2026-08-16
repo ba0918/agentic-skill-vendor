@@ -6,7 +6,7 @@
 // meaningful while another is failing.
 
 import { type Sink } from "./errors.ts";
-import { compareStrings, contractPath, digestOfBytes } from "./digest.ts";
+import { compareStrings, digestOfBytes } from "./digest.ts";
 import { decodeUtf8, isRegularFile } from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
 import {

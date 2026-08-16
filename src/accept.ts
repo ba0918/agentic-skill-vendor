@@ -14,7 +14,6 @@ import {
 import { conformanceDigest } from "./conformance.ts";
 import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
 import {
-  presentContractIds,
   readResolutions,
   type Resolution,
   type Resolutions,
