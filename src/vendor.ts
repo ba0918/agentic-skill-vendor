@@ -117,6 +117,142 @@ export function assertValidContractId(id: string, site: string): void {
   }
 }
 
+// --- declaration parsing ---------------------------------------------------
+
+// Declarations are read by a parser that accepts one restricted grammar rather
+// than by a general YAML parser. A general parser is built to accept as much as
+// it can, so every form this tool must refuse — a digest beside an id, a flow
+// sequence, a duplicate key — would instead be quietly accepted and reinterpreted.
+// Refusing loudly is only possible if the accepted shape is stated exactly.
+
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+/** Drops a trailing comment. No value this grammar accepts can contain '#'. */
+function withoutComment(text: string): string {
+  if (text.trimStart().startsWith("#")) return "";
+  const start = text.indexOf(" #");
+  return start === -1 ? text : text.slice(0, start);
+}
+
+function isIgnorable(line: string): boolean {
+  return withoutComment(line).trim() === "";
+}
+
+/**
+ * The contract ids a SKILL.md declares, in declaration order.
+ *
+ * The accepted shape is a block sequence of bare ids under `metadata.contracts`.
+ * Anything else stops the run: a declaration this tool cannot read is never
+ * treated as an absence of declarations, because that would silently unpin a
+ * skill that believes it is pinned.
+ */
+export function parseContractDeclarations(
+  text: string,
+  site: string,
+): string[] {
+  const frontmatter = splitDocument(text, site).frontmatter;
+  const metadataAt = frontmatter.findIndex(
+    (line) => indentOf(line) === 0 && /^metadata:(\s|$)/.test(line),
+  );
+  if (metadataAt === -1) return [];
+  requireNoInlineValue(frontmatter[metadataAt], "metadata", "metadata", site);
+
+  const block: string[] = [];
+  for (let index = metadataAt + 1; index < frontmatter.length; index++) {
+    const line = frontmatter[index];
+    if (isIgnorable(line)) continue;
+    if (indentOf(line) === 0) break;
+    block.push(line);
+  }
+  if (block.length === 0) return [];
+
+  const childIndent = indentOf(block[0]);
+  const contractsAt = block.findIndex(
+    (line) =>
+      indentOf(line) === childIndent &&
+      /^contracts:(\s|$)/.test(line.trimStart()),
+  );
+  if (contractsAt === -1) return [];
+  requireNoInlineValue(
+    block[contractsAt],
+    "contracts",
+    "metadata.contracts",
+    site,
+  );
+
+  return readSequence(block.slice(contractsAt + 1), childIndent, site);
+}
+
+/**
+ * Refuses a key that carries its value on the same line. That shape is a flow
+ * sequence or a flow mapping, and this grammar accepts only block form.
+ */
+function requireNoInlineValue(
+  line: string,
+  keyToken: string,
+  label: string,
+  site: string,
+): void {
+  const value = withoutComment(line).trimStart().slice(keyToken.length + 1);
+  if (value.trim() !== "") {
+    throw new ConfigError(
+      `${site}: ${label} must be written in block form, not ${
+        JSON.stringify(value.trim())
+      }`,
+    );
+  }
+}
+
+function readSequence(
+  lines: string[],
+  keyIndent: number,
+  site: string,
+): string[] {
+  const ids: string[] = [];
+  for (const line of lines) {
+    if (indentOf(line) <= keyIndent) {
+      if (line.trimStart().startsWith("- ")) {
+        throw new ConfigError(
+          `${site}: metadata.contracts entries must be indented deeper than the contracts key`,
+        );
+      }
+      break;
+    }
+    const entry = withoutComment(line).trimStart();
+    const item = /^-\s+(.*)$/.exec(entry);
+    if (item === null) {
+      throw new ConfigError(
+        `${site}: unreadable metadata.contracts entry: ${
+          JSON.stringify(entry)
+        }`,
+      );
+    }
+    const id = item[1].trim();
+    if (id.includes(":")) {
+      // The pin belongs to the lock, not to the skill. A digest written here
+      // would put the skill's SKILL.md into the diff of every contract update,
+      // which is exactly what declaring by id alone exists to prevent.
+      throw new ConfigError(
+        `${site}: metadata.contracts entries name a contract id and nothing else; ` +
+          `digests live in the lock: ${JSON.stringify(id)}`,
+      );
+    }
+    assertValidContractId(id, site);
+    if (ids.includes(id)) {
+      throw new ConfigError(`${site}: contract declared more than once: ${id}`);
+    }
+    ids.push(id);
+  }
+  if (ids.length === 0) {
+    throw new ConfigError(
+      `${site}: metadata.contracts is present but declares no contract`,
+    );
+  }
+  return ids;
+}
+
 // --- conformance framing ---------------------------------------------------
 
 export interface ConformanceEntry {
