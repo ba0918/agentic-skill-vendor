@@ -11,11 +11,6 @@ import { isRegularFile, readTextFile } from "./walk.ts";
 /** The file git reads its rules from, in every directory that has one. */
 export const IGNORE_FILE = ".gitignore";
 
-// Which files a tree carries is git's question, and .gitignore is where a
-// repository already answers it. Restating the answer as a list built into this
-// tool — the compiled-bytecode directory it used to name — would be a second,
-// silently diverging copy of it.
-
 interface IgnoreLevel {
   /** Where the rules were read, relative to the tree root; "" is the root. */
   directory: string;

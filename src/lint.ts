@@ -10,11 +10,6 @@ import { compareStrings } from "./digest.ts";
 import { isDirectory } from "./walk.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 
-// Portability, not identity: a skill directory has to be movable on its own,
-// so nothing inside it may point above itself. This is the third thing the tool
-// does, kept apart from gen and accept (which change the distributed state) and
-// from verify (which decides identity).
-
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
 
 // A token is an absolute reference when it begins at a reference boundary —

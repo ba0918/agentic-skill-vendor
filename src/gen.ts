@@ -230,6 +230,10 @@ export async function executePlan(plan: WritePlan): Promise<void> {
   }
   await atomicWriteFile(plan.manifest.path, plan.manifest.content);
   for (const path of plan.removals) {
+    // A removal that fails leaves a file no declaration accounts for, which
+    // verify reports as an extra. Stopping here instead would abandon the run
+    // after the copies and the manifest are already written, turning a
+    // reportable leftover into a half-finished tree.
     await Deno.remove(path, { recursive: true }).catch(() => {});
   }
 }

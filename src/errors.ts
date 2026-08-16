@@ -7,7 +7,11 @@
 // reported and the run finishes; a configuration error means the run cannot
 // know what the tree says, so it stops.
 
-/** A misconfiguration or misuse: the run stops and writes nothing. */
+/**
+ * A misconfiguration or misuse: the run stops. Raised before the writing
+ * phase it has written nothing; raised during it, the tree is left part way
+ * through, which is a state verify reports rather than one that looks done.
+ */
 export class ConfigError extends Error {
   constructor(message: string) {
     super(message);

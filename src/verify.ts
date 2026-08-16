@@ -1,9 +1,7 @@
 // verify.ts — deciding whether the tree is what was accepted.
 //
-// Three checks that do not depend on one another: what was accepted against the
-// canonical text, the copies against the pin, and the manifest against what the
-// tree renders to. Keeping them separate is what lets any one of them stay
-// meaningful while another is failing.
+// The three checks below do not depend on one another, and each is written so
+// that it stays meaningful while the others are failing.
 
 import { type Sink } from "./errors.ts";
 import { compareStrings, digestOfBytes } from "./digest.ts";
@@ -39,7 +37,7 @@ function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   return true;
 }
 
-export async function copyViolations(
+async function copyViolations(
   root: string,
   skills: SkillDeclaration[],
   resolutions: Resolutions,
@@ -91,7 +89,7 @@ export async function copyViolations(
  * divergence already reported as unaccepted drift or a conformance mismatch is
  * not reported a second time here as a stale manifest.
  */
-export async function manifestViolations(
+async function manifestViolations(
   root: string,
   skills: SkillDeclaration[],
   resolutions: Resolutions,
@@ -119,7 +117,7 @@ export async function manifestViolations(
  * accepted for it. The wording states the two values and does not claim which
  * of them moved: this tool cannot tell an edited test from a stale lock.
  */
-export async function conformanceViolations(
+async function conformanceViolations(
   root: string,
   resolutions: Resolutions,
 ): Promise<string[]> {

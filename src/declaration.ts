@@ -1,13 +1,5 @@
 // declaration.ts — what a skill says it depends on.
 //
-// Frontmatter is read by a YAML parser, and what the tool refuses is stated as
-// a schema over the parse result rather than as a grammar of accepted lines. A
-// hand-written line grammar has to decide what every unfamiliar shape means,
-// and its answer for "I cannot read this" was the empty declaration list — a
-// skill that believed it was pinned would be silently unpinned. Reading first
-// and judging second makes that answer impossible: an unreadable document
-// raises, and a readable one is judged against rules that name what they want.
-
 import { parse as parseYaml } from "@std/yaml";
 import { ConfigError, describeCause } from "./errors.ts";
 import {
@@ -22,7 +14,7 @@ export const SKILLS_DIR = "skills";
 const SKILL_FILE = "SKILL.md";
 
 /** A skill's own document, relative to the tree root. */
-export function skillFileOf(skill: string): string {
+function skillFileOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${SKILL_FILE}`;
 }
 
@@ -43,6 +35,12 @@ export function skillFileOf(skill: string): string {
  * key typed with a tab becomes a top-level key, `metadata` loses it, and the
  * skill is answered with "declares nothing". Refusing the tab is what keeps
  * that reinterpretation from ever being reached.
+ *
+ * The rule is blunt on purpose: inside a block scalar a leading tab is content,
+ * and YAML allows it, but this refuses it too. Telling the two apart means
+ * knowing which lines are inside a block scalar, which means parsing — and the
+ * parse is the step being protected. Refusing a legal document loudly is the
+ * affordable half of that trade; accepting an illegal one silently is not.
  */
 function parseFrontmatter(lines: string[], site: string): unknown {
   const tabbed = lines.find((line) => /^[ \t]*\t/.test(line));

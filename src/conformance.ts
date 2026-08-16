@@ -50,10 +50,16 @@ export async function conformanceDigestOfEntries(
 /**
  * Reads a conformance tree, or nothing at all when the directory is absent.
  *
- * Files the tree's .gitignore rules exclude are left out. What is pinned is
- * what the repository carries, and a file git does not carry cannot be part of
- * that: a fresh checkout would not have it, so digesting it would report a
- * mismatch against a tree nobody changed.
+ * Files the tree's .gitignore rules exclude are left out. A file a repository
+ * ignores is one a fresh checkout will not have, so digesting it would report a
+ * mismatch against a tree nobody changed — and the running of the tests would
+ * change what the tests pin.
+ *
+ * The rules are read, never the git index. A file that is ignored yet tracked
+ * anyway — force-added — is therefore treated as excluded although a checkout
+ * does carry it, which leaves it outside the pin rather than falsely inside it.
+ * Consulting the index instead would mean shelling out to git, and a pin whose
+ * value depends on a subprocess is not one this tool can compute.
  *
  * The links are refused before the exclusion is applied, never after. Leaving
  * an ignored subtree unscanned would mean a link planted inside it escaped the
