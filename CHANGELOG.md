@@ -95,14 +95,24 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or `contracts/<id>/` replaced by a link, `accept` pinned the digest of a file outside the
   tree, wrote outside text into every vendored copy, recorded provenance naming a path the
   tree does not hold, and `verify` then reported the result as clean. Links standing in for
-  a single file were already refused; the directory shapes were not.
+  a single file were already refused; the directory shapes were not. Every command that
+  reads the tree answers a planted link the same way. A link at `contracts/<id>/` stopped
+  `verify`, which digests the conformance tests below it, while `gen` finished cleanly and
+  said nothing; for a contract no skill declares any more, one the lock alone still names,
+  `gen` and `accept` both carried on as well. Whether a link is refused is a fact about the
+  tree, so it depends neither on which command is looking nor on whether the contract is
+  still declared.
 - A read that fails for a reason other than the file being absent — a permission error, most
   of all — is reported on standard error with exit `2`. It escaped as an uncaught exception,
   which ended the run with a stack trace and exit `1`, the code that means the tree was
   examined and found in violation.
-- Every refusal names the path as the tree spells it rather than as the machine does. The
-  same refusal was reported with an absolute path by `verify` and a tree-relative one by
-  `gen`.
+- Every path a message names is spelled as the tree spells it — a refusal and a read that
+  failed alike. The same refusal was reported with an absolute path by `verify` and a
+  tree-relative one by `gen`; once that was settled the read failures were still mixed among
+  themselves, so one unreadable file was named absolutely when the failure came from looking
+  at it and tree-relatively when it came from reading its content. Where the run could not
+  look at all, the underlying error is still quoted and carries the absolute path, and the
+  tree root itself is named as it was given.
 - A symlink whose path names no directory is resolved against the current directory rather
   than against the path with its last character removed, which could place a link's target
   outside the directory it was judged against. The same mistake in the creation of a parent
