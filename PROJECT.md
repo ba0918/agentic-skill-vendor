@@ -12,10 +12,13 @@ intended consumer, whose Python vendor machinery this tool's v1 is designed to r
 
 ## Stack and layout
 
-Deno/TypeScript (Deno pinned to the 2.9.x line in CI). The source is split into modules by
-responsibility under `src/`, each with its tests beside it, and is run with `deno run` —
-there is no build step and no `deno compile` binary, so nothing generated needs a
-reproducibility check of its own.
+TypeScript, written against Node-compatible builtins (`node:fs/promises`, `node:url`, …) and
+web standard APIs (Web Crypto) only, so the same source runs on Node, Bun and Deno. The
+development toolchain is Bun (running, testing, package management), with Biome for lint and
+format; CI runs on the Bun 1.3.x line. The source is split into modules by responsibility
+under `src/`, each with its tests beside it. Distribution is npm: `bun build` produces the
+Node-compatible `dist/cli.js` the package's `bin` points at, at publish time only, and it is
+never committed.
 
 | Path | What it holds |
 |---|---|
@@ -36,16 +39,22 @@ reproducibility check of its own.
 | `src/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
 | `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
 | `docs/spec/` | Design decisions (Japanese) |
-| `.github/workflows/ci.yml` | CI on Deno 2.9.x: the tests, then `verify` and `lint-selfcontain` over the fixture |
+| `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
+| `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
+| `biome.json` | Lint and format, and the rules this codebase turns off |
+| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the tests, then `verify` and `lint-selfcontain` over the fixture |
 
 ## Commands
 
 | Purpose | Command |
 |---|---|
-| Test | `deno task test` |
-| Lint | `deno task lint` |
-| Format | `deno task fmt` |
-| Format check | `deno task fmt:check` |
+| Install the locked dependencies | `bun install --frozen-lockfile` |
+| Test | `bun test` |
+| Lint | `bun run lint` |
+| Format | `bun run fmt` |
+| Format check | `bun run fmt:check` |
+| Build the publishable artifact | `bun run build` |
+| Run the tool from source | `bun run src/cli.ts <command> [--root <path>]` |
 
 ## Conventions specific to this project
 
@@ -56,16 +65,21 @@ reproducibility check of its own.
 
 ## Constraints
 
-- The tool reaches two dependencies, both pinned to exact versions in `deno.json`:
-  `@std/yaml` for frontmatter and `ignore` for `.gitignore` rules. Neither is a format worth
+- The tool reaches two dependencies, both pinned to exact versions in `package.json`:
+  `js-yaml` for frontmatter and `ignore` for `.gitignore` rules. Neither is a format worth
   reimplementing, and a hand-written parser for either has one failure mode this tool cannot
-  afford — answering "I cannot read this" with silence. `@std/assert` and `@std/fs` are
-  reached only by the tests.
+  afford — answering "I cannot read this" with silence. `js-yaml` is also the one of the two
+  candidates that reads no environment variable, which is what lets a Deno run stay on read
+  and write alone. Biome and `@types/bun` are development-only and never ship.
+- The published artifact keeps those two external rather than bundling them, so a consuming
+  repository's audit sees the dependency graph the tool actually has.
 - The following are external compatibility and do not change without a version change: the
   commands and their flags, the manifest schema, the exit codes, the digest algorithm and
   its normalization rules, the conformance framing rules, the byte form of the vendored copy
   header, and the violation kinds.
-- The tool asks for read and write access and nothing else — no network, environment, or
-  subprocess permission.
+- The tool reaches the file system and nothing else — no network, no environment, no
+  subprocess. Under Deno that is enforceable with `--allow-read --allow-write`; on Node and
+  Bun there is no sandbox to enforce it with, so it is a property of the code rather than a
+  guarantee of the runtime.
 
 ## Glossary

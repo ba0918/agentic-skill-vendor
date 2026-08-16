@@ -16,16 +16,27 @@ prove that a copy is identical to its source; it cannot prove that a new version
 document is compatible with the skills that depend on it. That judgment belongs to the
 consuming repository's own regression machinery.
 
-The tool is not locked to any particular repository. It is implemented in Deno/TypeScript
-and ships as a single `.ts` source file that consumers sync at a fixed digest and run with
-`deno run` — no compiled binary, so the distributed artifact needs no build-reproducibility
-verification of its own.
+The tool is not locked to any particular repository. It is written in TypeScript against
+Node-compatible builtins and web standard APIs only — no runtime's own API — so the same
+source runs on Node, Bun and Deno, and this side's choice of runtime never becomes a
+requirement on the consuming side.
 
 ## Using it
 
+It is published to npm and run through whichever runner the consuming repository already
+has. Nothing has to be copied into that repository. These are the recommended forms — the
+tool cannot enforce how it is invoked, and every one of them reaches the same CLI:
+
 ```
-deno run --allow-read --allow-write src/cli.ts <command> [--root <path>]
+bunx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
+npx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
+pnpm dlx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
+yarn dlx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
+deno run --allow-read --allow-write npm:@ba0918/skill-shared-reference-vendor <command> [--root <path>]
 ```
+
+Pinning the version is the consuming repository's call, and pinning it is what makes a run
+repeatable — a runner given a bare name resolves the newest release each time.
 
 | Command | What it does |
 |---|---|
@@ -45,9 +56,11 @@ on standard error. That state is not silent: it is exactly what `verify` reports
 writing order is chosen so that what is left behind is a state `verify` calls a violation
 rather than one that looks finished.
 
-`verify`, `lint-selfcontain` and `self-test` never write, so they can be given
-`--allow-read` alone. Only `gen` and `accept` need `--allow-write`. Nothing needs network,
-environment, or subprocess access.
+The tool reaches nothing but the file system on any runtime: no network, no environment,
+no subprocess. Run under Deno, that can be held to further: `verify`, `lint-selfcontain` and
+`self-test` never write, so they run on `--allow-read` alone, and only `gen` and `accept`
+need `--allow-write`. That is an additional restriction Deno makes available, not a
+guarantee this tool provides — Node and Bun have no permission sandbox to enforce it.
 
 ### The tree it works on
 
@@ -111,14 +124,18 @@ A skill declares nothing when the document says so: no frontmatter, no `metadata
 because reading a declaration the tool cannot make sense of as an absent one would silently
 unpin a skill that believes it is pinned.
 
-The frontmatter has to open on the first line. A document whose first line is blank, or
-anything else, has no frontmatter and declares nothing — a `---` further down is a horizontal
-rule, and the block under it is body text. Refused, then:
+The frontmatter has to open on the first line. A document that opens with anything else has
+no frontmatter and declares nothing — a `---` further down is a horizontal rule, and the text
+under it is body. The exception is a document that reaches `---` with only blank lines above
+it: a horizontal rule at the very top of a body separates nothing, so the only thing that
+shape can plausibly be is frontmatter that lost its position, and it is refused rather than
+read as bodyless. Refused, then:
 
 | Refused | Why |
 |---|---|
 | Frontmatter YAML cannot parse — a duplicate key, ragged indentation, an unterminated block | The declaration cannot be read at all |
-| An opening `---` that is not exactly `---` — a trailing space, a tab, a lone carriage return | Read as "this document has no frontmatter" it would drop the whole block, and trailing whitespace is invisible in an editor |
+| An opening `---` that is not exactly `---` — a trailing space, a tab, a lone carriage return, a zero-width character (U+200B–U+200D) | Read as "this document has no frontmatter" it would drop the whole block. Every one of these is invisible in an editor, and `trim` removes none of the zero-width ones |
+| A `---` reached with only blank lines above it | Same drop, from a leading blank line alone. A rule at the top of a body separates nothing, so nothing legitimate is refused |
 | A tab in the indentation, anywhere in the frontmatter | YAML forbids it, and parsers that tolerate it re-read the indented key as a sibling — which drops the declaration. The rule is deliberately blunt: a tab-indented line inside a block scalar, where YAML would allow it, is refused too |
 | `metadata` that is not a mapping | Same: there is no reading under which its contracts are visible |
 | `contracts` that is not a list, or an empty one | The key was written, so something was meant by it |
@@ -139,16 +156,6 @@ accepted: verdict-format
 ```
 
 There is no accept-all: approval means naming what is being approved.
-
-### Verifying a copy you synced
-
-A consumer pins this file by digest and checks it in two steps:
-
-1. Compare the sha256 of the file against the digest that was pinned.
-2. Run `self-test`.
-
-The order is what avoids a circle: neither step asks the tool to vouch for a newer version of
-itself.
 
 ## Status
 
