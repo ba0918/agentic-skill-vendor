@@ -194,7 +194,7 @@ describeRead(
         const result = await runCli(["verify", "--root", root]);
         expect(result.code).toStrictEqual(2);
         expect(result.stdout).toStrictEqual([]);
-        expect(result.stderr.join("\n")).toContain("skills");
+        expect(result.stderr.join("\n")).toContain("cannot read skills");
       });
     });
   },

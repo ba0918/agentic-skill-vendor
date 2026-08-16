@@ -199,7 +199,7 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
   if (!(await isDirectory(root, SKILLS_DIR))) return [];
   const skillsDir = `${root}/${SKILLS_DIR}`;
   const names: string[] = [];
-  for (const entry of await readEntries(skillsDir)) {
+  for (const entry of await readEntries(skillsDir, SKILLS_DIR)) {
     if (entry.isSymlink) {
       throw new ConfigError(
         `symlink is not allowed inside the tree: ${SKILLS_DIR}/${entry.name}`,
