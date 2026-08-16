@@ -295,3 +295,39 @@ test("an opening delimiter carrying an invisible character YAML has no name for 
     ),
   ).toThrow(ConfigError);
 });
+
+test("a metadata block assembled through a merge key declares its contracts", () => {
+  // A merge key is one of YAML's spellings of "these entries belong here", and
+  // the parser this tool used before read it. A parser that leaves `<<` as a
+  // literal key answers "declares nothing" for a skill that declared two.
+  expect(
+    parseContractDeclarations(
+      "---\ndefaults: &d\n  contracts:\n    - verdict-format\n    - changelog-entry\n" +
+        "metadata:\n  <<: *d\n---\n\n# Sample\n",
+      "skills/sample/SKILL.md",
+    ),
+  ).toStrictEqual(["verdict-format", "changelog-entry"]);
+});
+
+test("a delimiter reached after a lone carriage return is a configuration error", () => {
+  // Every editor draws a lone carriage return as a line break, so this is the
+  // leading-blank-line shape as a reader sees it, whatever the byte says.
+  expect(() =>
+    parseContractDeclarations(
+      "\r---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+      "skills/sample/SKILL.md",
+    ),
+  ).toThrow(ConfigError);
+});
+
+test("a delimiter behind a character that draws as blank is a configuration error", () => {
+  // A braille blank is a graphic character, so Unicode does not file it with
+  // the ones a renderer shows as nothing — but a reader sees indentation, and
+  // an indented delimiter is already refused.
+  expect(() =>
+    parseContractDeclarations(
+      "⠀---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+      "skills/sample/SKILL.md",
+    ),
+  ).toThrow(ConfigError);
+});

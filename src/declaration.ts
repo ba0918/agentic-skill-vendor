@@ -1,6 +1,11 @@
 // declaration.ts — what a skill says it depends on.
 //
-import { loadAll as parseYamlDocuments } from "js-yaml";
+import {
+  CORE_SCHEMA,
+  loadAll as parseYamlDocuments,
+  mergeTag,
+  Schema,
+} from "js-yaml";
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
@@ -32,6 +37,18 @@ function skillFileOf(skill: string): string {
 // raises, and a readable one is judged against rules that name what they want.
 
 /**
+ * YAML 1.2's core schema with the merge key put back.
+ *
+ * A merge key is one of YAML's spellings of "these entries belong here", and
+ * the parser this tool read frontmatter with before resolved it. Left out, `<<`
+ * survives as a literal key: a `metadata` block assembled through one loses its
+ * `contracts` and the skill is answered with "declares nothing" — the silent
+ * unpin this module is built to make impossible. Nothing else is added, so the
+ * types a scalar can take are still YAML 1.2's.
+ */
+const DECLARATION_SCHEMA = new Schema([...CORE_SCHEMA.tags, mergeTag]);
+
+/**
  * The frontmatter as YAML reads it, or null when it holds nothing.
  *
  * A tab anywhere in a line's indentation is refused before the parser sees it.
@@ -58,7 +75,9 @@ function parseFrontmatter(lines: string[], site: string): unknown {
   }
   let documents: unknown[];
   try {
-    documents = parseYamlDocuments(lines.join("\n"));
+    documents = parseYamlDocuments(lines.join("\n"), {
+      schema: DECLARATION_SCHEMA,
+    });
   } catch (cause) {
     throw new ConfigError(
       `${site}: frontmatter is not readable YAML: ${describeCause(cause)}`,
