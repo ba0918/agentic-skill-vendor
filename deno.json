@@ -1,0 +1,15 @@
+{
+  "fmt": {
+    // Markdown keeps the sister repositories' hand-wrapped style; fmt governs
+    // TypeScript only.
+    "exclude": ["**/*.md"]
+  },
+  "tasks": {
+    // --permit-no-files keeps these gates green while no .ts file exists yet;
+    // remove it when v1's first code lands so a vanished suite fails loudly.
+    "test": "deno test --permit-no-files",
+    "lint": "deno lint --permit-no-files",
+    "fmt": "deno fmt",
+    "fmt:check": "deno fmt --check"
+  }
+}

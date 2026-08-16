@@ -1,0 +1,29 @@
+name: CI
+
+# push is limited to main so a branch with an open PR runs once (via
+# pull_request), not twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing in this workflow writes to the repository, so the token is held to
+# read access instead of the repository default. In particular, CI never runs
+# the tool's accept operation: CI only detects unapproved drift and fails.
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.9.x"
+
+      # The same command PROJECT.md documents for local runs, so CI and the
+      # documentation cannot drift apart.
+      - name: Run the tool's own tests
+        run: deno task test
