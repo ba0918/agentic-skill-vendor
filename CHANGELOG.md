@@ -36,7 +36,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a tab in the indentation, a `metadata` key that is not a mapping, a `contracts` value
   that is not a non-empty list, and an entry that is not text.
 - A document whose opening `---` is not exactly `---` — a trailing space, a tab, a lone
-  carriage return, a zero-width character (U+200B–U+200D) — stops the run with exit `2`. It
+  carriage return, or any character Unicode marks as showing nothing, such as a zero-width
+  space, a word joiner or a bidi mark — stops the run with exit `2`. It
   was read as "this document has no frontmatter", which dropped the entire declaration
   block: `gen` then finished cleanly while deleting the skill's vendored copies and its
   dependency edge. The same refusal applies to a contract document, whose frontmatter would

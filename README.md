@@ -134,7 +134,7 @@ read as bodyless. Refused, then:
 | Refused | Why |
 |---|---|
 | Frontmatter YAML cannot parse — a duplicate key, ragged indentation, an unterminated block | The declaration cannot be read at all |
-| An opening `---` that is not exactly `---` — a trailing space, a tab, a lone carriage return, a zero-width character (U+200B–U+200D) | Read as "this document has no frontmatter" it would drop the whole block. Every one of these is invisible in an editor, and `trim` removes none of the zero-width ones |
+| An opening `---` that is not exactly `---` — a trailing space, a tab, a lone carriage return, or any character Unicode marks as showing nothing (a zero-width space, a word joiner, a bidi mark) | Read as "this document has no frontmatter" it would drop the whole block. Every one of these is invisible in an editor, and trimming whitespace removes none of the invisible ones |
 | A `---` reached with only blank lines above it | Same drop, from a leading blank line alone. A rule at the top of a body separates nothing, so nothing legitimate is refused |
 | A tab in the indentation, anywhere in the frontmatter | YAML forbids it, and parsers that tolerate it re-read the indented key as a sibling — which drops the declaration. The rule is deliberately blunt: a tab-indented line inside a block scalar, where YAML would allow it, is refused too |
 | `metadata` that is not a mapping | Same: there is no reading under which its contracts are visible |
