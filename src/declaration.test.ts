@@ -283,3 +283,15 @@ test("a first line holding only zero-width characters does not hide the delimite
     ),
   ).toThrow(ConfigError);
 });
+
+test("an opening delimiter carrying an invisible character YAML has no name for is a configuration error", () => {
+  // U+200B..U+200D are the ones that were measured, but they are instances of
+  // a class: a character a renderer shows as nothing and `trim` does not
+  // remove. A word joiner is one of the others.
+  expect(() =>
+    parseContractDeclarations(
+      "⁠---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+      "skills/sample/SKILL.md",
+    ),
+  ).toThrow(ConfigError);
+});

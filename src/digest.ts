@@ -37,16 +37,21 @@ export interface Document {
 /**
  * What the line shows a reader, with the characters that show nothing removed.
  *
- * `trim` alone is not enough: it strips U+00A0 and U+FEFF but leaves the
- * zero-width range U+200B..U+200D in place, so a delimiter carrying one reads
- * as ordinary text while looking exactly like a delimiter on screen.
+ * `trim` alone is not enough. It strips U+00A0 and U+FEFF, but a zero-width
+ * space, a word joiner or a bidi mark survives it, and a delimiter carrying one
+ * reads as ordinary text while looking exactly like a delimiter on screen.
+ *
+ * The removed set is named by the property Unicode gives it \u2014 the code points a
+ * renderer is expected to show as nothing \u2014 rather than by a list of the ones
+ * that have been run into. A list closes the holes someone thought of; the
+ * property closes the class.
  */
 function visibleTextOf(line: string): string {
   // Splitting on a lone carriage return first catches a file written with
   // classic Mac line endings, whose whole text is one line here.
   return line
     .split("\r")[0]
-    .replace(/[\u200b-\u200d]/g, "")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
     .trim();
 }
 
