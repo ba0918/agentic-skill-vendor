@@ -220,3 +220,39 @@ Deno.test("frontmatter opened but never closed is a configuration error", () => 
     ConfigError,
   );
 });
+
+Deno.test("an opening delimiter carrying a trailing space is a configuration error", () => {
+  // Invisible in every editor, survives copy-paste, and tolerated by the
+  // frontmatter readers skill authors are used to. Read as "no frontmatter" it
+  // would drop the whole block without a word.
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "--- \nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("an opening delimiter carrying a leading space is a configuration error", () => {
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        " ---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a document whose lines end with a lone carriage return is a configuration error", () => {
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "---\rmetadata:\r  contracts:\r    - verdict-format\r---\r\r# Sample\r",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});

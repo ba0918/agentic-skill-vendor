@@ -247,3 +247,18 @@ Deno.test("a run interrupted by an unwritable copy leaves every other file in pl
     );
   });
 });
+
+Deno.test("gen refuses a skill whose opening delimiter is not exactly the delimiter and keeps its vendored copies", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    const lines = (await Deno.readTextFile(skill)).split("\n");
+    lines[0] = "--- ";
+    await Deno.writeTextFile(skill, lines.join("\n"));
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertEquals(await snapshotTree(root), before);
+  });
+});

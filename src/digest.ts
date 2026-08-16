@@ -42,11 +42,30 @@ export interface Document {
  * that happens to have no frontmatter: reading it as all-body would silently
  * drop every declaration the unterminated block holds, and a pin that vanishes
  * quietly is the worst failure this tool can have.
+ *
+ * A first line that reads as the delimiter without being it exactly is refused
+ * for the same reason. Trailing whitespace is invisible in an editor, survives
+ * a copy-paste, and is tolerated by the frontmatter readers authors are used
+ * to, so the block below it is believed to be live. The delimiter is matched
+ * exactly rather than loosened because it also decides where a contract's
+ * canonical body starts: accepting a second spelling of it would change what
+ * an already pinned document digests to.
  */
 export function splitDocument(text: string, site?: string): Document {
   const normalized = text.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
   if (lines[0] !== FRONTMATTER_DELIMITER) {
+    // Splitting on a lone carriage return first catches a file written with
+    // classic Mac line endings, whose whole text is one line here.
+    if (lines[0].split("\r")[0].trim() === FRONTMATTER_DELIMITER) {
+      throw new ConfigError(
+        `${
+          site ?? "document"
+        }: the line opening the frontmatter is not exactly '---': ${
+          JSON.stringify(lines[0])
+        }`,
+      );
+    }
     return { frontmatter: [], body: normalized };
   }
   for (let index = 1; index < lines.length; index++) {
