@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
 import { readResolutions, type Resolutions } from "./manifest.ts";
-import { runCli, withEmptyDir, withGoodTree } from "./testing.ts";
+import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const MANIFEST = "vendor-manifest.json";
 
@@ -106,6 +106,43 @@ test("provenance refuses a contracts directory symlinked outside the tree", asyn
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
+  });
+});
+
+test("provenance refuses a contract's own directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    // The contract that no skill declares any more: reading the canonical text
+    // never reaches it, so the lock is the one thing still naming it and
+    // provenance is the only route left to contracts/. Refused for the same
+    // contract still declared, the link stopped every command; refused only
+    // there, this one shape went on answering three different ways.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+    await fs.mkdir(outside, { recursive: true });
+    await fs.rename(
+      `${root}/contracts/changelog-entry`,
+      `${outside}/changelog-entry`,
+    );
+    await fs.symlink(
+      `${outside}/changelog-entry`,
+      `${root}/contracts/changelog-entry`,
+    );
+    const outsideBefore = await snapshotTree(outside);
+
+    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        "symlink is not allowed inside the tree: contracts/changelog-entry",
+      );
+    }
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
   });
 });
 

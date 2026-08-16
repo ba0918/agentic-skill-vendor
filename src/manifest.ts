@@ -11,6 +11,7 @@ import {
   assertValidContractId,
   compareStrings,
   contractPath,
+  CONTRACTS_DIR,
 } from "./digest.ts";
 import {
   assertPlainChain,
@@ -119,6 +120,13 @@ export function buildManifest(
  * one route to contracts/ a tree whose skills declare nothing still takes. The
  * link check therefore belongs here too: without it such a tree would record
  * provenance for files sitting outside the boundary the run was pointed at.
+ *
+ * The contract's own directory — where its conformance tests live — is checked
+ * on the same grounds, and for the same reason it is checked where the
+ * canonical text is read: whether a link is refused is a fact about the tree,
+ * not about which command is looking. A contract only the lock still names is
+ * reached through here and nowhere else, so left out here that one shape
+ * stopped verify, which digests those tests, while gen and accept carried on.
  */
 export async function presentContractIds(
   root: string,
@@ -128,6 +136,7 @@ export async function presentContractIds(
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
     const site = contractPath(id);
     await assertPlainChain(root, site);
+    await assertPlainChain(root, `${CONTRACTS_DIR}/${id}`);
     if (await isRegularFile(root, site)) present.push(id);
   }
   return present;
