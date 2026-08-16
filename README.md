@@ -23,9 +23,10 @@ requirement on the consuming side.
 
 ## Using it
 
-It is published to npm and run through whichever runner the consuming repository already
-has. Nothing has to be copied into that repository. These are the recommended forms — the
-tool cannot enforce how it is invoked, and every one of them reaches the same CLI:
+It is distributed through npm and run through whichever runner the consuming repository
+already has. Nothing has to be copied into that repository. These are the recommended
+forms — the tool cannot enforce how it is invoked, and every one of them reaches the same
+CLI:
 
 ```
 bunx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
@@ -159,4 +160,7 @@ There is no accept-all: approval means naming what is being approved.
 
 ## Status
 
-The v1 design (see `docs/spec/`) is implemented. See `PROJECT.md` for commands and layout.
+The v1 design (see `docs/spec/`) is implemented. No version has been released yet, so the
+commands above describe how the package is run once it is published rather than something
+you can install today; until then, run it from a checkout with `bun run src/cli.ts`. See
+`PROJECT.md` for commands and layout.
