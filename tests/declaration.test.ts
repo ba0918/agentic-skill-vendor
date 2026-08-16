@@ -98,6 +98,30 @@ Deno.test("an unusable contract id in a declaration is a configuration error", (
   assertRefused("metadata:\n  contracts:\n    - ../escape\n");
 });
 
+Deno.test("a second metadata key holding the contracts is a configuration error", () => {
+  assertRefused(
+    "metadata:\n  audience: internal\nmetadata:\n  contracts:\n    - verdict-format\n",
+  );
+});
+
+Deno.test("a contracts key indented deeper than its sibling keys is a configuration error", () => {
+  assertRefused(
+    "metadata:\n  audience: internal\n    contracts:\n      - verdict-format\n",
+  );
+});
+
+Deno.test("a contracts key indented shallower than its sibling keys is a configuration error", () => {
+  assertRefused(
+    "metadata:\n    audience: internal\n  contracts:\n    - verdict-format\n",
+  );
+});
+
+Deno.test("a second contracts key in the same metadata block is a configuration error", () => {
+  assertRefused(
+    "metadata:\n  contracts:\n    - verdict-format\n  contracts:\n    - changelog-entry\n",
+  );
+});
+
 Deno.test("frontmatter opened but never closed is a configuration error", () => {
   assertThrows(
     () =>

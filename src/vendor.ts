@@ -153,9 +153,7 @@ export function parseContractDeclarations(
   site: string,
 ): string[] {
   const frontmatter = splitDocument(text, site).frontmatter;
-  const metadataAt = frontmatter.findIndex(
-    (line) => indentOf(line) === 0 && /^metadata:(\s|$)/.test(line),
-  );
+  const metadataAt = findSoleKey(frontmatter, 0, "metadata", "metadata", site);
   if (metadataAt === -1) return [];
   requireNoInlineValue(frontmatter[metadataAt], "metadata", "metadata", site);
 
@@ -169,10 +167,13 @@ export function parseContractDeclarations(
   if (block.length === 0) return [];
 
   const childIndent = indentOf(block[0]);
-  const contractsAt = block.findIndex(
-    (line) =>
-      indentOf(line) === childIndent &&
-      /^contracts:(\s|$)/.test(line.trimStart()),
+  requireEvenChildIndent(block, childIndent, site);
+  const contractsAt = findSoleKey(
+    block,
+    childIndent,
+    "contracts",
+    "metadata.contracts",
+    site,
   );
   if (contractsAt === -1) return [];
   requireNoInlineValue(
@@ -183,6 +184,68 @@ export function parseContractDeclarations(
   );
 
   return readSequence(block.slice(contractsAt + 1), childIndent, site);
+}
+
+/**
+ * The index of the single line declaring `keyToken` at `indent`, or -1 when no
+ * line declares it. A second declaration of the same key stops the run instead
+ * of being discarded in favour of the first: whichever one the writer meant,
+ * the block under the other would vanish from the read without a word.
+ */
+function findSoleKey(
+  lines: string[],
+  indent: number,
+  keyToken: string,
+  label: string,
+  site: string,
+): number {
+  const key = new RegExp(`^${keyToken}:(\\s|$)`);
+  let found = -1;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (indentOf(line) !== indent) continue;
+    if (!key.test(withoutComment(line).trimStart())) continue;
+    if (found !== -1) {
+      throw new ConfigError(`${site}: ${label} is declared more than once`);
+    }
+    found = index;
+  }
+  return found;
+}
+
+/**
+ * Refuses a metadata block whose children do not all sit at one indent.
+ *
+ * A deeper `contracts:` would ordinarily be some other key's child rather than
+ * `metadata.contracts`, and this grammar could keep reading past it. It refuses
+ * instead: reading structure from indentation alone leaves the two cases
+ * byte-identical, so a `contracts:` typed one level too deep would be answered
+ * with "this skill declares nothing" — the silent unpinning the whole parser
+ * exists to prevent. A skill that genuinely nests a contracts key under another
+ * metadata key has to rename it.
+ */
+function requireEvenChildIndent(
+  block: string[],
+  childIndent: number,
+  site: string,
+): void {
+  for (const line of block) {
+    const indent = indentOf(line);
+    if (indent === childIndent) continue;
+    if (indent < childIndent) {
+      throw new ConfigError(
+        `${site}: metadata children must all sit at the same indent: ${
+          JSON.stringify(line)
+        }`,
+      );
+    }
+    if (/^contracts:(\s|$)/.test(withoutComment(line).trimStart())) {
+      throw new ConfigError(
+        `${site}: a contracts key indented deeper than metadata's other children ` +
+          `cannot be read as metadata.contracts: ${JSON.stringify(line)}`,
+      );
+    }
+  }
 }
 
 /**

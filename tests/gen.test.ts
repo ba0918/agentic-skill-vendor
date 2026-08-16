@@ -206,6 +206,26 @@ Deno.test("adding a dependency on an already resolved contract needs no acceptan
   });
 });
 
+Deno.test("gen refuses a skill whose declaration cannot be read and keeps its vendored copies", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/review-writer/SKILL.md`;
+    await Deno.writeTextFile(
+      skill,
+      (await Deno.readTextFile(skill)).replace(
+        "metadata:\n",
+        "metadata:\n  audience: internal\nmetadata:\n",
+      ),
+    );
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertStringIncludes(result.stderr.join("\n"), "error:");
+    assertEquals(await snapshotTree(root), before);
+  });
+});
+
 Deno.test("gen refuses a vendor directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
