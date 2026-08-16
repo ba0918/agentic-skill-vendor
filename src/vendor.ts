@@ -669,12 +669,22 @@ function withSortedKeys(value: unknown): unknown {
   return sorted;
 }
 
+/**
+ * The manifest as the declarations, the resolutions and the present contracts
+ * render to it.
+ *
+ * `present` names the contracts whose canonical file the tree actually holds,
+ * and provenance is limited to those. A source path recorded for a contract
+ * that has been withdrawn would name a file no reader can open, and provenance
+ * exists to say where text came from — not where it used to.
+ */
 export function buildManifest(
   dependencies: Dependencies,
   resolutions: Resolutions,
+  present: string[],
 ): unknown {
   const contracts: Record<string, { source: string }> = {};
-  for (const id of Object.keys(resolutions).sort(compareStrings)) {
+  for (const id of [...present].sort(compareStrings)) {
     contracts[id] = { source: contractPath(id) };
   }
   // No wall-clock value is recorded anywhere in here. Reproducibility is the
@@ -684,6 +694,25 @@ export function buildManifest(
     lock: { dependencies, resolutions },
     provenance: { contracts, generator: { ...GENERATOR } },
   };
+}
+
+/**
+ * The resolved contracts whose canonical file the tree holds.
+ *
+ * Every command that renders a manifest asks this one question through this one
+ * function. Two commands answering it differently would make the manifest gen
+ * writes differ from the manifest verify expects, and the difference would be
+ * reported as a stale manifest that regenerating never fixes.
+ */
+export async function presentContractIds(
+  root: string,
+  resolutions: Resolutions,
+): Promise<string[]> {
+  const present: string[] = [];
+  for (const id of Object.keys(resolutions).sort(compareStrings)) {
+    if (await isRegularFile(`${root}/${contractPath(id)}`)) present.push(id);
+  }
+  return present;
 }
 
 /** The resolutions currently recorded, or none when there is no manifest yet. */
@@ -998,7 +1027,13 @@ async function planExpansion(
     manifest: {
       path: `${root}/${MANIFEST_FILE}`,
       content: encoder.encode(
-        canonicalJson(buildManifest(dependenciesOf(skills), resolutions)),
+        canonicalJson(
+          buildManifest(
+            dependenciesOf(skills),
+            resolutions,
+            await presentContractIds(root, resolutions),
+          ),
+        ),
       ),
     },
     removals,
@@ -1145,7 +1180,11 @@ async function manifestViolations(
     return [`manifest: ${MANIFEST_FILE} is missing`];
   }
   const expected = canonicalJson(
-    buildManifest(dependenciesOf(skills), resolutions),
+    buildManifest(
+      dependenciesOf(skills),
+      resolutions,
+      await presentContractIds(root, resolutions),
+    ),
   );
   const actual = decodeUtf8(await Deno.readFile(path), MANIFEST_FILE);
   if (actual === expected) return [];

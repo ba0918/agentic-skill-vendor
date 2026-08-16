@@ -292,3 +292,31 @@ Deno.test("a run interrupted by an unwritable copy leaves every other file in pl
     );
   });
 });
+
+Deno.test("provenance names only the contracts whose canonical text is present", async () => {
+  await withGoodTree(async (root) => {
+    // The contract is withdrawn: no skill declares it any more and the
+    // canonical file is gone. The resolution it was accepted under stays in the
+    // lock, because accept is the only thing that writes resolutions.
+    const skill = `${root}/skills/review-writer/SKILL.md`;
+    await Deno.writeTextFile(
+      skill,
+      (await Deno.readTextFile(skill)).replace("    - verdict-format\n", ""),
+    );
+    await Deno.remove(`${root}/contracts/verdict-format.md`);
+
+    const result = await runCli(["gen", "--root", root]);
+    assertEquals(
+      result.code,
+      0,
+      result.stdout.concat(result.stderr).join("\n"),
+    );
+    const provenance = (await readManifest(root)).provenance;
+    assertEquals("verdict-format" in provenance.contracts, false);
+    assertEquals(
+      provenance.contracts["changelog-entry"].source,
+      "contracts/changelog-entry.md",
+    );
+    assertEquals((await runCli(["verify", "--root", root])).code, 0);
+  });
+});
