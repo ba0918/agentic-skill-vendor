@@ -1,5 +1,12 @@
-import { assertEquals, assertMatch, assertStringIncludes } from "@std/assert";
-import { runCli, withGoodTree } from "./testing.ts";
+import {
+  assertEquals,
+  assertMatch,
+  assertRejects,
+  assertStringIncludes,
+} from "@std/assert";
+import { ConfigError } from "./errors.ts";
+import { readResolutions, type Resolutions } from "./manifest.ts";
+import { runCli, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const MANIFEST = "vendor-manifest.json";
 
@@ -81,4 +88,77 @@ Deno.test("provenance names only the contracts whose canonical text is present",
     );
     assertEquals((await runCli(["verify", "--root", root])).code, 0);
   });
+});
+
+// The lock is read back from a file anyone can edit, and a resolution key
+// becomes a path under contracts/. These state what the reader refuses.
+
+/** Writes `manifest` as the tree's manifest and reads the resolutions back. */
+async function readWritten(manifest: string): Promise<Resolutions> {
+  return await withEmptyDir(async (root) => {
+    await Deno.writeTextFile(`${root}/${MANIFEST}`, manifest);
+    return await readResolutions(root);
+  });
+}
+
+function manifestWith(resolutions: string): string {
+  return `{"lock":{"resolutions":${resolutions}}}`;
+}
+
+const DIGEST = `sha256:${"0".repeat(64)}`;
+
+Deno.test("a tree with no manifest has no resolutions", async () => {
+  assertEquals(await withEmptyDir((root) => readResolutions(root)), {});
+});
+
+Deno.test("a recorded resolution is read back whole", async () => {
+  assertEquals(
+    await readWritten(
+      manifestWith(
+        `{"verdict-format":{"digest":"${DIGEST}","version":"1.2.0"}}`,
+      ),
+    ),
+    { "verdict-format": { digest: DIGEST, version: "1.2.0" } },
+  );
+});
+
+Deno.test("a resolution key that would escape the contracts directory is refused", async () => {
+  await assertRejects(
+    () =>
+      readWritten(manifestWith(`{"../../etc/passwd":{"digest":"${DIGEST}"}}`)),
+    ConfigError,
+  );
+});
+
+Deno.test("a resolution whose digest is not a sha256 digest is refused", async () => {
+  await assertRejects(
+    () =>
+      readWritten(manifestWith(`{"verdict-format":{"digest":"notadigest"}}`)),
+    ConfigError,
+  );
+});
+
+Deno.test("a resolution whose version is not text is refused", async () => {
+  await assertRejects(
+    () =>
+      readWritten(
+        manifestWith(`{"verdict-format":{"digest":"${DIGEST}","version":1}}`),
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a lock that is not an object is refused", async () => {
+  await assertRejects(() => readWritten(`{"lock":"oops"}`), ConfigError);
+});
+
+Deno.test("resolutions written as a list are refused", async () => {
+  await assertRejects(
+    () => readWritten(manifestWith(`["verdict-format"]`)),
+    ConfigError,
+  );
+});
+
+Deno.test("a manifest that is not readable JSON is refused", async () => {
+  await assertRejects(() => readWritten(`{"lock":{`), ConfigError);
 });

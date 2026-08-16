@@ -1,5 +1,9 @@
 import { assertEquals } from "@std/assert";
-import { ancestorDirectories, readIgnoreRules } from "./ignore.ts";
+import {
+  ancestorDirectories,
+  readIgnoreRules,
+  treeDirectoryOf,
+} from "./ignore.ts";
 import { withEmptyDir, writeFile } from "./testing.ts";
 
 /**
@@ -15,7 +19,16 @@ async function excludedIn(
     for (const [path, content] of Object.entries(files)) {
       await writeFile(`${root}/${path}`, content);
     }
-    const rules = await readIgnoreRules(root, ancestorDirectories(from));
+    // Every directory holding a .gitignore is offered to the rules, not only
+    // the ancestors of `from`. A nested rule the reader never loaded cannot be
+    // shown to lose to the rule above it.
+    const directories = [
+      ...ancestorDirectories(from),
+      ...Object.keys(files)
+        .filter((path) => path.endsWith(".gitignore"))
+        .map((path) => treeDirectoryOf(path)),
+    ];
+    const rules = await readIgnoreRules(root, directories);
     return paths.filter((path) => rules.excludes(path));
   });
 }
