@@ -96,12 +96,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tree, wrote outside text into every vendored copy, recorded provenance naming a path the
   tree does not hold, and `verify` then reported the result as clean. Links standing in for
   a single file were already refused; the directory shapes were not. Every command that
-  reads the tree answers a planted link the same way. A link at `contracts/<id>/` stopped
-  `verify`, which digests the conformance tests below it, while `gen` finished cleanly and
-  said nothing; for a contract no skill declares any more, one the lock alone still names,
-  `gen` and `accept` both carried on as well. Whether a link is refused is a fact about the
-  tree, so it depends neither on which command is looking nor on whether the contract is
-  still declared.
+  reads `contracts/` — `gen`, `verify` and `accept` — answers a planted link there the same
+  way. A link at `contracts/<id>/` stopped `verify`, which digests the conformance tests
+  below it, while `gen` finished cleanly and said nothing; for a contract no skill declares
+  any more, one the lock alone still names, `gen` and `accept` both carried on as well.
+  Whether a link is refused is a fact about the tree, so it depends neither on which command
+  is looking nor on whether the contract is still declared.
 - A read that fails for a reason other than the file being absent — a permission error, most
   of all — is reported on standard error with exit `2`. It escaped as an uncaught exception,
   which ended the run with a stack trace and exit `1`, the code that means the tree was
