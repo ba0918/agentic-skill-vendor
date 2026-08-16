@@ -27,3 +27,18 @@ jobs:
       # documentation cannot drift apart.
       - name: Run the tool's own tests
         run: deno task test
+
+      # The tool is then run against the fixture tree, which is committed in a
+      # state that verifies clean. An unapproved change to a contract, a copy,
+      # or the lock makes this step fail. Both commands are granted read access
+      # only: neither of them writes, and accept — the one operation that
+      # changes what is accepted — is deliberately absent from CI.
+      - name: Verify the fixture tree against its lock
+        run: >
+          deno run --allow-read src/vendor.ts verify
+          --root fixtures/contracts-basic/good
+
+      - name: Check that the fixture skills are self-contained
+        run: >
+          deno run --allow-read src/vendor.ts lint-selfcontain
+          --root fixtures/contracts-basic/good
