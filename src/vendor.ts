@@ -6,12 +6,13 @@
 // the environment, or a subprocess.
 
 import { parse as parseYaml } from "@std/yaml";
+import ignore, { type Ignore } from "ignore";
 
 const DIGEST_PREFIX = "sha256:";
 const CONTRACT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const CONTRACT_ID_LIMIT = 64;
 const FRONTMATTER_DELIMITER = "---";
-const BYTECODE_CACHE_DIR = "__pycache__";
+const IGNORE_FILE = ".gitignore";
 
 /** A misconfiguration or misuse: the run stops and writes nothing. */
 export class ConfigError extends Error {
@@ -271,20 +272,36 @@ export async function conformanceDigestOfEntries(
   return await digestOfBytes(concatBytes(chunks));
 }
 
-/** Reads a conformance tree, or nothing at all when the directory is absent. */
+/**
+ * Reads a conformance tree, or nothing at all when the directory is absent.
+ *
+ * Files the tree's .gitignore rules exclude are left out. What is pinned is
+ * what the repository carries, and a file git does not carry cannot be part of
+ * that: a fresh checkout would not have it, so digesting it would report a
+ * mismatch against a tree nobody changed.
+ *
+ * The links are refused before the exclusion is applied, never after. Leaving
+ * an ignored subtree unscanned would mean a link planted inside it escaped the
+ * check that exists to catch it — exclusion narrows what is digested, not what
+ * is looked at.
+ */
 export async function collectConformanceEntries(
-  dir: string,
+  root: string,
+  relative: string,
 ): Promise<ConformanceEntry[]> {
+  const dir = `${root}/${relative}`;
   if (!await isDirectory(dir)) return [];
+  const found = await walkFiles(dir);
+  const rules = await readIgnoreRules(root, [
+    ...ancestorDirectories(relative),
+    ...found
+      .filter((path) => baseNameOf(path) === IGNORE_FILE)
+      .map((path) => joinRelative(relative, treeDirectoryOf(path))),
+  ]);
   const entries: ConformanceEntry[] = [];
-  for (const relative of await walkFiles(dir)) {
-    // Running the tests must not change what the tests digest to, so compiled
-    // bytecode is excluded wherever it appears in the tree.
-    if (relative.split("/").includes(BYTECODE_CACHE_DIR)) continue;
-    entries.push({
-      path: relative,
-      content: await Deno.readFile(`${dir}/${relative}`),
-    });
+  for (const path of found) {
+    if (rules.excludes(joinRelative(relative, path))) continue;
+    entries.push({ path, content: await Deno.readFile(`${dir}/${path}`) });
   }
   return entries;
 }
@@ -293,19 +310,133 @@ export async function collectConformanceEntries(
  * The conformance digest pinned for one contract, or null when the contract
  * ships no conformance tests.
  *
- * A directory holding nothing after the bytecode exclusion counts as absent,
- * the same as no directory at all: git cannot store an empty directory, so a
- * fresh checkout drops it and any other reading would report a false mismatch.
+ * A directory holding nothing after the exclusion counts as absent, the same as
+ * no directory at all: git cannot store an empty directory, so a fresh checkout
+ * drops it and any other reading would report a false mismatch.
  */
 export async function conformanceDigest(
   root: string,
   id: string,
 ): Promise<string | null> {
   const entries = await collectConformanceEntries(
-    `${root}/contracts/${id}/conformance`,
+    root,
+    `${CONTRACTS_DIR}/${id}/conformance`,
   );
   if (entries.length === 0) return null;
   return await conformanceDigestOfEntries(entries);
+}
+
+// --- ignore rules ----------------------------------------------------------
+
+// Which files a tree carries is git's question, and .gitignore is where a
+// repository already answers it. Restating the answer as a list built into this
+// tool — the compiled-bytecode directory it used to name — would be a second,
+// silently diverging copy of it.
+
+interface IgnoreLevel {
+  /** Where the rules were read, relative to the tree root; "" is the root. */
+  directory: string;
+  matcher: Ignore;
+}
+
+export interface IgnoreRules {
+  /** True when the rules exclude this tree-relative path. */
+  excludes(relative: string): boolean;
+}
+
+/** The directory a tree-relative path sits in; "" for one at the tree root. */
+function treeDirectoryOf(relative: string): string {
+  const cut = relative.lastIndexOf("/");
+  return cut === -1 ? "" : relative.slice(0, cut);
+}
+
+function joinRelative(prefix: string, relative: string): string {
+  if (prefix === "") return relative;
+  return relative === "" ? prefix : `${prefix}/${relative}`;
+}
+
+/** The tree root, then each directory down to `relative`, ending with it. */
+function ancestorDirectories(relative: string): string[] {
+  const directories = [""];
+  let path = "";
+  for (const part of relative.split("/")) {
+    path = joinRelative(path, part);
+    directories.push(path);
+  }
+  return directories;
+}
+
+function depthOf(directory: string): number {
+  return directory === "" ? 0 : directory.split("/").length;
+}
+
+/**
+ * Reads the .gitignore of each named directory, shallowest first.
+ *
+ * Nothing above the tree root is read. The root is the boundary this tool was
+ * pointed at, and a rule outside it would make the digest depend on a file the
+ * tree does not contain.
+ */
+export async function readIgnoreRules(
+  root: string,
+  directories: string[],
+): Promise<IgnoreRules> {
+  const levels: IgnoreLevel[] = [];
+  for (
+    const directory of [...new Set(directories)].sort(
+      (a, b) => depthOf(a) - depthOf(b) || compareStrings(a, b),
+    )
+  ) {
+    const site = joinRelative(directory, IGNORE_FILE);
+    if (!await isRegularFile(`${root}/${site}`)) continue;
+    levels.push({
+      directory,
+      matcher: ignore().add(await readTextFile(`${root}/${site}`, site)),
+    });
+  }
+  return { excludes: (relative) => excludedBy(levels, relative) };
+}
+
+/**
+ * Applies the rules the way git orders them: a directory is judged before
+ * anything inside it, and a rule closer to the file wins over one further up.
+ *
+ * Judging the directories first is what makes an exclusion final. Git never
+ * looks inside a directory it has excluded, so a rule written under one cannot
+ * bring a file back; deciding per path component reproduces that instead of
+ * letting the deepest rule re-include what its own directory already lost.
+ */
+function excludedBy(levels: IgnoreLevel[], relative: string): boolean {
+  const parts = relative.split("/");
+  for (let depth = 0; depth < parts.length; depth++) {
+    const candidate = parts.slice(0, depth + 1).join("/");
+    if (verdictFor(levels, candidate, depth < parts.length - 1)) return true;
+  }
+  return false;
+}
+
+function verdictFor(
+  levels: IgnoreLevel[],
+  candidate: string,
+  isDirectory: boolean,
+): boolean {
+  let excluded = false;
+  for (const level of levels) {
+    // A .gitignore inside the candidate directory, or beside it in a sibling
+    // one, has no say about the candidate itself.
+    const inside = level.directory === "" ||
+      candidate.startsWith(`${level.directory}/`);
+    if (!inside) continue;
+    const local = level.directory === ""
+      ? candidate
+      : candidate.slice(level.directory.length + 1);
+    // A directory is probed with a trailing slash: that is what tells a
+    // `name/` rule apart from a `name` one.
+    const verdict = level.matcher.test(isDirectory ? `${local}/` : local);
+    if (verdict.ignored) excluded = true;
+    else if (verdict.unignored) excluded = false;
+  }
+  return excluded;
 }
 
 // --- file system boundary --------------------------------------------------

@@ -23,6 +23,9 @@ import {
 
 const encoder = new TextEncoder();
 
+/** The conformance tree of the one fixture contract that ships tests. */
+const CONFORMANCE = "contracts/changelog-entry/conformance";
+
 /** A directory beside the tree, standing in for anything outside its boundary. */
 function outsideOf(root: string): string {
   return `${root.slice(0, root.lastIndexOf("/"))}/outside`;
@@ -90,10 +93,24 @@ Deno.test("collecting conformance files refuses a symlink inside the tree", asyn
       secret,
     );
     await assertRejects(
-      () =>
-        collectConformanceEntries(
-          `${root}/contracts/changelog-entry/conformance`,
-        ),
+      () => collectConformanceEntries(root, CONFORMANCE),
+      ConfigError,
+    );
+  });
+});
+
+Deno.test("a symlink under an ignored directory is still refused", async () => {
+  await withGoodTree(async (root) => {
+    const secret = await plantOutsideFile(root, "case.md");
+    await writeFile(`${root}/.gitignore`, "skipped/\n");
+    await replaceWithSymlink(
+      `${root}/${CONFORMANCE}/skipped/link.md`,
+      secret,
+    );
+    // Excluding a file from the digest is not a reason to stop looking at it:
+    // the scan that refuses links has to see the whole tree.
+    await assertRejects(
+      () => collectConformanceEntries(root, CONFORMANCE),
       ConfigError,
     );
   });
@@ -183,21 +200,68 @@ Deno.test("conformance content is hashed as raw bytes, not canonicalized text", 
   assertEquals(lf === crlf, false);
 });
 
-Deno.test("bytecode caches are excluded from the conformance digest", async () => {
+/** The relative paths a conformance collection found, in the order it read them. */
+async function collectedPaths(root: string): Promise<string[]> {
+  return (await collectConformanceEntries(root, CONFORMANCE)).map((entry) =>
+    entry.path
+  );
+}
+
+Deno.test("a file the tree's .gitignore matches is left out of the conformance digest", async () => {
   await withGoodTree(async (root) => {
     const before = await conformanceDigest(root, "changelog-entry");
-    await writeFile(
-      `${root}/contracts/changelog-entry/conformance/cases/__pycache__/x.pyc`,
-      "compiled bytes\n",
-    );
+    await writeFile(`${root}/.gitignore`, "*.pyc\n");
+    await writeFile(`${root}/${CONFORMANCE}/cases/x.pyc`, "compiled bytes\n");
     assertEquals(await conformanceDigest(root, "changelog-entry"), before);
+  });
+});
+
+Deno.test("a rule in a .gitignore beside the files overrides the one above it", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/.gitignore`, "*.log\n");
+    await writeFile(`${root}/${CONFORMANCE}/cases/.gitignore`, "!keep.log\n");
+    await writeFile(`${root}/${CONFORMANCE}/cases/keep.log`, "kept\n");
+    await writeFile(`${root}/${CONFORMANCE}/cases/drop.log`, "dropped\n");
+    assertEquals(await collectedPaths(root), [
+      "cases/.gitignore",
+      "cases/keep.log",
+      "cases/minimal.md",
+    ]);
+  });
+});
+
+Deno.test("a file under an ignored directory stays out even where a deeper rule re-includes it", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/.gitignore`, "scratch/\n");
+    await writeFile(`${root}/${CONFORMANCE}/scratch/.gitignore`, "!kept.md\n");
+    await writeFile(`${root}/${CONFORMANCE}/scratch/kept.md`, "kept\n");
+    assertEquals(await collectedPaths(root), ["cases/minimal.md"]);
+  });
+});
+
+Deno.test("a .gitignore in a directory between the root and the tests is obeyed", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/contracts/.gitignore`, "*.tmp\n");
+    await writeFile(`${root}/${CONFORMANCE}/cases/draft.tmp`, "draft\n");
+    assertEquals(await collectedPaths(root), ["cases/minimal.md"]);
+  });
+});
+
+Deno.test("changing what .gitignore matches changes the conformance digest", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/${CONFORMANCE}/cases/extra.md`, "one more case\n");
+    const included = await conformanceDigest(root, "changelog-entry");
+    await writeFile(`${root}/.gitignore`, "extra.md\n");
+    const excluded = await conformanceDigest(root, "changelog-entry");
+    assertEquals(included === excluded, false);
   });
 });
 
 Deno.test("a conformance directory left empty by the exclusion counts as absent", async () => {
   await withGoodTree(async (root) => {
+    await writeFile(`${root}/.gitignore`, "*.pyc\n");
     await writeFile(
-      `${root}/contracts/verdict-format/conformance/__pycache__/x.pyc`,
+      `${root}/contracts/verdict-format/conformance/x.pyc`,
       "compiled bytes\n",
     );
     assertEquals(await conformanceDigest(root, "verdict-format"), null);

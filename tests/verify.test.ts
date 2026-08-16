@@ -225,10 +225,11 @@ Deno.test("a contract gaining conformance tests nobody accepted is reported", as
   });
 });
 
-Deno.test("a conformance directory holding only bytecode still counts as absent", async () => {
+Deno.test("a conformance directory holding only ignored files still counts as absent", async () => {
   await withGoodTree(async (root) => {
+    await writeFile(`${root}/.gitignore`, "*.pyc\n");
     await writeFile(
-      `${root}/contracts/verdict-format/conformance/__pycache__/x.pyc`,
+      `${root}/contracts/verdict-format/conformance/x.pyc`,
       "compiled\n",
     );
     assertEquals((await verify(root)).code, 0);
