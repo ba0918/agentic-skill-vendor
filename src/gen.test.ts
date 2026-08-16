@@ -262,3 +262,34 @@ Deno.test("gen refuses a skill whose opening delimiter is not exactly the delimi
     assertEquals(await snapshotTree(root), before);
   });
 });
+
+Deno.test("gen refuses a skill whose opening delimiter carries a zero-width character and keeps its vendored copies", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    const lines = (await Deno.readTextFile(skill)).split("\n");
+    lines[0] = "\u200b---";
+    await Deno.writeTextFile(skill, lines.join("\n"));
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertEquals(await snapshotTree(root), before);
+  });
+});
+
+Deno.test("gen refuses a skill reaching its opening delimiter only after a blank line and keeps its vendored copies", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await Deno.writeTextFile(
+      skill,
+      "\n" + await Deno.readTextFile(skill),
+    );
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertEquals(await snapshotTree(root), before);
+  });
+});

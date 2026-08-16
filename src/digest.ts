@@ -35,6 +35,24 @@ export interface Document {
 }
 
 /**
+ * What the line shows a reader, with the characters that show nothing removed.
+ *
+ * `trim` alone is not enough: it strips U+00A0 and U+FEFF but leaves the
+ * zero-width range U+200B..U+200D in place, so a delimiter carrying one reads
+ * as ordinary text while looking exactly like a delimiter on screen.
+ */
+function visibleTextOf(line: string): string {
+  // Splitting on a lone carriage return first catches a file written with
+  // classic Mac line endings, whose whole text is one line here.
+  return line.split("\r")[0].replace(/[\u200b-\u200d]/g, "").trim();
+}
+
+/** True for a line a reader would take for the delimiter, exact or not. */
+function readsAsDelimiter(line: string): boolean {
+  return visibleTextOf(line) === FRONTMATTER_DELIMITER;
+}
+
+/**
  * Splits a document into its frontmatter lines and its body. Blank lines
  * directly after the closing delimiter belong to the separator, not the body.
  *
@@ -50,20 +68,32 @@ export interface Document {
  * exactly rather than loosened because it also decides where a contract's
  * canonical body starts: accepting a second spelling of it would change what
  * an already pinned document digests to.
+ *
+ * A document that reaches the delimiter only after blank lines is refused for
+ * the third time by the same argument. A horizontal rule at the very top of a
+ * body separates nothing, so nothing legitimate is lost, whereas reading the
+ * blank line as "this document has no frontmatter" would drop a live block.
+ * The rule stays at the top of the document rather than refusing every `---`
+ * further down, which would fire on the horizontal rules bodies legitimately
+ * carry.
  */
 export function splitDocument(text: string, site?: string): Document {
+  const where = site ?? "document";
   const normalized = text.replace(/\r\n/g, "\n");
   const lines = normalized.split("\n");
   if (lines[0] !== FRONTMATTER_DELIMITER) {
-    // Splitting on a lone carriage return first catches a file written with
-    // classic Mac line endings, whose whole text is one line here.
-    if (lines[0].split("\r")[0].trim() === FRONTMATTER_DELIMITER) {
+    if (readsAsDelimiter(lines[0])) {
       throw new ConfigError(
-        `${
-          site ?? "document"
-        }: the line opening the frontmatter is not exactly '---': ${
+        `${where}: the line opening the frontmatter is not exactly '---': ${
           JSON.stringify(lines[0])
         }`,
+      );
+    }
+    const opening = lines.findIndex((line) => visibleTextOf(line) !== "");
+    if (opening > 0 && readsAsDelimiter(lines[opening])) {
+      throw new ConfigError(
+        `${where}: frontmatter has to open on the first line, and this ` +
+          `document reaches '---' only below a blank one`,
       );
     }
     return { frontmatter: [], body: normalized };
@@ -78,9 +108,7 @@ export function splitDocument(text: string, site?: string): Document {
     };
   }
   throw new ConfigError(
-    `${
-      site ?? "document"
-    }: frontmatter opens with '---' but the closing '---' line is missing`,
+    `${where}: frontmatter opens with '---' but the closing '---' line is missing`,
   );
 }
 

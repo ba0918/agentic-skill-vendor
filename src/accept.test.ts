@@ -230,3 +230,31 @@ Deno.test("accepting with no contract named is a usage error", async () => {
     assertEquals(result.stdout, []);
   });
 });
+
+Deno.test("accepting refuses a skill whose opening delimiter carries a zero-width character", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    const lines = (await Deno.readTextFile(skill)).split("\n");
+    lines[0] = "\u200b---";
+    await Deno.writeTextFile(skill, lines.join("\n"));
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertEquals(await snapshotTree(root), before);
+  });
+});
+
+Deno.test("accepting refuses a skill reaching its opening delimiter only after a blank line", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await Deno.writeTextFile(skill, "\n" + await Deno.readTextFile(skill));
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertEquals(await snapshotTree(root), before);
+  });
+});

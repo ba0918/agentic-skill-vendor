@@ -288,3 +288,29 @@ Deno.test("a contract that is not valid UTF-8 makes verify exit 2", async () => 
     assertEquals(result.stdout, []);
   });
 });
+
+Deno.test("a SKILL.md whose opening delimiter carries a zero-width character makes verify exit 2", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    const lines = (await Deno.readTextFile(skill)).split("\n");
+    lines[0] = "\u200b---";
+    await Deno.writeTextFile(skill, lines.join("\n"));
+
+    const result = await verify(root);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertStringIncludes(result.stderr.join("\n"), "error:");
+  });
+});
+
+Deno.test("a SKILL.md reaching its opening delimiter only after a blank line makes verify exit 2", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await Deno.writeTextFile(skill, "\n" + await Deno.readTextFile(skill));
+
+    const result = await verify(root);
+    assertEquals(result.code, 2);
+    assertEquals(result.stdout, []);
+    assertStringIncludes(result.stderr.join("\n"), "error:");
+  });
+});

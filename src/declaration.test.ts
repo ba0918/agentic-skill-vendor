@@ -256,3 +256,53 @@ Deno.test("a document whose lines end with a lone carriage return is a configura
     ConfigError,
   );
 });
+
+Deno.test("an opening delimiter carrying a zero-width character is a configuration error", () => {
+  // A zero-width space survives `trim`, which strips U+00A0 and U+FEFF but not
+  // this range. Read as "no frontmatter" the whole declaration block would be
+  // dropped without a word, which is the failure this tool exists to prevent.
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "\u200b---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a zero-width character after the opening delimiter is a configuration error", () => {
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "---\u200d\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a document reaching its opening delimiter only after a blank line is a configuration error", () => {
+  // The delimiter is the first thing the document says or it separates nothing.
+  // Reading a leading blank line as "this document has no frontmatter" would
+  // unpin the skill silently.
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "\n---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a first line holding only zero-width characters does not hide the delimiter under it", () => {
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "\u200b\n---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
