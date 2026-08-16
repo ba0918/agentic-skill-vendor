@@ -6,8 +6,8 @@
 // from verify (which decides identity).
 
 import * as fs from "node:fs/promises";
-import { ConfigError, type Sink } from "./errors.ts";
-import { isDirectory, readEntries } from "./walk.ts";
+import { ConfigError, describeCause, type Sink } from "./errors.ts";
+import { isDirectory, readBytes, readEntries } from "./walk.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
@@ -99,8 +99,13 @@ async function realPathOrNull(path: string): Promise<string | null> {
 }
 
 /** Where a link points, resolved without requiring the target to exist. */
-async function resolveLink(path: string): Promise<string> {
-  const target = await fs.readlink(path);
+async function resolveLink(path: string, site: string): Promise<string> {
+  let target: string;
+  try {
+    target = await fs.readlink(path);
+  } catch (cause) {
+    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
+  }
   const joined = target.startsWith("/")
     ? target
     : `${dirNameOf(path)}/${target}`;
@@ -127,7 +132,7 @@ async function symlinkViolations(
   // that is itself a link would otherwise resolve to its own target first and
   // count as trivially inside itself.
   const boundary = `${skillsReal}/${skillName}`;
-  const resolved = await resolveLink(path);
+  const resolved = await resolveLink(path, relative);
   if (resolved === boundary || resolved.startsWith(`${boundary}/`)) return [];
   return [
     `symlink-escape: ${relative}: symlink resolves outside the skill directory`,
@@ -151,7 +156,7 @@ async function lintInto(
       await lintInto(root, path, site, violations);
     } else {
       violations.push(
-        ...lintLines(site, decodeForScan(await fs.readFile(path))),
+        ...lintLines(site, decodeForScan(await readBytes(path, site))),
       );
     }
   }

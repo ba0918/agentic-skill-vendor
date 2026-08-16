@@ -38,12 +38,31 @@ export interface DirectoryEntry {
  * as an ordinary file — silently retiring the symlink refusal this module is
  * built around. One extra call per entry is what keeps that refusal a fact
  * about the file rather than about the file system it happens to sit on.
+ *
+ * Both calls are rescued here rather than at each caller. Every enumeration the
+ * tool makes — declarations, vendor directories, the linted tree, the walk —
+ * comes through this one function, so a directory the run may not list stops it
+ * with a described refusal instead of an exception escaping as a stack trace.
+ * The two calls fail independently: a directory readable but not searchable
+ * lists its names and refuses every stat under it.
  */
 export async function readEntries(dir: string): Promise<DirectoryEntry[]> {
-  const names = await fs.readdir(dir);
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch (cause) {
+    throw new ConfigError(`cannot read ${dir}: ${describeCause(cause)}`);
+  }
   const entries: DirectoryEntry[] = [];
   for (const name of names.sort(compareStrings)) {
-    const info = await fs.lstat(`${dir}/${name}`);
+    let info: Stats;
+    try {
+      info = await fs.lstat(`${dir}/${name}`);
+    } catch (cause) {
+      throw new ConfigError(
+        `cannot inspect ${dir}/${name}: ${describeCause(cause)}`,
+      );
+    }
     entries.push({
       name,
       isSymlink: info.isSymbolicLink(),
@@ -87,13 +106,7 @@ async function walkInto(
   prefix: string,
   into: string[],
 ): Promise<void> {
-  let entries: DirectoryEntry[];
-  try {
-    entries = await readEntries(dir);
-  } catch (cause) {
-    throw new ConfigError(`cannot read ${dir}: ${describeCause(cause)}`);
-  }
-  for (const entry of entries) {
+  for (const entry of await readEntries(dir)) {
     const path = `${dir}/${entry.name}`;
     const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
     if (entry.isSymlink) {
@@ -155,18 +168,31 @@ export function decodeUtf8(bytes: Uint8Array, site: string): string {
   }
 }
 
+/**
+ * Reads a file as the bytes it holds, naming it as `site` when it cannot.
+ *
+ * Every raw read the tool makes comes through here. A read that fails says
+ * nothing about the tree — it says the run could not find out what the tree
+ * says — so it is a refusal on standard error, never an exception escaping to
+ * the top with a stack trace and an exit code the contract does not define.
+ */
+export async function readBytes(
+  path: string,
+  site: string,
+): Promise<Uint8Array> {
+  try {
+    return await fs.readFile(path);
+  } catch (cause) {
+    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
+  }
+}
+
 /** Reads a file that must be UTF-8 text. */
 export async function readTextFile(
   path: string,
   site: string,
 ): Promise<string> {
-  let bytes: Uint8Array;
-  try {
-    bytes = await fs.readFile(path);
-  } catch (cause) {
-    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
-  }
-  return decodeUtf8(bytes, site);
+  return decodeUtf8(await readBytes(path, site), site);
 }
 
 /**

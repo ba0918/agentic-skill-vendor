@@ -106,6 +106,35 @@ export async function rejectedBy<E extends Error>(
   throw new Error(`expected ${kind.name} to be thrown, nothing was`);
 }
 
+/**
+ * True where the permission bits a case sets are the ones the run obeys.
+ *
+ * A process running as root reads through a mode of 000, so a case built on
+ * one would assert that a failure was handled while no failure ever happened.
+ * Skipping is the honest answer: the behaviour is unobservable here.
+ */
+export const PERMISSIONS_APPLY = process.getuid?.() !== 0;
+
+/**
+ * Runs `fn` while nothing may read `path`, and puts the mode back afterwards.
+ *
+ * The restore is not tidiness. A directory nobody may read is one the fixture
+ * teardown cannot walk either, so leaving it would replace whatever the case
+ * asserts with a failure to remove a temporary directory.
+ */
+export async function withUnreadable<T>(
+  path: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const { mode } = await fs.stat(path);
+  await fs.chmod(path, 0o000);
+  try {
+    return await fn();
+  } finally {
+    await fs.chmod(path, mode);
+  }
+}
+
 /** Replaces `path` with a symlink to `target`. */
 export async function replaceWithSymlink(
   path: string,

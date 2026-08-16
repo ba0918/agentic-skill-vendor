@@ -3,12 +3,15 @@ import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
 import { atomicWriteFile, decodeUtf8, walkFiles } from "./walk.ts";
 import {
+  PERMISSIONS_APPLY,
   rejectedBy,
   replaceWithSymlink,
+  runCli,
   snapshotTree,
   thrownBy,
   withEmptyDir,
   withGoodTree,
+  withUnreadable,
   writeFile,
 } from "./testing.ts";
 
@@ -119,6 +122,76 @@ test("a write refuses a symlink pre-planted at its temporary path", async () => 
     expect(treeAfter).toStrictEqual(treeBefore);
   });
 });
+
+// The exit-code contract under a read that fails for a reason other than the
+// file being absent. A permission error is the one that reaches a real tree:
+// an absent file is an answer every reader here already has, and anything else
+// means the run could not find out what the tree says, which is exit 2 on
+// standard error rather than an exception escaping as a stack trace.
+//
+// The counterpart on the writing side has been stated since the beginning. The
+// reading side had nothing, which is how these survived.
+
+const describeRead = PERMISSIONS_APPLY ? test : test.skip;
+
+describeRead(
+  "a directory the run may not list is a configuration error, not a crash",
+  async () => {
+    await withGoodTree(async (root) => {
+      await withUnreadable(`${root}/skills`, async () => {
+        const result = await runCli(["verify", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stdout).toStrictEqual([]);
+        expect(result.stderr.join("\n")).toContain("skills");
+      });
+    });
+  },
+);
+
+describeRead(
+  "a vendored copy the run may not read is a configuration error, not a crash",
+  async () => {
+    await withGoodTree(async (root) => {
+      const copy = "skills/review-writer/references/vendor/verdict-format.md";
+      await withUnreadable(`${root}/${copy}`, async () => {
+        const result = await runCli(["verify", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stdout).toStrictEqual([]);
+        expect(result.stderr.join("\n")).toContain(copy);
+      });
+    });
+  },
+);
+
+describeRead(
+  "a conformance file the run may not read is a configuration error, not a crash",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "contracts/changelog-entry/conformance/cases/minimal.md";
+      await withUnreadable(`${root}/${site}`, async () => {
+        const result = await runCli(["verify", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stdout).toStrictEqual([]);
+        expect(result.stderr.join("\n")).toContain("minimal.md");
+      });
+    });
+  },
+);
+
+describeRead(
+  "a file inside a skill the linter may not read is a configuration error, not a crash",
+  async () => {
+    await withGoodTree(async (root) => {
+      const site = "skills/review-writer/SKILL.md";
+      await withUnreadable(`${root}/${site}`, async () => {
+        const result = await runCli(["lint-selfcontain", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stdout).toStrictEqual([]);
+        expect(result.stderr.join("\n")).toContain("SKILL.md");
+      });
+    });
+  },
+);
 
 test("content that is not valid UTF-8 is a configuration error naming the file", () => {
   const error = thrownBy(
