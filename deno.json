@@ -16,10 +16,10 @@
     "fmt:check": "deno fmt --check"
   },
   // Pinned to exact versions rather than ranges so that the version a run
-  // resolves is stated here and not only in deno.lock. @std/assert and @std/fs
-  // are reached only by the test suite; @std/yaml is reached by the tool
-  // itself. None of them asks for a permission the tool does not already have:
-  // the tool still runs on --allow-read and --allow-write alone.
+  // resolves is stated here and not only in deno.lock. @std/yaml and ignore are
+  // reached by the tool itself; @std/assert and @std/fs only by the tests.
+  // None of the four asks for a permission the tool does not already have: it
+  // still runs on --allow-read and --allow-write alone.
   "imports": {
     "@std/assert": "jsr:@std/assert@1.0.19",
     "@std/fs": "jsr:@std/fs@1.0.24",

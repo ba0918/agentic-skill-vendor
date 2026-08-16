@@ -38,7 +38,7 @@ export async function walkFiles(dir: string): Promise<string[]> {
   return found.sort(compareStrings);
 }
 
-export async function walkInto(
+async function walkInto(
   dir: string,
   prefix: string,
   into: string[],
@@ -86,7 +86,7 @@ export async function atomicWriteFile(
   }
 }
 
-export async function refuseSymlink(path: string): Promise<void> {
+async function refuseSymlink(path: string): Promise<void> {
   try {
     const info = await Deno.lstat(path);
     if (info.isSymlink) {
