@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // cli.ts — the entry point: arguments in, exit code out.
 //
 // Routing only. Every command lives in the module named after it, and this file

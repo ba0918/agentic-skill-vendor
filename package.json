@@ -24,7 +24,7 @@
     "lint": "biome lint .",
     "fmt": "biome format --write .",
     "fmt:check": "biome format .",
-    "build": "bun build src/cli.ts --target node --outdir dist",
+    "build": "bun build src/cli.ts --target node --packages external --outdir dist",
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
