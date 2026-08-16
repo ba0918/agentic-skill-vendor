@@ -41,8 +41,8 @@ export interface Document {
  * space, a word joiner or a bidi mark survives it, and a delimiter carrying one
  * reads as ordinary text while looking exactly like a delimiter on screen.
  *
- * The removed set is named by the property Unicode gives it \u2014 the code points a
- * renderer is expected to show as nothing \u2014 rather than by a list of the ones
+ * The removed set is named by the property Unicode gives it — the code points a
+ * renderer is expected to show as nothing — rather than by a list of the ones
  * that have been run into. A list closes the holes someone thought of; the
  * property closes the class.
  */
