@@ -103,6 +103,11 @@ export function buildManifest(
  * function. Two commands answering it differently would make the manifest gen
  * writes differ from the manifest verify expects, and the difference would be
  * reported as a stale manifest that regenerating never fixes.
+ *
+ * The ids come from the lock rather than from any declaration, so this is the
+ * one route to contracts/ a tree whose skills declare nothing still takes. The
+ * link check therefore belongs here too: without it such a tree would record
+ * provenance for files sitting outside the boundary the run was pointed at.
  */
 export async function presentContractIds(
   root: string,
@@ -110,7 +115,9 @@ export async function presentContractIds(
 ): Promise<string[]> {
   const present: string[] = [];
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
-    if (await isRegularFile(`${root}/${contractPath(id)}`)) present.push(id);
+    const site = contractPath(id);
+    await assertPlainChain(root, site);
+    if (await isRegularFile(`${root}/${site}`)) present.push(id);
   }
   return present;
 }

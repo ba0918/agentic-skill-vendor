@@ -89,7 +89,14 @@ function frontmatterScalar(
   return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
 }
 
-/** Reads each contract's canonical text, or null where the file is absent. */
+/**
+ * Reads each contract's canonical text, or null where the file is absent.
+ *
+ * The whole path is checked for links, not just the file at the end of it. A
+ * link at `contracts/` makes every contract below it resolve outside the tree,
+ * and the run would then digest outside text, pin it, and write it into every
+ * vendored copy while reporting nothing — the escape this tool exists to close.
+ */
 export async function readContracts(
   root: string,
   ids: string[],
@@ -97,6 +104,7 @@ export async function readContracts(
   const contracts = new Map<string, CanonicalContract | null>();
   for (const id of ids) {
     const site = contractPath(id);
+    await assertPlainChain(root, site);
     if (!(await isRegularFile(`${root}/${site}`))) {
       contracts.set(id, null);
       continue;

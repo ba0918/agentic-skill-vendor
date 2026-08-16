@@ -83,6 +83,32 @@ test("provenance names only the contracts whose canonical text is present", asyn
   });
 });
 
+test("provenance refuses a contracts directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    // Every skill is stripped of its declarations, so nothing on the way to
+    // provenance has looked at contracts/ yet: the resolutions are read from
+    // the lock, and their source paths would be recorded as though the tree
+    // held the files they name.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+    await fs.mkdir(outside, { recursive: true });
+    await fs.rename(`${root}/contracts`, `${outside}/contracts`);
+    await fs.symlink(`${outside}/contracts`, `${root}/contracts`);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: contracts",
+    );
+  });
+});
+
 // The lock is read back from a file anyone can edit, and a resolution key
 // becomes a path under contracts/. These state what the reader refuses.
 

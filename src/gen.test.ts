@@ -245,6 +245,109 @@ test("a run interrupted by an unwritable copy leaves every other file in place",
   });
 });
 
+// The five shapes a planted link can take on the way to the text this tool
+// reads. They are stated together because each is reached through a different
+// primitive, so a guard proven on one says nothing about the other four — and
+// two of them were open while the other three were closed.
+//
+// A directory link is the dangerous half: every path below it resolves outside
+// the boundary the run was pointed at, so the run reads outside text, pins its
+// digest, and writes it into the tree while reporting nothing.
+
+/**
+ * Moves what sits at `relative` out of the tree and leaves a link to it behind.
+ * Answers with the directory that now holds the moved content, so a case can
+ * state that nothing outside the tree was read through or written to.
+ */
+async function escapeThrough(root: string, relative: string): Promise<string> {
+  const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+  await fs.mkdir(outside, { recursive: true });
+  const target = `${outside}/${relative.replaceAll("/", "-")}`;
+  await fs.rename(`${root}/${relative}`, target);
+  await fs.symlink(target, `${root}/${relative}`);
+  return outside;
+}
+
+test("accept refuses a contracts directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(root, "contracts");
+    const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
+
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: contracts",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
+  });
+});
+
+test("verify refuses a contracts directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    await escapeThrough(root, "contracts");
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+  });
+});
+
+test("verify refuses a contract's conformance parent symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(root, "contracts/changelog-entry");
+    const outsideBefore = await snapshotTree(outside);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: contracts/changelog-entry",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+  });
+});
+
+test("accept refuses a contract file symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(root, "contracts/verdict-format.md");
+    const outsideBefore = await snapshotTree(outside);
+
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+  });
+});
+
+test("verify refuses a conformance directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(
+      root,
+      "contracts/changelog-entry/conformance",
+    );
+    const outsideBefore = await snapshotTree(outside);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+  });
+});
+
+test("verify refuses a skills directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(root, "skills");
+    const outsideBefore = await snapshotTree(outside);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+  });
+});
+
 test("gen refuses a skill whose opening delimiter is not exactly the delimiter and keeps its vendored copies", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;

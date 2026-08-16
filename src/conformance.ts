@@ -13,7 +13,7 @@ import {
   CONTRACTS_DIR,
   digestOfBytes,
 } from "./digest.ts";
-import { isDirectory, walkFiles } from "./walk.ts";
+import { assertPlainChain, isDirectory, walkFiles } from "./walk.ts";
 import {
   ancestorDirectories,
   IGNORE_FILE,
@@ -66,11 +66,16 @@ export async function conformanceDigestOfEntries(
  * an ignored subtree unscanned would mean a link planted inside it escaped the
  * check that exists to catch it — exclusion narrows what is digested, not what
  * is looked at.
+ *
+ * The way down to the directory is checked as well as the directory itself. A
+ * link at `contracts/<id>/` puts the whole conformance tree outside the
+ * boundary, and its digest would then be pinned as if the tree held it.
  */
 export async function collectConformanceEntries(
   root: string,
   relative: string,
 ): Promise<ConformanceEntry[]> {
+  await assertPlainChain(root, relative);
   const dir = `${root}/${relative}`;
   if (!(await isDirectory(dir))) return [];
   const found = await walkFiles(dir);
