@@ -1,10 +1,11 @@
 // vendor.ts — vendors shared reference documents into a skill repository.
 //
-// This file is the whole distributed artifact. Consumers sync it at a fixed
-// sha256 and run it with `deno run --allow-read --allow-write vendor.ts <cmd>`,
-// which means the pinned hash has to cover every behaviour the tool has. It
-// therefore imports nothing: an import would place code, and a network
-// dependency, outside the hash a consumer verified.
+// Run with `deno run --allow-read --allow-write vendor.ts <cmd>`. Read and
+// write are the only permissions the tool asks for, and the dependencies it
+// reaches for do not widen that: parsing text needs nothing from the network,
+// the environment, or a subprocess.
+
+import { parse as parseYaml } from "@std/yaml";
 
 const DIGEST_PREFIX = "sha256:";
 const CONTRACT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
@@ -119,194 +120,120 @@ export function assertValidContractId(id: string, site: string): void {
 
 // --- declaration parsing ---------------------------------------------------
 
-// Declarations are read by a parser that accepts one restricted grammar rather
-// than by a general YAML parser. A general parser is built to accept as much as
-// it can, so every form this tool must refuse — a digest beside an id, a flow
-// sequence, a duplicate key — would instead be quietly accepted and reinterpreted.
-// Refusing loudly is only possible if the accepted shape is stated exactly.
+// Frontmatter is read by a YAML parser, and what the tool refuses is stated as
+// a schema over the parse result rather than as a grammar of accepted lines. A
+// hand-written line grammar has to decide what every unfamiliar shape means,
+// and its answer for "I cannot read this" was the empty declaration list — a
+// skill that believed it was pinned would be silently unpinned. Reading first
+// and judging second makes that answer impossible: an unreadable document
+// raises, and a readable one is judged against rules that name what they want.
 
-function indentOf(line: string): number {
-  return line.length - line.trimStart().length;
+/**
+ * The frontmatter as YAML reads it, or null when it holds nothing.
+ *
+ * A tab anywhere in a line's indentation is refused before the parser sees it.
+ * YAML forbids a tab there, but this parser tolerates one and goes on to read
+ * the line as a sibling of the block it was indented under — so a `contracts`
+ * key typed with a tab becomes a top-level key, `metadata` loses it, and the
+ * skill is answered with "declares nothing". Refusing the tab is what keeps
+ * that reinterpretation from ever being reached.
+ */
+function parseFrontmatter(lines: string[], site: string): unknown {
+  const tabbed = lines.find((line) => /^[ \t]*\t/.test(line));
+  if (tabbed !== undefined) {
+    throw new ConfigError(
+      `${site}: frontmatter is indented with a tab, which YAML does not allow: ${
+        JSON.stringify(tabbed)
+      }`,
+    );
+  }
+  try {
+    return parseYaml(lines.join("\n"));
+  } catch (cause) {
+    throw new ConfigError(
+      `${site}: frontmatter is not readable YAML: ${describeCause(cause)}`,
+    );
+  }
 }
 
-/** Drops a trailing comment. No value this grammar accepts can contain '#'. */
-function withoutComment(text: string): string {
-  if (text.trimStart().startsWith("#")) return "";
-  const start = text.indexOf(" #");
-  return start === -1 ? text : text.slice(0, start);
-}
-
-function isIgnorable(line: string): boolean {
-  return withoutComment(line).trim() === "";
+/** The value as a mapping, or a refusal naming what was found instead. */
+function requireMapping(
+  value: unknown,
+  label: string,
+  site: string,
+): Record<string, unknown> {
+  if (
+    value === null || typeof value !== "object" || Array.isArray(value)
+  ) {
+    throw new ConfigError(
+      `${site}: ${label} must be a mapping, found ${JSON.stringify(value)}`,
+    );
+  }
+  return value as Record<string, unknown>;
 }
 
 /**
  * The contract ids a SKILL.md declares, in declaration order.
  *
- * The accepted shape is a block sequence of bare ids under `metadata.contracts`.
- * Anything else stops the run: a declaration this tool cannot read is never
- * treated as an absence of declarations, because that would silently unpin a
- * skill that believes it is pinned.
+ * A skill declares nothing only when the document says so — no frontmatter, no
+ * `metadata`, or a metadata mapping carrying no `contracts` key. Every other
+ * answer the tool cannot turn into a list of ids stops the run, because reading
+ * an unreadable declaration as an absent one would silently unpin a skill that
+ * believes it is pinned.
  */
 export function parseContractDeclarations(
   text: string,
   site: string,
 ): string[] {
-  const frontmatter = splitDocument(text, site).frontmatter;
-  const metadataAt = findSoleKey(frontmatter, 0, "metadata", "metadata", site);
-  if (metadataAt === -1) return [];
-  requireNoInlineValue(frontmatter[metadataAt], "metadata", "metadata", site);
-
-  const block: string[] = [];
-  for (let index = metadataAt + 1; index < frontmatter.length; index++) {
-    const line = frontmatter[index];
-    if (isIgnorable(line)) continue;
-    if (indentOf(line) === 0) break;
-    block.push(line);
-  }
-  if (block.length === 0) return [];
-
-  const childIndent = indentOf(block[0]);
-  requireEvenChildIndent(block, childIndent, site);
-  const contractsAt = findSoleKey(
-    block,
-    childIndent,
-    "contracts",
-    "metadata.contracts",
+  const document = parseFrontmatter(
+    splitDocument(text, site).frontmatter,
     site,
   );
-  if (contractsAt === -1) return [];
-  requireNoInlineValue(
-    block[contractsAt],
-    "contracts",
-    "metadata.contracts",
-    site,
-  );
-
-  return readSequence(block.slice(contractsAt + 1), childIndent, site);
+  if (document === null || document === undefined) return [];
+  const root = requireMapping(document, "frontmatter", site);
+  if (!("metadata" in root)) return [];
+  const metadata = requireMapping(root["metadata"], "metadata", site);
+  if (!("contracts" in metadata)) return [];
+  return readContractIds(metadata["contracts"], site);
 }
 
 /**
- * The index of the single line declaring `keyToken` at `indent`, or -1 when no
- * line declares it. A second declaration of the same key stops the run instead
- * of being discarded in favour of the first: whichever one the writer meant,
- * the block under the other would vanish from the read without a word.
+ * The declaration schema: `metadata.contracts` is a non-empty list of contract
+ * ids written as text, each usable as a path component and named once.
  */
-function findSoleKey(
-  lines: string[],
-  indent: number,
-  keyToken: string,
-  label: string,
-  site: string,
-): number {
-  const key = new RegExp(`^${keyToken}:(\\s|$)`);
-  let found = -1;
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index];
-    if (indentOf(line) !== indent) continue;
-    if (!key.test(withoutComment(line).trimStart())) continue;
-    if (found !== -1) {
-      throw new ConfigError(`${site}: ${label} is declared more than once`);
-    }
-    found = index;
-  }
-  return found;
-}
-
-/**
- * Refuses a metadata block whose children do not all sit at one indent.
- *
- * A deeper `contracts:` would ordinarily be some other key's child rather than
- * `metadata.contracts`, and this grammar could keep reading past it. It refuses
- * instead: reading structure from indentation alone leaves the two cases
- * byte-identical, so a `contracts:` typed one level too deep would be answered
- * with "this skill declares nothing" — the silent unpinning the whole parser
- * exists to prevent. A skill that genuinely nests a contracts key under another
- * metadata key has to rename it.
- */
-function requireEvenChildIndent(
-  block: string[],
-  childIndent: number,
-  site: string,
-): void {
-  for (const line of block) {
-    const indent = indentOf(line);
-    if (indent === childIndent) continue;
-    if (indent < childIndent) {
-      throw new ConfigError(
-        `${site}: metadata children must all sit at the same indent: ${
-          JSON.stringify(line)
-        }`,
-      );
-    }
-    if (/^contracts:(\s|$)/.test(withoutComment(line).trimStart())) {
-      throw new ConfigError(
-        `${site}: a contracts key indented deeper than metadata's other children ` +
-          `cannot be read as metadata.contracts: ${JSON.stringify(line)}`,
-      );
-    }
-  }
-}
-
-/**
- * Refuses a key that carries its value on the same line. That shape is a flow
- * sequence or a flow mapping, and this grammar accepts only block form.
- */
-function requireNoInlineValue(
-  line: string,
-  keyToken: string,
-  label: string,
-  site: string,
-): void {
-  const value = withoutComment(line).trimStart().slice(keyToken.length + 1);
-  if (value.trim() !== "") {
+function readContractIds(value: unknown, site: string): string[] {
+  if (!Array.isArray(value)) {
     throw new ConfigError(
-      `${site}: ${label} must be written in block form, not ${
-        JSON.stringify(value.trim())
+      `${site}: metadata.contracts must be a list of contract ids, found ${
+        JSON.stringify(value)
       }`,
     );
   }
-}
-
-function readSequence(
-  lines: string[],
-  keyIndent: number,
-  site: string,
-): string[] {
   const ids: string[] = [];
-  for (const line of lines) {
-    if (indentOf(line) <= keyIndent) {
-      if (line.trimStart().startsWith("- ")) {
-        throw new ConfigError(
-          `${site}: metadata.contracts entries must be indented deeper than the contracts key`,
-        );
-      }
-      break;
-    }
-    const entry = withoutComment(line).trimStart();
-    const item = /^-\s+(.*)$/.exec(entry);
-    if (item === null) {
-      throw new ConfigError(
-        `${site}: unreadable metadata.contracts entry: ${
-          JSON.stringify(entry)
-        }`,
-      );
-    }
-    const id = item[1].trim();
-    if (id.includes(":")) {
+  for (const entry of value) {
+    if (entry !== null && typeof entry === "object") {
       // The pin belongs to the lock, not to the skill. A digest written here
       // would put the skill's SKILL.md into the diff of every contract update,
       // which is exactly what declaring by id alone exists to prevent.
       throw new ConfigError(
         `${site}: metadata.contracts entries name a contract id and nothing else; ` +
-          `digests live in the lock: ${JSON.stringify(id)}`,
+          `digests live in the lock: ${JSON.stringify(entry)}`,
       );
     }
-    assertValidContractId(id, site);
-    if (ids.includes(id)) {
-      throw new ConfigError(`${site}: contract declared more than once: ${id}`);
+    if (typeof entry !== "string") {
+      throw new ConfigError(
+        `${site}: metadata.contracts entries must be contract ids written as text, found ${
+          JSON.stringify(entry) ?? "nothing"
+        }`,
+      );
     }
-    ids.push(id);
+    assertValidContractId(entry, site);
+    if (ids.includes(entry)) {
+      throw new ConfigError(
+        `${site}: contract declared more than once: ${entry}`,
+      );
+    }
+    ids.push(entry);
   }
   if (ids.length === 0) {
     throw new ConfigError(
@@ -780,6 +707,27 @@ export function dependenciesOf(skills: SkillDeclaration[]): Dependencies {
   return dependencies;
 }
 
+function indentOf(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+/** Drops a trailing comment. No value read by the scanner below holds a '#'. */
+function withoutComment(text: string): string {
+  if (text.trimStart().startsWith("#")) return "";
+  const start = text.indexOf(" #");
+  return start === -1 ? text : text.slice(0, start);
+}
+
+/**
+ * A top-level scalar in a contract's frontmatter, read by scanning lines rather
+ * than by parsing the document.
+ *
+ * Deliberately not the YAML parser that reads declarations. The only value read
+ * this way is `version`, which is display-only: no pin, no path, and no
+ * decision depends on it, so an unreadable frontmatter here has nothing to
+ * unpin. Parsing it strictly would instead turn a contract whose text digests
+ * perfectly well into a run that refuses to work at all.
+ */
 function frontmatterScalar(
   frontmatter: string[],
   key: string,

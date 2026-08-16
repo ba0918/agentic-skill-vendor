@@ -1,4 +1,4 @@
-import { assertEquals, assertThrows } from "@std/assert";
+import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { ConfigError, parseContractDeclarations } from "../src/vendor.ts";
 
 function skill(frontmatter: string): string {
@@ -78,20 +78,99 @@ Deno.test("declaring the same contract twice is a configuration error", () => {
   );
 });
 
-Deno.test("a flow-style contracts list is a configuration error", () => {
-  assertRefused("metadata:\n  contracts: [verdict-format, changelog-entry]\n");
+Deno.test("a flow-style contracts list declares its contracts", () => {
+  assertEquals(
+    parse("metadata:\n  contracts: [verdict-format, changelog-entry]\n"),
+    ["verdict-format", "changelog-entry"],
+  );
 });
 
-Deno.test("a flow-style metadata mapping is a configuration error", () => {
-  assertRefused("metadata: {contracts: [verdict-format]}\n");
+Deno.test("a flow-style metadata mapping declares its contracts", () => {
+  assertEquals(parse("metadata: {contracts: [verdict-format]}\n"), [
+    "verdict-format",
+  ]);
+});
+
+Deno.test("list items at the contracts key indent declare their contracts", () => {
+  assertEquals(parse("metadata:\n  contracts:\n  - verdict-format\n"), [
+    "verdict-format",
+  ]);
+});
+
+Deno.test("a quoted contract id declares the same contract as a bare one", () => {
+  assertEquals(parse('metadata:\n  contracts:\n    - "verdict-format"\n'), [
+    "verdict-format",
+  ]);
 });
 
 Deno.test("a contracts key with no entries under it is a configuration error", () => {
   assertRefused("metadata:\n  contracts:\n");
 });
 
-Deno.test("list items at the contracts key indent are a configuration error", () => {
-  assertRefused("metadata:\n  contracts:\n  - verdict-format\n");
+Deno.test("an empty contracts list is a configuration error", () => {
+  assertRefused("metadata:\n  contracts: []\n");
+});
+
+Deno.test("a contracts value that is not a list is a configuration error", () => {
+  assertRefused("metadata:\n  contracts: verdict-format\n");
+});
+
+Deno.test("an entry that is not a string is a configuration error", () => {
+  assertRefused("metadata:\n  contracts:\n    - 12\n");
+});
+
+Deno.test("an empty entry in the contracts list is a configuration error", () => {
+  assertRefused("metadata:\n  contracts:\n    -\n");
+});
+
+Deno.test("a metadata key that is not a mapping is a configuration error", () => {
+  assertRefused("metadata: internal\n");
+});
+
+Deno.test("a metadata key with no value at all is a configuration error", () => {
+  assertRefused("metadata:\n");
+});
+
+Deno.test("frontmatter that is not a mapping is a configuration error", () => {
+  assertThrows(
+    () =>
+      parseContractDeclarations(
+        "---\n- verdict-format\n---\n\n# Sample\n",
+        "skills/sample/SKILL.md",
+      ),
+    ConfigError,
+  );
+});
+
+Deno.test("a metadata key indented under nothing is a configuration error", () => {
+  // The shape that was read as "this skill declares nothing" before: the key is
+  // indented, so it belongs to no mapping the document opens.
+  assertRefused(" metadata:\n   contracts:\n     - verdict-format\n");
+});
+
+Deno.test("a tab-indented contracts key is a configuration error", () => {
+  // YAML forbids a tab in indentation, but the parser tolerates one and reads
+  // the key as a sibling of metadata rather than a child of it. Refusing the
+  // tab at the boundary is what keeps that reinterpretation from answering
+  // "declares nothing" for a skill that declared something.
+  assertRefused(
+    "metadata:\n  audience: internal\n\tcontracts:\n\t  - verdict\n",
+  );
+});
+
+Deno.test("a tab-indented contracts entry is a configuration error", () => {
+  assertRefused("metadata:\n  contracts:\n\t- verdict-format\n");
+});
+
+Deno.test("a delimiter line further down the document opens no second declaration block", () => {
+  assertEquals(
+    parseContractDeclarations(
+      "---\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# Sample\n\n" +
+        "---\nmetadata:\n  contracts:\n    - changelog-entry\n---\n",
+      "skills/sample/SKILL.md",
+    ),
+    ["verdict-format"],
+  );
 });
 
 Deno.test("an unusable contract id in a declaration is a configuration error", () => {
@@ -120,6 +199,14 @@ Deno.test("a second contracts key in the same metadata block is a configuration 
   assertRefused(
     "metadata:\n  contracts:\n    - verdict-format\n  contracts:\n    - changelog-entry\n",
   );
+});
+
+Deno.test("frontmatter that cannot be read names the file it came from", () => {
+  const error = assertThrows(
+    () => parse("metadata:\n  contracts:\n    - a\n  contracts:\n    - b\n"),
+    ConfigError,
+  );
+  assertStringIncludes(error.message, "skills/sample/SKILL.md");
 });
 
 Deno.test("frontmatter opened but never closed is a configuration error", () => {
