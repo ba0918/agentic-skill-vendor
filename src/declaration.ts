@@ -52,11 +52,14 @@ const DECLARATION_SCHEMA = new Schema([...CORE_SCHEMA.tags, mergeTag]);
  * The frontmatter as YAML reads it, or null when it holds nothing.
  *
  * A tab anywhere in a line's indentation is refused before the parser sees it.
- * YAML forbids a tab there, but this parser tolerates one and goes on to read
- * the line as a sibling of the block it was indented under — so a `contracts`
- * key typed with a tab becomes a top-level key, `metadata` loses it, and the
- * skill is answered with "declares nothing". Refusing the tab is what keeps
- * that reinterpretation from ever being reached.
+ * The parser in use refuses one itself, so today this changes only which
+ * message a reader gets. It is kept because the failure it guards against is
+ * silent and the guard is not: a parser that tolerated a tab would read the
+ * line as a sibling of the block it was indented under, so a `contracts` key
+ * typed with a tab would become a top-level key, `metadata` would lose it, and
+ * the skill would be answered with "declares nothing". Which parser reads this
+ * frontmatter has already changed once, and this rule is what makes that
+ * change unable to unpin a skill quietly.
  *
  * The rule is blunt on purpose: inside a block scalar a leading tab is content,
  * and YAML allows it, but this refuses it too. Telling the two apart means

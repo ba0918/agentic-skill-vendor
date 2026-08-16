@@ -21,6 +21,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The package is published as `@ba0918/agentic-skill-vendor` and its command is
+  `agentic-skill-vendor`. The earlier names — `@ba0918/skill-shared-reference-vendor` and
+  `skill-vendor` — said neither what is vendored nor where to. The `usage:` line names the
+  command as well; it named `cli.ts`, a source file nobody types.
+- `provenance.generator.name` is `agentic-skill-vendor`, and is fixed there from now on. It
+  was `vendor.ts`, the name of the single file this tool used to be. The name sits in bytes
+  `verify` compares exactly, so moving it reports every generated copy as drift — which is
+  why it is moved now, while nothing has been released and no copy exists to break.
+- `provenance.generator.version` is the package's own version, read from `package.json`
+  rather than written out a second time. It read `1.0.0` while the package read `0.1.0`, so
+  provenance named a release that had never happened. A consequence for this repository:
+  bumping the version makes the committed fixture stale until `gen` is run over it, and
+  CI's fixture `verify` fails until it is.
+- The development toolchain is Bun. The Deno configuration is gone, tests run under
+  `bun test`, lint and formatting are Biome, and CI runs the type check, lint, format check
+  and tests on the Bun 1.3.x line before checking the fixture tree. This is visible only to
+  someone working from a checkout; the tool itself still runs on Node, Bun and Deno alike.
+- The published tarball is built when it is packed rather than only when it is published, so
+  `npm pack` can no longer produce an archive whose `bin` points at a file that is not in it.
+- A root that names no directory stops every command that reads a tree with exit `2`. Under
+  `verify` it was exit `1`: a tree that is not there reads as a tree in which every file is
+  missing, and the run reported that as drift rather than as the mistake it was.
+- `--root` followed by another flag is a usage error. `--root --help` ran against a tree
+  named `--help` and never printed the help it was asked for.
 - Conformance digests now exclude the files the tree's own `.gitignore` rules exclude,
   read from the root down to the conformance directory and inside it, nested rules and
   negations included. The `__pycache__` directory is no longer excluded by name: a tree
@@ -67,6 +91,20 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- A directory symlinked out of the tree is refused rather than followed. With `contracts/`
+  or `contracts/<id>/` replaced by a link, `accept` pinned the digest of a file outside the
+  tree, wrote outside text into every vendored copy, recorded provenance naming a path the
+  tree does not hold, and `verify` then reported the result as clean. Links standing in for
+  a single file were already refused; the directory shapes were not.
+- A read that fails for a reason other than the file being absent — a permission error, most
+  of all — is reported on standard error with exit `2`. It escaped as an uncaught exception,
+  which ended the run with a stack trace and exit `1`, the code that means the tree was
+  examined and found in violation.
+- Every refusal names the path as the tree spells it rather than as the machine does. The
+  same refusal was reported with an absolute path by `verify` and a tree-relative one by
+  `gen`.
 - A symlink whose path names no directory is resolved against the current directory rather
   than against the path with its last character removed, which could place a link's target
-  outside the directory it was judged against.
+  outside the directory it was judged against. The same mistake in the creation of a parent
+  directory is fixed with it: a name holding no separator had its last character cut off,
+  and the directory made was a sibling of the file rather than the one holding it.

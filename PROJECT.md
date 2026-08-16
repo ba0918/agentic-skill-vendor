@@ -17,8 +17,8 @@ web standard APIs (Web Crypto) only, so the same source runs on Node, Bun and De
 development toolchain is Bun (running, testing, package management), with Biome for lint and
 format; CI runs on the Bun 1.3.x line. The source is split into modules by responsibility
 under `src/`, each with its tests beside it. Distribution is npm: `bun build` produces the
-Node-compatible `dist/cli.js` the package's `bin` points at, at publish time only, and it is
-never committed.
+Node-compatible `dist/cli.js` the package's `bin` points at, when the tarball is packed, and
+it is never committed.
 
 | Path | What it holds |
 |---|---|
@@ -31,7 +31,7 @@ never committed.
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
 | `src/manifest.ts` | The lock and provenance, in one canonical rendering |
 | `src/gen.ts` | Distribution: what may be expanded, and writing it |
-| `src/verify.ts` | The three independent identity checks |
+| `src/verify.ts` | The four independent identity checks |
 | `src/accept.ts` | The approval boundary — the only writer of resolutions |
 | `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
 | `src/selftest.ts` | The environment smoke check and its hand-computed vectors |
@@ -42,7 +42,7 @@ never committed.
 | `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
 | `biome.json` | Lint and format, and the rules this codebase turns off |
-| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check and the tests, then `verify` and `lint-selfcontain` over the fixture |
+| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over the fixture |
 
 ## Commands
 
@@ -84,5 +84,7 @@ never committed.
   subprocess. Under Deno that is enforceable with `--allow-read --allow-write`; on Node and
   Bun there is no sandbox to enforce it with, so it is a property of the code rather than a
   guarantee of the runtime.
-
-## Glossary
+- `provenance.generator.version` is the package's own version, read from `package.json` and
+  written into every manifest. Bumping the version therefore makes the committed fixture
+  stale until `gen` is run over it again, and CI's fixture `verify` is what catches a bump
+  that forgot to.

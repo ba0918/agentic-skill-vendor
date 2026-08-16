@@ -37,9 +37,12 @@ interface AcceptanceRecord {
  * of contract text becomes approved.
  *
  * What protects deliberate adoption is not the command being awkward to run: it
- * is that running it produces something reviewable. The routing metadata below
- * is derived from the lock, which is the authoritative dependency graph, so the
- * list of affected skills cannot drift from the thing it describes.
+ * is that running it produces something reviewable. The skills it names are
+ * read from the declarations this same run parsed, not from the lock: the lock
+ * records the dependency graph as of the last write, and a skill that took the
+ * contract up since then has to appear in the report of what this adoption
+ * reaches. The two agree whenever the tree is clean, and where they disagree
+ * the declarations are the newer answer.
  */
 export async function commandAccept(
   root: string,

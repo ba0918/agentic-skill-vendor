@@ -1,6 +1,6 @@
 // verify.ts — deciding whether the tree is what was accepted.
 //
-// The three checks below do not depend on one another, and each is written so
+// The four checks below do not depend on one another, and each is written so
 // that it stays meaningful while the others are failing.
 
 import type { Sink } from "./errors.ts";
@@ -143,10 +143,11 @@ async function conformanceViolations(
 }
 
 /**
- * Three checks that do not depend on one another: what was accepted against the
- * canonical text, the copies against the pin, and the manifest against what the
- * tree renders to. Keeping them separate is what lets any one of them stay
- * meaningful while another is failing.
+ * Four checks that do not depend on one another: what was accepted against the
+ * canonical text, the copies against the pin, the manifest against what the
+ * tree renders to, and each conformance tree against the digest accepted for
+ * it. Keeping them separate is what lets any one of them stay meaningful while
+ * another is failing.
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   await assertTreeRoot(root);
