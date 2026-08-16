@@ -3,3 +3,8 @@
 /.agents/artifacts/
 /.agents/runtime/
 /.agents/tmp/
+
+# Dependencies and build output. dist/ is produced at publish time by
+# `bun run build` and never committed.
+/node_modules/
+/dist/
