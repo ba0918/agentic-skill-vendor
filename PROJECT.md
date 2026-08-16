@@ -42,13 +42,14 @@ never committed.
 | `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
 | `biome.json` | Lint and format, and the rules this codebase turns off |
-| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the tests, then `verify` and `lint-selfcontain` over the fixture |
+| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check and the tests, then `verify` and `lint-selfcontain` over the fixture |
 
 ## Commands
 
 | Purpose | Command |
 |---|---|
 | Install the locked dependencies | `bun install --frozen-lockfile` |
+| Type check | `bun run typecheck` |
 | Test | `bun test` |
 | Lint | `bun run lint` |
 | Format | `bun run fmt` |
@@ -70,7 +71,9 @@ never committed.
   reimplementing, and a hand-written parser for either has one failure mode this tool cannot
   afford — answering "I cannot read this" with silence. `js-yaml` is also the one of the two
   candidates that reads no environment variable, which is what lets a Deno run stay on read
-  and write alone. Biome and `@types/bun` are development-only and never ship.
+  and write alone. Biome, TypeScript and `@types/bun` are development-only and never ship.
+- `bun test` strips types rather than checking them, so `bun run typecheck` is a step of its
+  own in CI. Without it the settings in `tsconfig.json` would constrain nothing.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
 - The following are external compatibility and do not change without a version change: the

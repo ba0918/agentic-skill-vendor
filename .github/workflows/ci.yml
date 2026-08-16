@@ -29,6 +29,11 @@ jobs:
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
 
+      # `bun test` strips the types rather than checking them, so the check the
+      # previous test runner did on the way past is its own step here.
+      - name: Check the types
+        run: bun run typecheck
+
       # The same command PROJECT.md documents for local runs, so CI and the
       # documentation cannot drift apart.
       - name: Run the tool's own tests
