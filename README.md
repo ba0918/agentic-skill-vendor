@@ -69,10 +69,14 @@ canonicalized — a line ending is part of what a conformance test pins.
 
 Which files are in that tree is decided by the `.gitignore` rules of the tree being worked
 on, read from `--root` down to the conformance directory and inside it, nested rules and
-negations included. What is pinned is what the repository carries, and a file git does not
-carry cannot be part of it: a fresh checkout would not have it, so digesting it would report
-a mismatch against a tree nobody changed. Editing a `.gitignore` can therefore change a
-conformance digest, and `verify` will report that as a mismatch until it is accepted.
+negations included. A file the repository ignores is one a fresh checkout will not have, so
+digesting it would report a mismatch against a tree nobody changed. Editing a `.gitignore`
+can therefore change a conformance digest, and `verify` will report that as a mismatch until
+it is accepted.
+
+Only the rules are read, never git's index. A file that is ignored but committed anyway
+(`git add -f`) is left out of the digest even though a checkout carries it, so changes to it
+are not detected. Keep conformance fixtures outside the ignore rules.
 
 A conformance directory left with no files after the exclusion counts as no directory at
 all. Git cannot store an empty directory, so any other reading would report a false mismatch
@@ -105,12 +109,17 @@ at the same indent as the `contracts` key, quoted ids, comments anywhere.
 A skill declares nothing when the document says so: no frontmatter, no `metadata` key, or a
 `metadata` mapping carrying no `contracts` key. Everything else stops the run with exit `2`,
 because reading a declaration the tool cannot make sense of as an absent one would silently
-unpin a skill that believes it is pinned. Refused, then:
+unpin a skill that believes it is pinned.
+
+The frontmatter has to open on the first line. A document whose first line is blank, or
+anything else, has no frontmatter and declares nothing — a `---` further down is a horizontal
+rule, and the block under it is body text. Refused, then:
 
 | Refused | Why |
 |---|---|
 | Frontmatter YAML cannot parse — a duplicate key, ragged indentation, an unterminated block | The declaration cannot be read at all |
-| A tab in the indentation | YAML forbids it, and parsers that tolerate it re-read the indented key as a sibling — which drops the declaration |
+| An opening `---` that is not exactly `---` — a trailing space, a tab, a lone carriage return | Read as "this document has no frontmatter" it would drop the whole block, and trailing whitespace is invisible in an editor |
+| A tab in the indentation, anywhere in the frontmatter | YAML forbids it, and parsers that tolerate it re-read the indented key as a sibling — which drops the declaration. The rule is deliberately blunt: a tab-indented line inside a block scalar, where YAML would allow it, is refused too |
 | `metadata` that is not a mapping | Same: there is no reading under which its contracts are visible |
 | `contracts` that is not a list, or an empty one | The key was written, so something was meant by it |
 | An entry that is not text — a number, an empty entry, a mapping | An id is a name; anything else is a different intent |

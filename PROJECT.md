@@ -22,7 +22,7 @@ reproducibility check of its own.
 | `src/cli.ts` | The entry point: argument parsing and routing, no logic of its own |
 | `src/errors.ts` | `ConfigError` and what the exit codes mean |
 | `src/digest.ts` | Canonical text, digests, contract ids — pure, no file system |
-| `src/walk.ts` | Every read and write, and the symlink refusal they respect |
+| `src/walk.ts` | The guarded file-system primitives: the symlink-refusing walk, the atomic write, the checks other modules call before reading |
 | `src/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
 | `src/conformance.ts` | The conformance framing rules and tree collection |
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
