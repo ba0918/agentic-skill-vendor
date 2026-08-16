@@ -18,8 +18,11 @@ binary distribution.
 
 | Path | What it holds |
 |---|---|
+| `src/vendor.ts` | The tool. The whole distributed artifact, in one file |
+| `tests/` | The tool's test suite, plus `helpers.ts` |
+| `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
 | `docs/spec/` | Design decisions (Japanese) |
-| `.github/workflows/ci.yml` | CI: `deno task test` on Deno 2.9.x |
+| `.github/workflows/ci.yml` | CI on Deno 2.9.x: the tests, then `verify` and `lint-selfcontain` over the fixture |
 
 ## Commands
 
@@ -34,7 +37,20 @@ binary distribution.
 
 - Language: `docs/spec/` is written in Japanese; everything else is written in English (the
   same convention as the sister repositories).
+- A broken fixture tree is never committed. A test that needs one clones
+  `fixtures/contracts-basic/good/` into a temporary directory and breaks the clone.
 
 ## Constraints
+
+- `src/vendor.ts` imports nothing. A consumer accepts the file by checking one sha256, so
+  every behaviour it has must be inside that hash; an import would put code, and a network
+  dependency, outside it. The test suite is not distributed, so it may use JSR packages
+  (pinned in `deno.json`).
+- The following are external compatibility and do not change without a version change: the
+  commands and their flags, the manifest schema, the exit codes, the digest algorithm and
+  its normalization rules, the conformance framing rules, the byte form of the vendored copy
+  header, and the violation kinds.
+- The tool asks for read and write access and nothing else — no network, environment, or
+  subprocess permission.
 
 ## Glossary
