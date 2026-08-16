@@ -1,77 +1,71 @@
-import { assertEquals, assertNotEquals, assertThrows } from "@std/assert";
+import { expect, test } from "bun:test";
 import { ConfigError } from "./errors.ts";
 import { canonicalBody, contractDigest, isValidContractId } from "./digest.ts";
 
-Deno.test("the canonical body drops the frontmatter and the blank lines after it", () => {
-  assertEquals(
+test("the canonical body drops the frontmatter and the blank lines after it", () => {
+  expect(
     canonicalBody("---\nname: sample\n---\n\n\n# Title\n\nBody\n"),
-    "# Title\n\nBody\n",
-  );
+  ).toStrictEqual("# Title\n\nBody\n");
 });
 
-Deno.test("a document without frontmatter is all body", () => {
-  assertEquals(canonicalBody("# Title\n\nBody\n"), "# Title\n\nBody\n");
+test("a document without frontmatter is all body", () => {
+  expect(canonicalBody("# Title\n\nBody\n")).toStrictEqual("# Title\n\nBody\n");
 });
 
-Deno.test("a body may open with a horizontal rule without losing it", () => {
-  assertEquals(
-    canonicalBody("---\nname: x\n---\n\n---\n\nBody\n"),
+test("a body may open with a horizontal rule without losing it", () => {
+  expect(canonicalBody("---\nname: x\n---\n\n---\n\nBody\n")).toStrictEqual(
     "---\n\nBody\n",
   );
 });
 
-Deno.test("CRLF and LF endings digest as the same content", async () => {
-  assertEquals(
-    await contractDigest("Body line\r\nNext\r\n"),
+test("CRLF and LF endings digest as the same content", async () => {
+  expect(await contractDigest("Body line\r\nNext\r\n")).toStrictEqual(
     await contractDigest("Body line\nNext\n"),
   );
 });
 
-Deno.test("trailing newlines normalize to exactly one", async () => {
-  assertEquals(
-    await contractDigest("Body line\n\n\n"),
+test("trailing newlines normalize to exactly one", async () => {
+  expect(await contractDigest("Body line\n\n\n")).toStrictEqual(
     await contractDigest("Body line\n"),
   );
 });
 
-Deno.test("a body with no trailing newline digests as one with a single newline", async () => {
-  assertEquals(
-    await contractDigest("Body line"),
+test("a body with no trailing newline digests as one with a single newline", async () => {
+  expect(await contractDigest("Body line")).toStrictEqual(
     await contractDigest("Body line\n"),
   );
 });
 
-Deno.test("trailing whitespace inside a line is part of the content", async () => {
-  assertNotEquals(
-    await contractDigest("Body line  \n"),
+test("trailing whitespace inside a line is part of the content", async () => {
+  expect(await contractDigest("Body line  \n")).not.toStrictEqual(
     await contractDigest("Body line\n"),
   );
 });
 
-Deno.test("frontmatter opened but never closed is a configuration error", () => {
-  assertThrows(
-    () => canonicalBody("---\nname: sample\n\n# Title\n"),
+test("frontmatter opened but never closed is a configuration error", () => {
+  expect(() => canonicalBody("---\nname: sample\n\n# Title\n")).toThrow(
     ConfigError,
   );
 });
 
-Deno.test("the contract digest matches its reference vector", async () => {
+test("the contract digest matches its reference vector", async () => {
   // Hand-normalized to "Hello  \nWorld\n" and hashed with sha256sum, so the
   // expectation is independent of the normalizer it checks.
-  assertEquals(
+  expect(
     await contractDigest(
       '---\r\nversion: "1"\r\n---\r\n\r\nHello  \r\nWorld\r\n\r\n\r\n',
     ),
+  ).toStrictEqual(
     "sha256:f5755ff05efa18e544073833aa1963073a8eb5f80a817564228b5b44a27bd96a",
   );
 });
 
-Deno.test("the digest is rendered as a sha256 prefix and lowercase hex", async () => {
+test("the digest is rendered as a sha256 prefix and lowercase hex", async () => {
   const digest = await contractDigest("Body\n");
-  assertEquals(/^sha256:[0-9a-f]{64}$/.test(digest), true, digest);
+  expect(/^sha256:[0-9a-f]{64}$/.test(digest), digest).toStrictEqual(true);
 });
 
-Deno.test("well-formed contract ids are accepted", () => {
+test("well-formed contract ids are accepted", () => {
   for (const id of [
     "verdict-format",
     "a",
@@ -80,11 +74,11 @@ Deno.test("well-formed contract ids are accepted", () => {
     "0start",
     "x".repeat(64),
   ]) {
-    assertEquals(isValidContractId(id), true, id);
+    expect(isValidContractId(id), id).toStrictEqual(true);
   }
 });
 
-Deno.test("ids that could escape or break a path are rejected", () => {
+test("ids that could escape or break a path are rejected", () => {
   for (const id of [
     "",
     "..",
@@ -101,6 +95,6 @@ Deno.test("ids that could escape or break a path are rejected", () => {
     "~home",
     "x".repeat(65),
   ]) {
-    assertEquals(isValidContractId(id), false, id);
+    expect(isValidContractId(id), id).toStrictEqual(false);
   }
 });

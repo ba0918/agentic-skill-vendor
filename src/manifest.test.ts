@@ -1,9 +1,5 @@
-import {
-  assertEquals,
-  assertMatch,
-  assertRejects,
-  assertStringIncludes,
-} from "@std/assert";
+import { expect, test } from "bun:test";
+import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
 import { readResolutions, type Resolutions } from "./manifest.ts";
 import { runCli, withEmptyDir, withGoodTree } from "./testing.ts";
@@ -14,79 +10,76 @@ const MANIFEST = "vendor-manifest.json";
 type Json = any;
 
 async function readManifest(root: string): Promise<Json> {
-  return JSON.parse(await Deno.readTextFile(`${root}/${MANIFEST}`));
+  return JSON.parse(await fs.readFile(`${root}/${MANIFEST}`, "utf8"));
 }
 
-Deno.test("the manifest keeps dependencies and resolutions apart", async () => {
+test("the manifest keeps dependencies and resolutions apart", async () => {
   await withGoodTree(async (root) => {
     const lock = (await readManifest(root)).lock;
-    assertEquals(lock.dependencies["review-writer"], [
+    expect(lock.dependencies["review-writer"]).toStrictEqual([
       "changelog-entry",
       "verdict-format",
     ]);
-    assertEquals(lock.dependencies["release-notes"], ["changelog-entry"]);
-    assertMatch(
-      lock.resolutions["verdict-format"].digest,
+    expect(lock.dependencies["release-notes"]).toStrictEqual([
+      "changelog-entry",
+    ]);
+    expect(lock.resolutions["verdict-format"].digest).toMatch(
       /^sha256:[0-9a-f]{64}$/,
     );
   });
 });
 
-Deno.test("the manifest locks a conformance digest only for a contract shipping tests", async () => {
+test("the manifest locks a conformance digest only for a contract shipping tests", async () => {
   await withGoodTree(async (root) => {
     const resolutions = (await readManifest(root)).lock.resolutions;
-    assertMatch(
-      resolutions["changelog-entry"].conformance,
+    expect(resolutions["changelog-entry"].conformance).toMatch(
       /^sha256:[0-9a-f]{64}$/,
     );
-    assertEquals("conformance" in resolutions["verdict-format"], false);
+    expect("conformance" in resolutions["verdict-format"]).toStrictEqual(false);
   });
 });
 
-Deno.test("the manifest records no wall-clock timestamp", async () => {
+test("the manifest records no wall-clock timestamp", async () => {
   await withGoodTree(async (root) => {
-    const text = await Deno.readTextFile(`${root}/${MANIFEST}`);
-    assertEquals(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text), false);
+    const text = await fs.readFile(`${root}/${MANIFEST}`, "utf8");
+    expect(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)).toStrictEqual(false);
   });
 });
 
-Deno.test("the manifest names where the tool and each contract came from", async () => {
+test("the manifest names where the tool and each contract came from", async () => {
   await withGoodTree(async (root) => {
     const provenance = (await readManifest(root)).provenance;
-    assertEquals(provenance.generator.name, "vendor.ts");
-    assertStringIncludes(provenance.generator.source, "github.com");
-    assertEquals(
-      provenance.contracts["verdict-format"].source,
+    expect(provenance.generator.name).toStrictEqual("vendor.ts");
+    expect(provenance.generator.source).toContain("github.com");
+    expect(provenance.contracts["verdict-format"].source).toStrictEqual(
       "contracts/verdict-format.md",
     );
   });
 });
 
-Deno.test("provenance names only the contracts whose canonical text is present", async () => {
+test("provenance names only the contracts whose canonical text is present", async () => {
   await withGoodTree(async (root) => {
     // The contract is withdrawn: no skill declares it any more and the
     // canonical file is gone. The resolution it was accepted under stays in the
     // lock, because accept is the only thing that writes resolutions.
     const skill = `${root}/skills/review-writer/SKILL.md`;
-    await Deno.writeTextFile(
+    await fs.writeFile(
       skill,
-      (await Deno.readTextFile(skill)).replace("    - verdict-format\n", ""),
+      (await fs.readFile(skill, "utf8")).replace("    - verdict-format\n", ""),
     );
-    await Deno.remove(`${root}/contracts/verdict-format.md`);
+    await fs.rm(`${root}/contracts/verdict-format.md`);
 
     const result = await runCli(["gen", "--root", root]);
-    assertEquals(
+    expect(
       result.code,
-      0,
       result.stdout.concat(result.stderr).join("\n"),
-    );
+    ).toStrictEqual(0);
     const provenance = (await readManifest(root)).provenance;
-    assertEquals("verdict-format" in provenance.contracts, false);
-    assertEquals(
-      provenance.contracts["changelog-entry"].source,
+    expect("verdict-format" in provenance.contracts).toStrictEqual(false);
+    expect(provenance.contracts["changelog-entry"].source).toStrictEqual(
       "contracts/changelog-entry.md",
     );
-    assertEquals((await runCli(["verify", "--root", root])).code, 0);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
 
@@ -96,7 +89,7 @@ Deno.test("provenance names only the contracts whose canonical text is present",
 /** Writes `manifest` as the tree's manifest and reads the resolutions back. */
 async function readWritten(manifest: string): Promise<Resolutions> {
   return await withEmptyDir(async (root) => {
-    await Deno.writeTextFile(`${root}/${MANIFEST}`, manifest);
+    await fs.writeFile(`${root}/${MANIFEST}`, manifest);
     return await readResolutions(root);
   });
 }
@@ -107,58 +100,50 @@ function manifestWith(resolutions: string): string {
 
 const DIGEST = `sha256:${"0".repeat(64)}`;
 
-Deno.test("a tree with no manifest has no resolutions", async () => {
-  assertEquals(await withEmptyDir((root) => readResolutions(root)), {});
+test("a tree with no manifest has no resolutions", async () => {
+  expect(await withEmptyDir((root) => readResolutions(root))).toStrictEqual({});
 });
 
-Deno.test("a recorded resolution is read back whole", async () => {
-  assertEquals(
+test("a recorded resolution is read back whole", async () => {
+  expect(
     await readWritten(
       manifestWith(
         `{"verdict-format":{"digest":"${DIGEST}","version":"1.2.0"}}`,
       ),
     ),
-    { "verdict-format": { digest: DIGEST, version: "1.2.0" } },
-  );
+  ).toStrictEqual({ "verdict-format": { digest: DIGEST, version: "1.2.0" } });
 });
 
-Deno.test("a resolution key that would escape the contracts directory is refused", async () => {
-  await assertRejects(
-    () =>
-      readWritten(manifestWith(`{"../../etc/passwd":{"digest":"${DIGEST}"}}`)),
+test("a resolution key that would escape the contracts directory is refused", async () => {
+  await expect(
+    readWritten(manifestWith(`{"../../etc/passwd":{"digest":"${DIGEST}"}}`)),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a resolution whose digest is not a sha256 digest is refused", async () => {
+  await expect(
+    readWritten(manifestWith(`{"verdict-format":{"digest":"notadigest"}}`)),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a resolution whose version is not text is refused", async () => {
+  await expect(
+    readWritten(
+      manifestWith(`{"verdict-format":{"digest":"${DIGEST}","version":1}}`),
+    ),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a lock that is not an object is refused", async () => {
+  await expect(readWritten(`{"lock":"oops"}`)).rejects.toThrow(ConfigError);
+});
+
+test("resolutions written as a list are refused", async () => {
+  await expect(readWritten(manifestWith(`["verdict-format"]`))).rejects.toThrow(
     ConfigError,
   );
 });
 
-Deno.test("a resolution whose digest is not a sha256 digest is refused", async () => {
-  await assertRejects(
-    () =>
-      readWritten(manifestWith(`{"verdict-format":{"digest":"notadigest"}}`)),
-    ConfigError,
-  );
-});
-
-Deno.test("a resolution whose version is not text is refused", async () => {
-  await assertRejects(
-    () =>
-      readWritten(
-        manifestWith(`{"verdict-format":{"digest":"${DIGEST}","version":1}}`),
-      ),
-    ConfigError,
-  );
-});
-
-Deno.test("a lock that is not an object is refused", async () => {
-  await assertRejects(() => readWritten(`{"lock":"oops"}`), ConfigError);
-});
-
-Deno.test("resolutions written as a list are refused", async () => {
-  await assertRejects(
-    () => readWritten(manifestWith(`["verdict-format"]`)),
-    ConfigError,
-  );
-});
-
-Deno.test("a manifest that is not readable JSON is refused", async () => {
-  await assertRejects(() => readWritten(`{"lock":{`), ConfigError);
+test("a manifest that is not readable JSON is refused", async () => {
+  await expect(readWritten(`{"lock":{`)).rejects.toThrow(ConfigError);
 });

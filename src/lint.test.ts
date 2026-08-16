@@ -1,4 +1,5 @@
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { expect, test } from "bun:test";
+import * as fs from "node:fs/promises";
 import { dirNameOf } from "./lint.ts";
 import {
   replaceWithSymlink,
@@ -25,79 +26,82 @@ function kindsOf(lines: string[]): string[] {
   return lines.map((line) => line.slice(0, line.indexOf(":"))).sort();
 }
 
-Deno.test("a self-contained tree passes with no violations", async () => {
+test("a self-contained tree passes with no violations", async () => {
   await withGoodTree(async (root) => {
     const result = await lint(root);
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("a reference above the skill directory is detected", async () => {
+test("a reference above the skill directory is detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "See ../other-skill/thing.md\n",
     );
-    assertEquals(result.code, 1);
-    assertEquals(kindsOf(result.stdout), ["parent-escape"]);
+    expect(result.code).toStrictEqual(1);
+    expect(kindsOf(result.stdout)).toStrictEqual(["parent-escape"]);
   });
 });
 
-Deno.test("a windows-style reference above the skill directory is detected", async () => {
+test("a windows-style reference above the skill directory is detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "See ..\\other\\thing.md\n",
     );
-    assertEquals(kindsOf(result.stdout), ["parent-escape"]);
+    expect(kindsOf(result.stdout)).toStrictEqual(["parent-escape"]);
   });
 });
 
-Deno.test("an absolute path reference is detected", async () => {
+test("an absolute path reference is detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(root, "notes.md", "Read /etc/hosts first.\n");
-    assertEquals(kindsOf(result.stdout), ["absolute-path"]);
-    assertStringIncludes(result.stdout[0], "/etc/hosts");
+    expect(kindsOf(result.stdout)).toStrictEqual(["absolute-path"]);
+    expect(result.stdout[0]).toContain("/etc/hosts");
   });
 });
 
-Deno.test("an absolute path is detected directly after a comma or a semicolon", async () => {
+test("an absolute path is detected directly after a comma or a semicolon", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "paths,/opt/tools/a\nmore;/opt/tools/b\n",
     );
-    assertEquals(kindsOf(result.stdout), ["absolute-path", "absolute-path"]);
+    expect(kindsOf(result.stdout)).toStrictEqual([
+      "absolute-path",
+      "absolute-path",
+    ]);
   });
 });
 
-Deno.test("a home directory reference is detected", async () => {
+test("a home directory reference is detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "Config lives in ~/.config/app\n",
     );
-    assertEquals(kindsOf(result.stdout), ["absolute-path"]);
+    expect(kindsOf(result.stdout)).toStrictEqual(["absolute-path"]);
   });
 });
 
-Deno.test("a windows drive reference is detected", async () => {
+test("a windows drive reference is detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "Logs are under C:\\app\\logs\\run.txt today.\n",
     );
-    assertEquals(kindsOf(result.stdout), ["absolute-path"]);
+    expect(kindsOf(result.stdout)).toStrictEqual(["absolute-path"]);
   });
 });
 
-Deno.test("a single segment after a slash is not an absolute path reference", async () => {
+test("a single segment after a slash is not an absolute path reference", async () => {
   await withGoodTree(async (root) => {
     // Prose such as a slash command must not be mistaken for a path.
     const result = await lintWith(
@@ -105,71 +109,71 @@ Deno.test("a single segment after a slash is not an absolute path reference", as
       "notes.md",
       "Run /help to see the list.\n",
     );
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("a URL is not treated as a path reference", async () => {
+test("a URL is not treated as a path reference", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "See [the docs](https://example.com/guide/setup) for setup.\n",
     );
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("a shebang naming an interpreter is not a path reference", async () => {
+test("a shebang naming an interpreter is not a path reference", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "run.sh",
       '#!/usr/bin/env bash\necho "self-contained"\n',
     );
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("an absolute path after the shebang interpreter is still detected", async () => {
+test("an absolute path after the shebang interpreter is still detected", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "run.sh",
       "#!/usr/bin/env bash /opt/tools/wrapper.sh\necho hi\n",
     );
-    assertEquals(kindsOf(result.stdout), ["absolute-path"]);
-    assertStringIncludes(result.stdout[0], "/opt/tools/wrapper.sh");
+    expect(kindsOf(result.stdout)).toStrictEqual(["absolute-path"]);
+    expect(result.stdout[0]).toContain("/opt/tools/wrapper.sh");
   });
 });
 
-Deno.test("the shebang exemption covers the first line only", async () => {
+test("the shebang exemption covers the first line only", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "run.sh",
       "#!/usr/bin/env bash\n#! /opt/tools/other.sh\n",
     );
-    assertEquals(kindsOf(result.stdout), ["absolute-path"]);
-    assertStringIncludes(result.stdout[0], "run.sh:2");
+    expect(kindsOf(result.stdout)).toStrictEqual(["absolute-path"]);
+    expect(result.stdout[0]).toContain("run.sh:2");
   });
 });
 
-Deno.test("every violation names the file and the line it sits on", async () => {
+test("every violation names the file and the line it sits on", async () => {
   await withGoodTree(async (root) => {
     const result = await lintWith(
       root,
       "notes.md",
       "clean line\nSee ../elsewhere\n",
     );
-    assertStringIncludes(result.stdout[0], "skills/release-notes/notes.md:2");
+    expect(result.stdout[0]).toContain("skills/release-notes/notes.md:2");
   });
 });
 
-Deno.test("a file that is not valid UTF-8 is still scanned to its last line", async () => {
+test("a file that is not valid UTF-8 is still scanned to its last line", async () => {
   await withGoodTree(async (root) => {
     const encoder = new TextEncoder();
     const bytes = new Uint8Array([
@@ -178,12 +182,12 @@ Deno.test("a file that is not valid UTF-8 is still scanned to its last line", as
       ...encoder.encode("\nSee ../elsewhere for details\n"),
     ]);
     const result = await lintWith(root, "notes.md", bytes);
-    assertEquals(kindsOf(result.stdout), ["parent-escape"]);
-    assertStringIncludes(result.stdout[0], "notes.md:3");
+    expect(kindsOf(result.stdout)).toStrictEqual(["parent-escape"]);
+    expect(result.stdout[0]).toContain("notes.md:3");
   });
 });
 
-Deno.test("a symlink resolving outside its skill directory is detected", async () => {
+test("a symlink resolving outside its skill directory is detected", async () => {
   await withGoodTree(async (root) => {
     const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
     await writeFile(`${outside}/secret.md`, "elsewhere\n");
@@ -192,21 +196,23 @@ Deno.test("a symlink resolving outside its skill directory is detected", async (
       `${outside}/secret.md`,
     );
     const result = await lint(root);
-    assertEquals(result.code, 1);
-    assertEquals(kindsOf(result.stdout), ["symlink-escape"]);
+    expect(result.code).toStrictEqual(1);
+    expect(kindsOf(result.stdout)).toStrictEqual(["symlink-escape"]);
   });
 });
 
-Deno.test("a skill directory that is itself an outward symlink is detected", async () => {
+test("a skill directory that is itself an outward symlink is detected", async () => {
   await withGoodTree(async (root) => {
     const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
-    await Deno.mkdir(outside, { recursive: true });
+    await fs.mkdir(outside, { recursive: true });
     await replaceWithSymlink(`${root}/skills/release-notes`, outside);
-    assertEquals(kindsOf((await lint(root)).stdout), ["symlink-escape"]);
+    expect(kindsOf((await lint(root)).stdout)).toStrictEqual([
+      "symlink-escape",
+    ]);
   });
 });
 
-Deno.test("a symlink resolving inside the same skill directory passes", async () => {
+test("a symlink resolving inside the same skill directory passes", async () => {
   await withGoodTree(async (root) => {
     await writeFile(`${root}/skills/release-notes/target.md`, "inside\n");
     await replaceWithSymlink(
@@ -214,36 +220,35 @@ Deno.test("a symlink resolving inside the same skill directory passes", async ()
       `${root}/skills/release-notes/target.md`,
     );
     const result = await lint(root);
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("files outside the skills directory are not linted", async () => {
+test("files outside the skills directory are not linted", async () => {
   await withGoodTree(async (root) => {
     await writeFile(`${root}/contracts/notes.md`, "See ../elsewhere\n");
     const result = await lint(root);
-    assertEquals(result.stdout, []);
-    assertEquals(result.code, 0);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });
 
-Deno.test("linting a tree with no skills directory is a usage error", async () => {
+test("linting a tree with no skills directory is a usage error", async () => {
   await withGoodTree(async (root) => {
-    await Deno.remove(`${root}/skills`, { recursive: true });
+    await fs.rm(`${root}/skills`, { recursive: true });
     const result = await lint(root);
-    assertEquals(result.code, 2);
-    assertEquals(result.stdout, []);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
   });
 });
 
-Deno.test("the directory of a path naming no directory is the current one", () => {
+test("the directory of a path naming no directory is the current one", () => {
   // A link target is resolved against the directory its link sits in. When that
   // path names no directory at all, the answer is the current directory, not
   // the path with its last character cut off.
-  assertEquals(
-    dirNameOf("skills/release-notes/notes.md"),
+  expect(dirNameOf("skills/release-notes/notes.md")).toStrictEqual(
     "skills/release-notes",
   );
-  assertEquals(dirNameOf("notes.md"), ".");
+  expect(dirNameOf("notes.md")).toStrictEqual(".");
 });

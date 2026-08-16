@@ -1,4 +1,7 @@
-import { copy } from "@std/fs";
+import * as fs from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
 
 export interface CliResult {
@@ -28,22 +31,21 @@ export async function runCli(args: string[]): Promise<CliResult> {
  * temporary directory and edits the clone, so a broken tree never has to be
  * maintained in the repository.
  */
-const GOOD_FIXTURE = new URL(
-  "../fixtures/contracts-basic/good",
-  import.meta.url,
-).pathname;
+const GOOD_FIXTURE = fileURLToPath(
+  new URL("../fixtures/contracts-basic/good", import.meta.url),
+);
 
 /** Clones the clean fixture tree and runs `fn` against the clone. */
 export async function withGoodTree<T>(
   fn: (root: string) => Promise<T>,
 ): Promise<T> {
-  const dir = await Deno.makeTempDir({ prefix: "vendor-tree-" });
+  const dir = await fs.mkdtemp(join(tmpdir(), "vendor-tree-"));
   try {
     const root = `${dir}/tree`;
-    await copy(GOOD_FIXTURE, root);
+    await fs.cp(GOOD_FIXTURE, root, { recursive: true });
     return await fn(root);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await fs.rm(dir, { recursive: true });
   }
 }
 
@@ -51,11 +53,11 @@ export async function withGoodTree<T>(
 export async function withEmptyDir<T>(
   fn: (dir: string) => Promise<T>,
 ): Promise<T> {
-  const dir = await Deno.makeTempDir({ prefix: "vendor-scratch-" });
+  const dir = await fs.mkdtemp(join(tmpdir(), "vendor-scratch-"));
   try {
     return await fn(dir);
   } finally {
-    await Deno.remove(dir, { recursive: true });
+    await fs.rm(dir, { recursive: true });
   }
 }
 
@@ -65,12 +67,43 @@ export async function writeFile(
   content: string | Uint8Array,
 ): Promise<void> {
   const parent = path.slice(0, path.lastIndexOf("/"));
-  await Deno.mkdir(parent, { recursive: true });
-  if (typeof content === "string") {
-    await Deno.writeTextFile(path, content);
-  } else {
-    await Deno.writeFile(path, content);
+  await fs.mkdir(parent, { recursive: true });
+  await fs.writeFile(path, content);
+}
+
+type ErrorClass<E extends Error> = new (...args: never[]) => E;
+
+/**
+ * Runs `fn`, requires it to have thrown `kind`, and answers with that error.
+ *
+ * `expect(fn).toThrow(kind)` checks the class but does not hand the error back,
+ * and the cases reaching for this one go on to assert on its message.
+ */
+export function thrownBy<E extends Error>(
+  fn: () => unknown,
+  kind: ErrorClass<E>,
+): E {
+  try {
+    fn();
+  } catch (error) {
+    if (error instanceof kind) return error;
+    throw error;
   }
+  throw new Error(`expected ${kind.name} to be thrown, nothing was`);
+}
+
+/** The awaited counterpart of `thrownBy`. */
+export async function rejectedBy<E extends Error>(
+  fn: () => unknown,
+  kind: ErrorClass<E>,
+): Promise<E> {
+  try {
+    await fn();
+  } catch (error) {
+    if (error instanceof kind) return error;
+    throw error;
+  }
+  throw new Error(`expected ${kind.name} to be thrown, nothing was`);
 }
 
 /** Replaces `path` with a symlink to `target`. */
@@ -78,10 +111,10 @@ export async function replaceWithSymlink(
   path: string,
   target: string,
 ): Promise<void> {
-  await Deno.remove(path, { recursive: true }).catch(() => {});
+  await fs.rm(path, { recursive: true }).catch(() => {});
   const parent = path.slice(0, path.lastIndexOf("/"));
-  await Deno.mkdir(parent, { recursive: true });
-  await Deno.symlink(target, path);
+  await fs.mkdir(parent, { recursive: true });
+  await fs.symlink(target, path);
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -108,19 +141,22 @@ async function walk(
   prefix: string,
   into: Map<string, string>,
 ): Promise<void> {
-  const entries = [...Deno.readDirSync(dir)].sort((a, b) =>
-    a.name < b.name ? -1 : 1,
-  );
-  for (const entry of entries) {
-    const path = `${dir}/${entry.name}`;
-    const rel = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-    if (entry.isSymlink) {
-      into.set(rel, `symlink:${await Deno.readLink(path)}`);
-    } else if (entry.isDirectory) {
+  const names = (await fs.readdir(dir)).sort((a, b) => (a < b ? -1 : 1));
+  for (const name of names) {
+    const path = `${dir}/${name}`;
+    const rel = prefix === "" ? name : `${prefix}/${name}`;
+    // Each entry is stat'd rather than read off the directory listing: a
+    // listing reports an entry's type from the file system's d_type, which
+    // some file systems do not fill in, and a symlink that came back as
+    // "unknown" would be recorded as an ordinary file.
+    const entry = await fs.lstat(path);
+    if (entry.isSymbolicLink()) {
+      into.set(rel, `symlink:${await fs.readlink(path)}`);
+    } else if (entry.isDirectory()) {
       into.set(rel, "dir");
       await walk(path, rel, into);
     } else {
-      into.set(rel, await sha256Hex(await Deno.readFile(path)));
+      into.set(rel, await sha256Hex(await fs.readFile(path)));
     }
   }
 }
