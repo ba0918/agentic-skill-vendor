@@ -1,5 +1,6 @@
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import { ConfigError, parseContractDeclarations } from "../src/vendor.ts";
+import { ConfigError } from "./errors.ts";
+import { parseContractDeclarations } from "./declaration.ts";
 
 function skill(frontmatter: string): string {
   return `---\nname: sample\n${frontmatter}---\n\n# Sample\n\nBody.\n`;
