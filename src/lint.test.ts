@@ -1,11 +1,11 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { dirNameOf } from "../src/vendor.ts";
+import { dirNameOf } from "./lint.ts";
 import {
   replaceWithSymlink,
   runCli,
   withGoodTree,
   writeFile,
-} from "../src/testing.ts";
+} from "./testing.ts";
 
 async function lint(root: string) {
   return await runCli(["lint-selfcontain", "--root", root]);
