@@ -19,26 +19,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: denoland/setup-deno@v2
+      - uses: oven-sh/setup-bun@v2
         with:
-          deno-version: "2.9.x"
+          bun-version: "1.3.x"
+
+      # The lockfile decides which versions a run resolves, and a lockfile that
+      # would have to change for the install to succeed fails the run instead of
+      # being rewritten.
+      - name: Install the locked dependencies
+        run: bun install --frozen-lockfile
 
       # The same command PROJECT.md documents for local runs, so CI and the
       # documentation cannot drift apart.
       - name: Run the tool's own tests
-        run: deno task test
+        run: bun test
 
       # The tool is then run against the fixture tree, which is committed in a
       # state that verifies clean. An unapproved change to a contract, a copy,
-      # or the lock makes this step fail. Both commands are granted read access
-      # only: neither of them writes, and accept — the one operation that
-      # changes what is accepted — is deliberately absent from CI.
+      # or the lock makes this step fail. accept — the one operation that
+      # changes what is accepted — is deliberately absent from here: this
+      # workflow detects unapproved drift and never approves it.
       - name: Verify the fixture tree against its lock
-        run: >
-          deno run --allow-read src/cli.ts verify
-          --root fixtures/contracts-basic/good
+        run: bun run src/cli.ts verify --root fixtures/contracts-basic/good
 
       - name: Check that the fixture skills are self-contained
-        run: >
-          deno run --allow-read src/cli.ts lint-selfcontain
-          --root fixtures/contracts-basic/good
+        run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-basic/good
