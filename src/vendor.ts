@@ -7,20 +7,16 @@
 
 import { parse as parseYaml } from "@std/yaml";
 import ignore, { type Ignore } from "ignore";
+import { ConfigError, describeCause, type Sink } from "./errors.ts";
+
+export { ConfigError };
+export type { Sink };
 
 const DIGEST_PREFIX = "sha256:";
 const CONTRACT_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const CONTRACT_ID_LIMIT = 64;
 const FRONTMATTER_DELIMITER = "---";
 const IGNORE_FILE = ".gitignore";
-
-/** A misconfiguration or misuse: the run stops and writes nothing. */
-export class ConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "ConfigError";
-  }
-}
 
 // --- text canonicalization -------------------------------------------------
 
@@ -443,10 +439,6 @@ function verdictFor(
 
 function compareStrings(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
-}
-
-function describeCause(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause);
 }
 
 /** True for a real directory; a symlink in its place is refused outright. */
@@ -1387,8 +1379,6 @@ async function commandLint(root: string, out: Sink): Promise<number> {
 }
 
 // --- commands --------------------------------------------------------------
-
-export type Sink = (line: string) => void;
 
 async function commandGen(root: string, out: Sink): Promise<number> {
   const skills = await readSkills(root);
