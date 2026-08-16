@@ -72,3 +72,12 @@ Deno.test("the entry point touches no file of its own", () => {
   );
   assertEquals(reached, null, `the entry point reaches ${reached?.join(", ")}`);
 });
+
+Deno.test("--root given an empty path is a usage error", async () => {
+  // What an unset shell variable expands to. Reduced to "/" it would point the
+  // run at the file system root.
+  const result = await runCli(["verify", "--root", ""]);
+  assertEquals(result.code, 2);
+  assertEquals(result.stdout, []);
+  assertStringIncludes(result.stderr.join("\n"), "--root");
+});

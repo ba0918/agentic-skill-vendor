@@ -44,7 +44,12 @@ function parseArguments(argv: string[]): Invocation | "help" {
     if (token === "--help" || token === "-h") return "help";
     if (token === "--root") {
       const value = argv[++index];
-      if (value === undefined) throw new ConfigError("--root needs a path");
+      // An empty argument is what an unset shell variable expands to. Reduced
+      // to "/" it would silently point the run at the file system root instead
+      // of saying that no path was named.
+      if (value === undefined || value === "") {
+        throw new ConfigError("--root needs a path");
+      }
       root = value.replace(/\/+$/, "") || "/";
     } else if (token.startsWith("-")) {
       throw new ConfigError(`unknown option: ${token}\n${USAGE}`);
