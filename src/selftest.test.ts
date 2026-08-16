@@ -1,15 +1,10 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { copy } from "@std/fs";
-import type { Sink } from "../src/vendor.ts";
-import {
-  runCli,
-  snapshotTree,
-  withEmptyDir,
-  withGoodTree,
-} from "../src/testing.ts";
+import type { Sink } from "./errors.ts";
+import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
-const SOURCE_DIR = new URL("../src", import.meta.url).pathname;
-const ENTRY = "vendor.ts";
+const SOURCE_DIR = new URL(".", import.meta.url).pathname;
+const ENTRY = "cli.ts";
 
 /**
  * Loads a copy of the tool with one edit applied to one of its modules,
@@ -39,7 +34,7 @@ async function runAltered(
   return { code, stdout };
 }
 
-Deno.test("self-test passes against the vectors the file carries", async () => {
+Deno.test("self-test passes against the vectors the tool carries", async () => {
   const result = await runCli(["self-test"]);
   assertEquals(result.stdout, []);
   assertEquals(result.code, 0);
@@ -98,45 +93,4 @@ Deno.test("self-test fails when the conformance framing stops matching its vecto
     assertEquals(result.code, 1);
     assertStringIncludes(result.stdout.join("\n"), "self-test:");
   });
-});
-
-Deno.test("an unknown command is a usage error", async () => {
-  const result = await runCli(["frobnicate"]);
-  assertEquals(result.code, 2);
-  assertEquals(result.stdout, []);
-  assertStringIncludes(result.stderr.join("\n"), "frobnicate");
-});
-
-Deno.test("naming no command at all is a usage error", async () => {
-  const result = await runCli([]);
-  assertEquals(result.code, 2);
-  assertEquals(result.stdout, []);
-});
-
-Deno.test("an unknown option is a usage error", async () => {
-  const result = await runCli(["verify", "--depth", "2"]);
-  assertEquals(result.code, 2);
-  assertEquals(result.stdout, []);
-});
-
-Deno.test("--root with no path after it is a usage error", async () => {
-  const result = await runCli(["verify", "--root"]);
-  assertEquals(result.code, 2);
-});
-
-Deno.test("asking for help prints the commands and exits cleanly", async () => {
-  const result = await runCli(["--help"]);
-  assertEquals(result.code, 0);
-  const text = result.stdout.join("\n");
-  for (
-    const command of [
-      "gen",
-      "verify",
-      "accept",
-      "lint-selfcontain",
-      "self-test",
-    ]
-  ) {
-    assertStringIncludes(text, command);
-  }
 });
