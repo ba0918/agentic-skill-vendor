@@ -1,6 +1,6 @@
 // declaration.ts — what a skill says it depends on.
 //
-import { parse as parseYaml } from "yaml";
+import { loadAll as parseYamlDocuments } from "js-yaml";
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
@@ -56,13 +56,30 @@ function parseFrontmatter(lines: string[], site: string): unknown {
       )}`,
     );
   }
+  let documents: unknown[];
   try {
-    return parseYaml(lines.join("\n"));
+    documents = parseYamlDocuments(lines.join("\n"));
   } catch (cause) {
     throw new ConfigError(
       `${site}: frontmatter is not readable YAML: ${describeCause(cause)}`,
     );
   }
+  // A block that opens no document at all — empty, or nothing but comments —
+  // declares nothing. Asking for the documents rather than for "the document"
+  // is what makes that answer the parser's rather than a guess: YAML readers
+  // disagree over what a single empty document should be, and none of them
+  // disagrees over there being none.
+  if (documents.length === 0) return null;
+  // Unreachable through splitDocument, which ends the frontmatter at the first
+  // closing delimiter. Refused rather than reasoned about: silently reading the
+  // first of several documents is the shape of failure this module exists to
+  // rule out.
+  if (documents.length > 1) {
+    throw new ConfigError(
+      `${site}: frontmatter holds ${documents.length} YAML documents, not one`,
+    );
+  }
+  return documents[0];
 }
 
 /** The value as a mapping, or a refusal naming what was found instead. */
