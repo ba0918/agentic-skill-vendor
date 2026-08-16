@@ -1,5 +1,5 @@
 import { copy } from "@std/fs";
-import { run } from "../src/vendor.ts";
+import { run } from "./vendor.ts";
 
 export interface CliResult {
   code: number;

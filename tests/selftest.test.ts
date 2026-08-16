@@ -1,7 +1,12 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { copy } from "@std/fs";
 import type { Sink } from "../src/vendor.ts";
-import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./helpers.ts";
+import {
+  runCli,
+  snapshotTree,
+  withEmptyDir,
+  withGoodTree,
+} from "../src/testing.ts";
 
 const SOURCE_DIR = new URL("../src", import.meta.url).pathname;
 const ENTRY = "vendor.ts";

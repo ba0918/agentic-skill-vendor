@@ -5,7 +5,7 @@ import {
   snapshotTree,
   withGoodTree,
   writeFile,
-} from "./helpers.ts";
+} from "../src/testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const MANIFEST = "vendor-manifest.json";

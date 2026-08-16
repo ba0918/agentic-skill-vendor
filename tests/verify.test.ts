@@ -4,7 +4,7 @@ import {
   runCli,
   withGoodTree,
   writeFile,
-} from "./helpers.ts";
+} from "../src/testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const CONTRACT = "contracts/verdict-format.md";

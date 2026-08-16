@@ -5,7 +5,7 @@ import {
   runCli,
   withGoodTree,
   writeFile,
-} from "./helpers.ts";
+} from "../src/testing.ts";
 
 async function lint(root: string) {
   return await runCli(["lint-selfcontain", "--root", root]);
