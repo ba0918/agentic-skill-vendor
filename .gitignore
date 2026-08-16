@@ -8,3 +8,8 @@
 # `bun run build` and never committed.
 /node_modules/
 /dist/
+
+# Written by Deno as a side effect of running the tool with `deno run`. The
+# tool runs on that runtime but is not developed against it, so the lock is a
+# local artifact rather than part of the project.
+/deno.lock
