@@ -1,3 +1,4 @@
 
 # Agent Artifact Store
 /.agents/artifacts/
+/.agents/runtime/
