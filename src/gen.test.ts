@@ -268,6 +268,34 @@ async function escapeThrough(root: string, relative: string): Promise<string> {
   return outside;
 }
 
+test("gen refuses a contracts directory symlinked outside the tree", async () => {
+  await withGoodTree(async (root) => {
+    const outside = await escapeThrough(root, "contracts");
+    // The moved text is edited before the run, so that following the link and
+    // refusing it are two different answers: read through the link, the edit is
+    // unaccepted drift reported on standard output with exit 1. Left byte
+    // identical it would instead reach exit 2 by another route — the same
+    // refusal raised while the manifest's provenance is built — and this case
+    // would go on passing with the refusal it names taken out.
+    const escaped = `${outside}/contracts/verdict-format.md`;
+    await fs.writeFile(
+      escaped,
+      (await fs.readFile(escaped, "utf8")) + "\nOne more rule.\n",
+    );
+    const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      "symlink is not allowed inside the tree: contracts",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
+  });
+});
+
 test("accept refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     const outside = await escapeThrough(root, "contracts");
