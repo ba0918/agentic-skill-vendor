@@ -72,6 +72,7 @@ import {
   vendorHeader,
 } from "./gen.ts";
 import { commandVerify } from "./verify.ts";
+import { commandAccept } from "./accept.ts";
 
 export * from "./walk.ts";
 export * from "./ignore.ts";
@@ -80,6 +81,7 @@ export * from "./declaration.ts";
 export * from "./manifest.ts";
 export * from "./gen.ts";
 export * from "./verify.ts";
+export * from "./accept.ts";
 export { ConfigError };
 export type { Sink };
 export * from "./digest.ts";
@@ -254,85 +256,6 @@ async function commandLint(root: string, out: Sink): Promise<number> {
 }
 
 // --- commands --------------------------------------------------------------
-
-interface AcceptanceRecord {
-  id: string;
-  previous: string | null;
-  adopted: string;
-}
-
-/**
- * The only writer of resolutions, and therefore the boundary at which a change
- * of contract text becomes approved.
- *
- * What protects deliberate adoption is not the command being awkward to run: it
- * is that running it produces something reviewable. The routing metadata below
- * is derived from the lock, which is the authoritative dependency graph, so the
- * list of affected skills cannot drift from the thing it describes.
- */
-async function commandAccept(
-  root: string,
-  ids: string[],
-  out: Sink,
-): Promise<number> {
-  if (ids.length === 0) {
-    throw new ConfigError("accept needs at least one contract id");
-  }
-  for (const [position, id] of ids.entries()) {
-    assertValidContractId(id, "accept");
-    if (ids.indexOf(id) !== position) {
-      throw new ConfigError(`accept was given ${id} more than once`);
-    }
-  }
-
-  const skills = await readSkills(root);
-  const previous = await readResolutions(root);
-  const wanted = [...new Set([...ids, ...declaredIds(skills)])].sort(
-    compareStrings,
-  );
-  const contracts = await readContracts(root, wanted);
-
-  const resolutions: Resolutions = { ...previous };
-  const records: AcceptanceRecord[] = [];
-  for (const id of ids) {
-    const contract = contracts.get(id) ?? null;
-    if (contract === null) {
-      throw new ConfigError(
-        `cannot accept ${id}: ${contractPath(id)} does not exist`,
-      );
-    }
-    const resolution: Resolution = { digest: contract.digest };
-    const conformance = await conformanceDigest(root, id);
-    if (conformance !== null) resolution.conformance = conformance;
-    if (contract.version !== undefined) resolution.version = contract.version;
-    records.push({
-      id,
-      previous: previous[id]?.digest ?? null,
-      adopted: contract.digest,
-    });
-    resolutions[id] = resolution;
-  }
-
-  const violations = acceptanceViolations(skills, contracts, resolutions);
-  if (violations.length > 0) {
-    for (const violation of violations) out(violation);
-    return 1;
-  }
-  await executePlan(await planExpansion(root, skills, contracts, resolutions));
-
-  for (const record of records) {
-    const dependents = dependentsOf(skills, record.id);
-    out(`accepted: ${record.id}`);
-    out(`  old-digest: ${record.previous ?? "none (initial adoption)"}`);
-    out(`  new-digest: ${record.adopted}`);
-    out(
-      `  dependents: ${
-        dependents.length > 0 ? dependents.join(", ") : "(none)"
-      }`,
-    );
-  }
-  return 0;
-}
 
 // --- self diagnosis --------------------------------------------------------
 

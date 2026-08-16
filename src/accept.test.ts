@@ -1,10 +1,5 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import {
-  runCli,
-  snapshotTree,
-  withGoodTree,
-  writeFile,
-} from "../src/testing.ts";
+import { runCli, snapshotTree, withGoodTree, writeFile } from "./testing.ts";
 
 const CONTRACT = "contracts/verdict-format.md";
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
