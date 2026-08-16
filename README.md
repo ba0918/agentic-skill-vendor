@@ -118,7 +118,9 @@ a contract that has already been accepted needs no further approval: write the i
 The frontmatter is read as YAML, and the declaration is then judged against a schema. Any
 YAML spelling of "a list of ids under `metadata.contracts`" is accepted — the block form
 above, a flow list (`contracts: [verdict-format, changelog-entry]`), a flow mapping, entries
-at the same indent as the `contracts` key, quoted ids, comments anywhere.
+at the same indent as the `contracts` key, quoted ids, a `metadata` block assembled through
+a merge key (`<<`), comments anywhere. An id has to survive that reading as text: one
+written so that YAML resolves it to a number or a date is refused rather than guessed at.
 
 A skill declares nothing when the document says so: no frontmatter, no `metadata` key, or a
 `metadata` mapping carrying no `contracts` key. Everything else stops the run with exit `2`,

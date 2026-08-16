@@ -52,9 +52,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with nothing copied into the consuming repository. Syncing a single `.ts` file at a pinned
   digest is no longer how it is consumed, and the sha256-then-`self-test` check that went
   with it no longer applies; `self-test` remains as the environment smoke check.
-- Frontmatter is parsed by `js-yaml` rather than `@std/yaml`. Every declaration shape that
-  was accepted is still accepted and every one that was refused is still refused; what
-  changes is that a Deno run needs no environment permission to parse it.
+- Frontmatter is parsed by `js-yaml` rather than `@std/yaml`, which is what lets a Deno run
+  parse it without environment permission. Every shape of a declaration is still read the
+  same way, merge keys (`<<`) included, and no shape that declared contracts before is now
+  read as declaring nothing. Two ids resolve differently at the edge, and both differences
+  are reported rather than silent: an id written `0o17` is now refused, because YAML 1.2
+  reads it as a number where the previous parser read it as text; an id written
+  `2001-12-14` is now accepted as that text, where the previous parser read it as a date
+  and refused it.
 - `--root` given an empty path is a usage error. It was reduced to `/`, so an unset shell
   variable pointed the run at the file system root.
 - `provenance.contracts` names only the contracts whose canonical file the tree holds, so a
