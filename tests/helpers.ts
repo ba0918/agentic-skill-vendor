@@ -1,4 +1,27 @@
 import { copy } from "@std/fs";
+import { run } from "../src/vendor.ts";
+
+export interface CliResult {
+  code: number;
+  stdout: string[];
+  stderr: string[];
+}
+
+/**
+ * Drives the CLI in process. The tool is reached through its exported entry
+ * point rather than a subprocess so that the suite needs no run permission
+ * beyond the read and write the tool itself asks for.
+ */
+export async function runCli(args: string[]): Promise<CliResult> {
+  const stdout: string[] = [];
+  const stderr: string[] = [];
+  const code = await run(
+    args,
+    (line) => stdout.push(line),
+    (line) => stderr.push(line),
+  );
+  return { code, stdout, stderr };
+}
 
 /**
  * The committed clean tree. Tests never mutate it: every case clones it into a

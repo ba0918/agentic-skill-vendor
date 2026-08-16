@@ -444,3 +444,563 @@ export async function readTextFile(
   }
   return decodeUtf8(bytes, site);
 }
+
+// --- tree layout -----------------------------------------------------------
+
+const MANIFEST_FILE = "vendor-manifest.json";
+const CONTRACTS_DIR = "contracts";
+const SKILLS_DIR = "skills";
+const VENDOR_SUBPATH = "references/vendor";
+const SKILL_FILE = "SKILL.md";
+const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
+
+const GENERATOR = {
+  name: "vendor.ts",
+  version: "1.0.0",
+  source: "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
+} as const;
+
+function contractPath(id: string): string {
+  return `${CONTRACTS_DIR}/${id}.md`;
+}
+
+function vendorDirOf(skill: string): string {
+  return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
+}
+
+function skillFileOf(skill: string): string {
+  return `${SKILLS_DIR}/${skill}/${SKILL_FILE}`;
+}
+
+/**
+ * Refuses a symlink anywhere along a path inside the tree.
+ *
+ * Checking only the last component would not be enough: a link at any level
+ * makes every path below it resolve outside the tree, so a directory created
+ * under it would be created somewhere the run was never pointed at.
+ */
+async function assertPlainChain(root: string, relative: string): Promise<void> {
+  let path = root;
+  for (const part of relative.split("/")) {
+    path = `${path}/${part}`;
+    let info: Deno.FileInfo;
+    try {
+      info = await Deno.lstat(path);
+    } catch (cause) {
+      if (cause instanceof Deno.errors.NotFound) return;
+      throw new ConfigError(
+        `cannot inspect ${relative}: ${describeCause(cause)}`,
+      );
+    }
+    if (info.isSymlink) {
+      throw new ConfigError(
+        `symlink is not allowed inside the tree: ${relative}`,
+      );
+    }
+  }
+}
+
+async function isRegularFile(path: string): Promise<boolean> {
+  let info: Deno.FileInfo;
+  try {
+    info = await Deno.lstat(path);
+  } catch (cause) {
+    if (cause instanceof Deno.errors.NotFound) return false;
+    throw new ConfigError(`cannot inspect ${path}: ${describeCause(cause)}`);
+  }
+  if (info.isSymlink) {
+    throw new ConfigError(`symlink is not allowed inside the tree: ${path}`);
+  }
+  return info.isFile;
+}
+
+// --- manifest --------------------------------------------------------------
+
+export interface Resolution {
+  digest: string;
+  conformance?: string;
+  version?: string;
+}
+
+export type Resolutions = Record<string, Resolution>;
+export type Dependencies = Record<string, string[]>;
+
+/**
+ * The manifest's canonical rendering: keys sorted at every level, two-space
+ * indentation, one trailing newline, and no escaping of non-ASCII text.
+ *
+ * Verify compares the manifest byte for byte, so a canonical rendering is what
+ * makes "the manifest is up to date" a decidable question rather than a
+ * question about JSON formatting.
+ */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(withSortedKeys(value), null, 2) + "\n";
+}
+
+function withSortedKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withSortedKeys);
+  if (value === null || typeof value !== "object") return value;
+  const source = value as Record<string, unknown>;
+  const sorted: Record<string, unknown> = {};
+  for (const key of Object.keys(source).sort(compareStrings)) {
+    sorted[key] = withSortedKeys(source[key]);
+  }
+  return sorted;
+}
+
+export function buildManifest(
+  dependencies: Dependencies,
+  resolutions: Resolutions,
+): unknown {
+  const contracts: Record<string, { source: string }> = {};
+  for (const id of Object.keys(resolutions).sort(compareStrings)) {
+    contracts[id] = { source: contractPath(id) };
+  }
+  // No wall-clock value is recorded anywhere in here. Reproducibility is the
+  // reason this file exists, and a timestamp would make every regeneration a
+  // change.
+  return {
+    lock: { dependencies, resolutions },
+    provenance: { contracts, generator: { ...GENERATOR } },
+  };
+}
+
+/** The resolutions currently recorded, or none when there is no manifest yet. */
+export async function readResolutions(root: string): Promise<Resolutions> {
+  await assertPlainChain(root, MANIFEST_FILE);
+  let bytes: Uint8Array;
+  try {
+    bytes = await Deno.readFile(`${root}/${MANIFEST_FILE}`);
+  } catch (cause) {
+    if (cause instanceof Deno.errors.NotFound) return {};
+    throw new ConfigError(
+      `cannot read ${MANIFEST_FILE}: ${describeCause(cause)}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeUtf8(bytes, MANIFEST_FILE));
+  } catch (cause) {
+    if (cause instanceof ConfigError) throw cause;
+    throw new ConfigError(
+      `${MANIFEST_FILE}: not readable JSON: ${describeCause(cause)}`,
+    );
+  }
+  return validateResolutions(parsed);
+}
+
+function validateResolutions(parsed: unknown): Resolutions {
+  const lock = pickObject(pickObject(parsed, "")["lock"], "lock");
+  const raw = lock["resolutions"];
+  if (raw === undefined) return {};
+  const entries = pickObject(raw, "lock.resolutions");
+  const resolutions: Resolutions = {};
+  for (const id of Object.keys(entries)) {
+    assertValidContractId(id, `${MANIFEST_FILE}: lock.resolutions`);
+    const entry = pickObject(entries[id], `lock.resolutions.${id}`);
+    const resolution: Resolution = {
+      digest: requireDigest(entry["digest"], `lock.resolutions.${id}.digest`),
+    };
+    if (entry["conformance"] !== undefined) {
+      resolution.conformance = requireDigest(
+        entry["conformance"],
+        `lock.resolutions.${id}.conformance`,
+      );
+    }
+    if (entry["version"] !== undefined) {
+      if (typeof entry["version"] !== "string") {
+        throw new ConfigError(
+          `${MANIFEST_FILE}: lock.resolutions.${id}.version must be a string`,
+        );
+      }
+      resolution.version = entry["version"];
+    }
+    resolutions[id] = resolution;
+  }
+  return resolutions;
+}
+
+function pickObject(value: unknown, path: string): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError(
+      `${MANIFEST_FILE}: ${path || "document"} must be an object`,
+    );
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireDigest(value: unknown, path: string): string {
+  if (typeof value !== "string" || !DIGEST_FORM.test(value)) {
+    throw new ConfigError(
+      `${MANIFEST_FILE}: ${path} must be a sha256 digest, found ${
+        JSON.stringify(value)
+      }`,
+    );
+  }
+  return value;
+}
+
+// --- reading the tree ------------------------------------------------------
+
+export interface SkillDeclaration {
+  name: string;
+  contracts: string[];
+}
+
+export interface CanonicalContract {
+  digest: string;
+  body: string;
+  version?: string;
+}
+
+/** Every skill directly under skills/, with the contracts it declares. */
+export async function readSkills(root: string): Promise<SkillDeclaration[]> {
+  const skillsDir = `${root}/${SKILLS_DIR}`;
+  if (!await isDirectory(skillsDir)) return [];
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(skillsDir)) {
+    if (entry.isSymlink) {
+      throw new ConfigError(
+        `symlink is not allowed inside the tree: ${SKILLS_DIR}/${entry.name}`,
+      );
+    }
+    if (entry.isDirectory) names.push(entry.name);
+  }
+  names.sort(compareStrings);
+
+  const skills: SkillDeclaration[] = [];
+  for (const name of names) {
+    const site = skillFileOf(name);
+    if (!await isRegularFile(`${root}/${site}`)) continue;
+    skills.push({
+      name,
+      contracts: parseContractDeclarations(
+        await readTextFile(`${root}/${site}`, site),
+        site,
+      ),
+    });
+  }
+  return skills;
+}
+
+/** The declared contract ids across all skills, without duplicates. */
+export function declaredIds(skills: SkillDeclaration[]): string[] {
+  const ids = new Set<string>();
+  for (const skill of skills) for (const id of skill.contracts) ids.add(id);
+  return [...ids].sort(compareStrings);
+}
+
+function dependentsOf(skills: SkillDeclaration[], id: string): string[] {
+  return skills.filter((skill) => skill.contracts.includes(id)).map((skill) =>
+    skill.name
+  )
+    .sort(compareStrings);
+}
+
+/**
+ * The dependency half of the lock: a skill mapped to the contracts it declares.
+ *
+ * The ids are sorted rather than kept in declaration order. The lock is a
+ * canonical form, duplicates are already refused, and so the order in which a
+ * skill happens to list its contracts carries no meaning that a rewrite of the
+ * lock should record.
+ */
+export function dependenciesOf(skills: SkillDeclaration[]): Dependencies {
+  const dependencies: Dependencies = {};
+  for (const skill of skills) {
+    if (skill.contracts.length === 0) continue;
+    dependencies[skill.name] = [...skill.contracts].sort(compareStrings);
+  }
+  return dependencies;
+}
+
+function frontmatterScalar(
+  frontmatter: string[],
+  key: string,
+): string | undefined {
+  const line = frontmatter.find(
+    (candidate) =>
+      indentOf(candidate) === 0 && candidate.startsWith(`${key}:`) &&
+      /^[^:]+:(\s|$)/.test(candidate),
+  );
+  if (line === undefined) return undefined;
+  const value = withoutComment(line).slice(key.length + 1).trim();
+  if (value === "") return undefined;
+  return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+}
+
+/** Reads each contract's canonical text, or null where the file is absent. */
+export async function readContracts(
+  root: string,
+  ids: string[],
+): Promise<Map<string, CanonicalContract | null>> {
+  const contracts = new Map<string, CanonicalContract | null>();
+  for (const id of ids) {
+    const site = contractPath(id);
+    if (!await isRegularFile(`${root}/${site}`)) {
+      contracts.set(id, null);
+      continue;
+    }
+    const text = await readTextFile(`${root}/${site}`, site);
+    const document = splitDocument(text, site);
+    const body = canonicalBody(text, site);
+    contracts.set(id, {
+      digest: await digestOfText(body),
+      body,
+      version: frontmatterScalar(document.frontmatter, "version"),
+    });
+  }
+  return contracts;
+}
+
+// --- vendored copies -------------------------------------------------------
+
+/**
+ * The bytes of a vendored copy: the three facts the specification fixes, then
+ * the canonical body.
+ *
+ * No source path and no time of generation appear. A path would make the copy
+ * depend on where it came from, and a timestamp would make two runs over
+ * unchanged input produce different files.
+ */
+export function renderVendorFile(
+  id: string,
+  digest: string,
+  body: string,
+): string {
+  return `<!-- DO NOT EDIT. Generated by ${GENERATOR.name}. -->\n` +
+    `<!-- contract: ${id} -->\n` +
+    `<!-- source-digest: ${digest} -->\n\n` +
+    body;
+}
+
+/** The names directly inside a skill's vendor directory. */
+async function listVendorEntries(
+  root: string,
+  skill: string,
+): Promise<string[]> {
+  const relative = vendorDirOf(skill);
+  await assertPlainChain(root, relative);
+  const dir = `${root}/${relative}`;
+  if (!await isDirectory(dir)) return [];
+  const names: string[] = [];
+  for await (const entry of Deno.readDir(dir)) {
+    if (entry.isSymlink) {
+      throw new ConfigError(
+        `symlink is not allowed inside the tree: ${relative}/${entry.name}`,
+      );
+    }
+    names.push(entry.name);
+  }
+  return names.sort(compareStrings);
+}
+
+// --- the write phase -------------------------------------------------------
+
+interface WritePlan {
+  files: { path: string; content: Uint8Array }[];
+  manifest: { path: string; content: Uint8Array };
+  removals: string[];
+}
+
+/**
+ * Builds every byte the run will write before writing any of them, so that a
+ * tree is never half-updated because of something the run could have known in
+ * advance.
+ */
+async function planExpansion(
+  root: string,
+  skills: SkillDeclaration[],
+  contracts: Map<string, CanonicalContract | null>,
+  resolutions: Resolutions,
+): Promise<WritePlan> {
+  const encoder = new TextEncoder();
+  const files: WritePlan["files"] = [];
+  const removals: string[] = [];
+  for (const skill of skills) {
+    const expected = new Set<string>();
+    for (const id of skill.contracts) {
+      const contract = contracts.get(id);
+      if (contract === null || contract === undefined) continue;
+      expected.add(`${id}.md`);
+      files.push({
+        path: `${root}/${vendorDirOf(skill.name)}/${id}.md`,
+        content: encoder.encode(
+          renderVendorFile(id, contract.digest, contract.body),
+        ),
+      });
+    }
+    for (const name of await listVendorEntries(root, skill.name)) {
+      if (!expected.has(name)) {
+        removals.push(`${root}/${vendorDirOf(skill.name)}/${name}`);
+      }
+    }
+  }
+  return {
+    files,
+    manifest: {
+      path: `${root}/${MANIFEST_FILE}`,
+      content: encoder.encode(
+        canonicalJson(buildManifest(dependenciesOf(skills), resolutions)),
+      ),
+    },
+    removals,
+  };
+}
+
+/**
+ * Copies first, then the manifest, then the removals.
+ *
+ * A run stopped part way therefore never loses a file it had not yet replaced,
+ * and the state it leaves is one verify reports as a violation rather than one
+ * that looks finished.
+ */
+async function executePlan(plan: WritePlan): Promise<void> {
+  for (const file of plan.files) {
+    await ensureParentDirectory(file.path);
+    await atomicWriteFile(file.path, file.content);
+  }
+  await atomicWriteFile(plan.manifest.path, plan.manifest.content);
+  for (const path of plan.removals) {
+    await Deno.remove(path, { recursive: true }).catch(() => {});
+  }
+}
+
+async function ensureParentDirectory(path: string): Promise<void> {
+  const parent = path.slice(0, path.lastIndexOf("/"));
+  try {
+    await Deno.mkdir(parent, { recursive: true });
+  } catch (cause) {
+    throw new ConfigError(`cannot create ${parent}: ${describeCause(cause)}`);
+  }
+}
+
+// --- acceptance checks -----------------------------------------------------
+
+/**
+ * The half of verification that compares canonical text against what was
+ * accepted. gen runs exactly these checks and refuses to expand while any of
+ * them holds, so no vendored copy can carry text nobody approved.
+ */
+function acceptanceViolations(
+  skills: SkillDeclaration[],
+  contracts: Map<string, CanonicalContract | null>,
+  resolutions: Resolutions,
+): string[] {
+  const violations: string[] = [];
+  for (const id of declaredIds(skills)) {
+    const dependents = dependentsOf(skills, id).join(", ");
+    const contract = contracts.get(id) ?? null;
+    if (contract === null) {
+      violations.push(
+        `closure: ${id} is declared by ${dependents} but ${
+          contractPath(id)
+        } does not exist`,
+      );
+      continue;
+    }
+    const resolution = resolutions[id];
+    if (resolution === undefined) {
+      violations.push(
+        `unresolved: ${id} has no entry in ${MANIFEST_FILE}; accept ${id} to record one`,
+      );
+      continue;
+    }
+    if (resolution.digest !== contract.digest) {
+      violations.push(
+        `unaccepted-drift: ${id} is resolved to ${resolution.digest} but ${
+          contractPath(id)
+        } is ${contract.digest}; accept ${id} to adopt the new text`,
+      );
+    }
+  }
+  return violations;
+}
+
+// --- commands --------------------------------------------------------------
+
+export type Sink = (line: string) => void;
+
+async function commandGen(root: string, out: Sink): Promise<number> {
+  const skills = await readSkills(root);
+  const resolutions = await readResolutions(root);
+  const contracts = await readContracts(root, declaredIds(skills));
+
+  const violations = acceptanceViolations(skills, contracts, resolutions);
+  if (violations.length > 0) {
+    for (const violation of violations) out(violation);
+    return 1;
+  }
+  await executePlan(await planExpansion(root, skills, contracts, resolutions));
+  return 0;
+}
+
+// --- command line ----------------------------------------------------------
+
+interface Invocation {
+  command: string;
+  root: string;
+  operands: string[];
+}
+
+function parseArguments(argv: string[]): Invocation {
+  let root = ".";
+  let command: string | null = null;
+  const operands: string[] = [];
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (token === "--root") {
+      const value = argv[++index];
+      if (value === undefined) throw new ConfigError("--root needs a path");
+      root = value.replace(/\/+$/, "") || "/";
+    } else if (token.startsWith("-")) {
+      throw new ConfigError(`unknown option: ${token}`);
+    } else if (command === null) {
+      command = token;
+    } else {
+      operands.push(token);
+    }
+  }
+  if (command === null) throw new ConfigError("no command given");
+  return { command, root, operands };
+}
+
+/**
+ * Runs one invocation and answers with its exit code: 0 clean, 1 violations
+ * reported on `out`, 2 a configuration or usage error reported on `err`.
+ *
+ * The process is exited by the entry point below, never in here, so the whole
+ * tool stays callable from a test without a subprocess.
+ */
+export async function run(
+  argv: string[],
+  out: Sink,
+  err: Sink,
+): Promise<number> {
+  try {
+    const invocation = parseArguments(argv);
+    switch (invocation.command) {
+      case "gen":
+        return await commandGen(invocation.root, out);
+      default:
+        throw new ConfigError(`unknown command: ${invocation.command}`);
+    }
+  } catch (error) {
+    if (error instanceof ConfigError) {
+      err(`error: ${error.message}`);
+      return 2;
+    }
+    throw error;
+  }
+}
+
+if (import.meta.main) {
+  Deno.exit(
+    await run(
+      Deno.args,
+      (line) => console.log(line),
+      (line) => console.error(line),
+    ),
+  );
+}
