@@ -8,12 +8,10 @@
     "exclude": ["**/*.md", "fixtures/"]
   },
   "tasks": {
-    // --permit-no-files keeps these gates green while no .ts file exists yet;
-    // remove it when v1's first code lands so a vanished suite fails loudly.
     // The tool itself needs read and write and nothing more, so the suite that
     // drives it is granted exactly that.
-    "test": "deno test --permit-no-files --allow-read --allow-write",
-    "lint": "deno lint --permit-no-files",
+    "test": "deno test --allow-read --allow-write",
+    "lint": "deno lint",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check"
   },
