@@ -86,7 +86,7 @@ Deno.test("self-test fails when the conformance framing stops matching its vecto
   await withEmptyDir(async (dir) => {
     const result = await runAltered(
       dir,
-      ENTRY,
+      "conformance.ts",
       "encoder.encode(`${entry.path}\\0${entry.content.length}\\0`)",
       "encoder.encode(`${entry.path}\\0${entry.content.length}\\0\\0`)",
     );

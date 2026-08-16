@@ -37,9 +37,14 @@ import {
   readIgnoreRules,
   treeDirectoryOf,
 } from "./ignore.ts";
+import {
+  conformanceDigest,
+  conformanceDigestOfEntries,
+} from "./conformance.ts";
 
 export * from "./walk.ts";
 export * from "./ignore.ts";
+export * from "./conformance.ts";
 export { ConfigError };
 export type { Sink };
 export * from "./digest.ts";
@@ -167,88 +172,6 @@ function readContractIds(value: unknown, site: string): string[] {
     );
   }
   return ids;
-}
-
-// --- conformance framing ---------------------------------------------------
-
-export interface ConformanceEntry {
-  path: string;
-  content: Uint8Array;
-}
-
-/**
- * Digest over a conformance tree. Files are fed in path order, each framed as
- * `relative-posix-path NUL byte-length NUL content`, so no arrangement of file
- * names and contents can be confused with another one.
- *
- * Content is hashed as raw bytes and never canonicalized: conformance tests run
- * byte-exactly, so a line ending is part of what was pinned.
- */
-export async function conformanceDigestOfEntries(
-  entries: ConformanceEntry[],
-): Promise<string> {
-  const ordered = [...entries].sort((a, b) => compareStrings(a.path, b.path));
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  for (const entry of ordered) {
-    chunks.push(encoder.encode(`${entry.path}\0${entry.content.length}\0`));
-    chunks.push(entry.content);
-  }
-  return await digestOfBytes(concatBytes(chunks));
-}
-
-/**
- * Reads a conformance tree, or nothing at all when the directory is absent.
- *
- * Files the tree's .gitignore rules exclude are left out. What is pinned is
- * what the repository carries, and a file git does not carry cannot be part of
- * that: a fresh checkout would not have it, so digesting it would report a
- * mismatch against a tree nobody changed.
- *
- * The links are refused before the exclusion is applied, never after. Leaving
- * an ignored subtree unscanned would mean a link planted inside it escaped the
- * check that exists to catch it — exclusion narrows what is digested, not what
- * is looked at.
- */
-export async function collectConformanceEntries(
-  root: string,
-  relative: string,
-): Promise<ConformanceEntry[]> {
-  const dir = `${root}/${relative}`;
-  if (!await isDirectory(dir)) return [];
-  const found = await walkFiles(dir);
-  const rules = await readIgnoreRules(root, [
-    ...ancestorDirectories(relative),
-    ...found
-      .filter((path) => baseNameOf(path) === IGNORE_FILE)
-      .map((path) => joinRelative(relative, treeDirectoryOf(path))),
-  ]);
-  const entries: ConformanceEntry[] = [];
-  for (const path of found) {
-    if (rules.excludes(joinRelative(relative, path))) continue;
-    entries.push({ path, content: await Deno.readFile(`${dir}/${path}`) });
-  }
-  return entries;
-}
-
-/**
- * The conformance digest pinned for one contract, or null when the contract
- * ships no conformance tests.
- *
- * A directory holding nothing after the exclusion counts as absent, the same as
- * no directory at all: git cannot store an empty directory, so a fresh checkout
- * drops it and any other reading would report a false mismatch.
- */
-export async function conformanceDigest(
-  root: string,
-  id: string,
-): Promise<string | null> {
-  const entries = await collectConformanceEntries(
-    root,
-    `${CONTRACTS_DIR}/${id}/conformance`,
-  );
-  if (entries.length === 0) return null;
-  return await conformanceDigestOfEntries(entries);
 }
 
 // --- tree layout -----------------------------------------------------------
