@@ -16,7 +16,7 @@ import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 
 const USAGE = [
-  "usage: cli.ts <command> [--root <path>]",
+  "usage: agentic-skill-vendor <command> [--root <path>]",
   "",
   "commands:",
   "  gen                      write the accepted contracts into every skill",

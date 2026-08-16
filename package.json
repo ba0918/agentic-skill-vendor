@@ -1,11 +1,11 @@
 {
-  "name": "@ba0918/skill-shared-reference-vendor",
+  "name": "@ba0918/agentic-skill-vendor",
   "version": "0.1.0",
   "description": "Vendors shared reference documents into agent skill directories and locks what each skill depends on.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "skill-vendor": "dist/cli.js"
+    "agentic-skill-vendor": "dist/cli.js"
   },
   "files": [
     "dist/",

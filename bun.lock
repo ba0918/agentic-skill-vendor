@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@ba0918/skill-shared-reference-vendor",
+      "name": "@ba0918/agentic-skill-vendor",
       "dependencies": {
         "ignore": "7.0.6",
         "js-yaml": "5.2.3",

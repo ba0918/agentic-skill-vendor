@@ -29,11 +29,11 @@ forms — the tool cannot enforce how it is invoked, and every one of them reach
 CLI:
 
 ```
-bunx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
-npx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
-pnpm dlx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
-yarn dlx @ba0918/skill-shared-reference-vendor <command> [--root <path>]
-deno run --allow-read --allow-write npm:@ba0918/skill-shared-reference-vendor <command> [--root <path>]
+bunx @ba0918/agentic-skill-vendor <command> [--root <path>]
+npx @ba0918/agentic-skill-vendor <command> [--root <path>]
+pnpm dlx @ba0918/agentic-skill-vendor <command> [--root <path>]
+yarn dlx @ba0918/agentic-skill-vendor <command> [--root <path>]
+deno run --allow-read --allow-write npm:@ba0918/agentic-skill-vendor <command> [--root <path>]
 ```
 
 Pinning the version is the consuming repository's call, and pinning it is what makes a run
