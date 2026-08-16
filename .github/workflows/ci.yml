@@ -35,10 +35,10 @@ jobs:
       # changes what is accepted — is deliberately absent from CI.
       - name: Verify the fixture tree against its lock
         run: >
-          deno run --allow-read src/vendor.ts verify
+          deno run --allow-read src/cli.ts verify
           --root fixtures/contracts-basic/good
 
       - name: Check that the fixture skills are self-contained
         run: >
-          deno run --allow-read src/vendor.ts lint-selfcontain
+          deno run --allow-read src/cli.ts lint-selfcontain
           --root fixtures/contracts-basic/good

@@ -13,7 +13,7 @@ import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 
 const USAGE = [
-  "usage: vendor.ts <command> [--root <path>]",
+  "usage: cli.ts <command> [--root <path>]",
   "",
   "commands:",
   "  gen                      write the accepted contracts into every skill",

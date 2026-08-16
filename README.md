@@ -24,7 +24,7 @@ verification of its own.
 ## Using it
 
 ```
-deno run --allow-read --allow-write src/vendor.ts <command> [--root <path>]
+deno run --allow-read --allow-write src/cli.ts <command> [--root <path>]
 ```
 
 | Command | What it does |
@@ -33,12 +33,17 @@ deno run --allow-read --allow-write src/vendor.ts <command> [--root <path>]
 | `verify` | Checks the tree against the lock |
 | `accept <contract-id>...` | Adopts the current text of the named contracts |
 | `lint-selfcontain` | Checks that no skill points outside its own directory |
-| `self-test` | Checks this file against the vectors embedded in it |
+| `self-test` | Checks the tool against the vectors embedded in it |
 
 `--root` names the tree to work on and defaults to the current directory. The exit code is
 `0` when there is nothing to report, `1` when violations were found (one per line on standard
-output), and `2` for a configuration or usage error (described on standard error, with
-nothing written).
+output), and `2` for a configuration or usage error (described on standard error).
+
+A run that stops at exit `2` before the writing phase has written nothing. Once writing has
+begun, a failure leaves the tree part way through — copies written, others not — and says so
+on standard error. That state is not silent: it is exactly what `verify` reports, and the
+writing order is chosen so that what is left behind is a state `verify` calls a violation
+rather than one that looks finished.
 
 `verify`, `lint-selfcontain` and `self-test` never write, so they can be given
 `--allow-read` alone. Only `gen` and `accept` need `--allow-write`. Nothing needs network,
@@ -56,6 +61,23 @@ vendor-manifest.json                           the lock and the provenance recor
 
 Skills are the directories directly under `skills/`.
 
+#### What a conformance digest covers
+
+A contract's conformance tests are digested as a whole tree: each file framed as its
+relative path, its byte length and its bytes, in path order, hashed as raw bytes and never
+canonicalized — a line ending is part of what a conformance test pins.
+
+Which files are in that tree is decided by the `.gitignore` rules of the tree being worked
+on, read from `--root` down to the conformance directory and inside it, nested rules and
+negations included. What is pinned is what the repository carries, and a file git does not
+carry cannot be part of it: a fresh checkout would not have it, so digesting it would report
+a mismatch against a tree nobody changed. Editing a `.gitignore` can therefore change a
+conformance digest, and `verify` will report that as a mismatch until it is accepted.
+
+A conformance directory left with no files after the exclusion counts as no directory at
+all. Git cannot store an empty directory, so any other reading would report a false mismatch
+on a fresh checkout.
+
 ### Declaring a dependency
 
 A skill names the contracts it depends on in its `SKILL.md` frontmatter, by id and nothing
@@ -72,6 +94,28 @@ Digests are not written here — they live in the lock. That separation is what 
 update to a contract out of the diff of every skill that reads it. Declaring a dependency on
 a contract that has already been accepted needs no further approval: write the id and run
 `gen`.
+
+#### What is accepted, and what is refused
+
+The frontmatter is read as YAML, and the declaration is then judged against a schema. Any
+YAML spelling of "a list of ids under `metadata.contracts`" is accepted — the block form
+above, a flow list (`contracts: [verdict-format, changelog-entry]`), a flow mapping, entries
+at the same indent as the `contracts` key, quoted ids, comments anywhere.
+
+A skill declares nothing when the document says so: no frontmatter, no `metadata` key, or a
+`metadata` mapping carrying no `contracts` key. Everything else stops the run with exit `2`,
+because reading a declaration the tool cannot make sense of as an absent one would silently
+unpin a skill that believes it is pinned. Refused, then:
+
+| Refused | Why |
+|---|---|
+| Frontmatter YAML cannot parse — a duplicate key, ragged indentation, an unterminated block | The declaration cannot be read at all |
+| A tab in the indentation | YAML forbids it, and parsers that tolerate it re-read the indented key as a sibling — which drops the declaration |
+| `metadata` that is not a mapping | Same: there is no reading under which its contracts are visible |
+| `contracts` that is not a list, or an empty one | The key was written, so something was meant by it |
+| An entry that is not text — a number, an empty entry, a mapping | An id is a name; anything else is a different intent |
+| An entry carrying a digest (`- id: x` / `digest: …`) | The pin belongs to the lock. Written here, every contract update would show up in the diff of every skill that reads it |
+| An id that is unusable as a path component, or named twice | It becomes a file name, and a duplicate hides which one was meant |
 
 ### Adopting a change to a contract
 

@@ -12,14 +12,28 @@ intended consumer, whose Python vendor machinery this tool's v1 is designed to r
 
 ## Stack and layout
 
-Deno/TypeScript (Deno pinned to the 2.9.x line in CI). The tool ships as a single `.ts`
-source file that consumers sync at a fixed digest and run with `deno run` — no `deno compile`
-binary distribution.
+Deno/TypeScript (Deno pinned to the 2.9.x line in CI). The source is split into modules by
+responsibility under `src/`, each with its tests beside it, and is run with `deno run` —
+there is no build step and no `deno compile` binary, so nothing generated needs a
+reproducibility check of its own.
 
 | Path | What it holds |
 |---|---|
-| `src/vendor.ts` | The tool. The whole distributed artifact, in one file |
-| `tests/` | The tool's test suite, plus `helpers.ts` |
+| `src/cli.ts` | The entry point: argument parsing and routing, no logic of its own |
+| `src/errors.ts` | `ConfigError` and what the exit codes mean |
+| `src/digest.ts` | Canonical text, digests, contract ids — pure, no file system |
+| `src/walk.ts` | Every read and write, and the symlink refusal they respect |
+| `src/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
+| `src/conformance.ts` | The conformance framing rules and tree collection |
+| `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
+| `src/manifest.ts` | The lock and provenance, in one canonical rendering |
+| `src/gen.ts` | Distribution: what may be expanded, and writing it |
+| `src/verify.ts` | The three independent identity checks |
+| `src/accept.ts` | The approval boundary — the only writer of resolutions |
+| `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
+| `src/selftest.ts` | The environment smoke check and its hand-computed vectors |
+| `src/{name}.test.ts` | Each module's tests, beside the module |
+| `src/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
 | `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
 | `docs/spec/` | Design decisions (Japanese) |
 | `.github/workflows/ci.yml` | CI on Deno 2.9.x: the tests, then `verify` and `lint-selfcontain` over the fixture |
@@ -42,10 +56,11 @@ binary distribution.
 
 ## Constraints
 
-- `src/vendor.ts` imports nothing. A consumer accepts the file by checking one sha256, so
-  every behaviour it has must be inside that hash; an import would put code, and a network
-  dependency, outside it. The test suite is not distributed, so it may use JSR packages
-  (pinned in `deno.json`).
+- The tool reaches two dependencies, both pinned to exact versions in `deno.json`:
+  `@std/yaml` for frontmatter and `ignore` for `.gitignore` rules. Neither is a format worth
+  reimplementing, and a hand-written parser for either has one failure mode this tool cannot
+  afford — answering "I cannot read this" with silence. `@std/assert` and `@std/fs` are
+  reached only by the tests.
 - The following are external compatibility and do not change without a version change: the
   commands and their flags, the manifest schema, the exit codes, the digest algorithm and
   its normalization rules, the conformance framing rules, the byte form of the vendored copy
