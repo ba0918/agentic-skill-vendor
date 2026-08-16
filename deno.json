@@ -1,15 +1,28 @@
 {
   "fmt": {
     // Markdown keeps the sister repositories' hand-wrapped style; fmt governs
-    // TypeScript only.
-    "exclude": ["**/*.md"]
+    // TypeScript only. fixtures/ is excluded whole: its JSON is the tool's own
+    // canonical form (recursively sorted keys, byte-compared by verify), and
+    // letting fmt restyle it would make the fixture fail the very check it
+    // exists to exercise.
+    "exclude": ["**/*.md", "fixtures/"]
   },
   "tasks": {
     // --permit-no-files keeps these gates green while no .ts file exists yet;
     // remove it when v1's first code lands so a vanished suite fails loudly.
-    "test": "deno test --permit-no-files",
+    // The tool itself needs read and write and nothing more, so the suite that
+    // drives it is granted exactly that.
+    "test": "deno test --permit-no-files --allow-read --allow-write",
     "lint": "deno lint --permit-no-files",
     "fmt": "deno fmt",
     "fmt:check": "deno fmt --check"
+  },
+  // Dev-only, and pinned to exact versions because deno.lock is not committed:
+  // the range would otherwise be the only thing fixing the test suite's
+  // dependencies. The distributed artifact src/vendor.ts imports nothing, so
+  // these never reach a consumer.
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1.0.19",
+    "@std/fs": "jsr:@std/fs@1.0.24"
   }
 }

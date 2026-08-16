@@ -1,0 +1,39 @@
+{
+  "lock": {
+    "dependencies": {
+      "release-notes": [
+        "changelog-entry"
+      ],
+      "review-writer": [
+        "changelog-entry",
+        "verdict-format"
+      ]
+    },
+    "resolutions": {
+      "changelog-entry": {
+        "conformance": "sha256:24e870ec3256f3ee61ee74f6586fc1e91a3f7006dadbe872876201954162a9d1",
+        "digest": "sha256:3c2b577b588a0c1ed78468aae9824117dfed399c35591675f9c496a879196383",
+        "version": "0.4.1"
+      },
+      "verdict-format": {
+        "digest": "sha256:5486c28f5c099cf46ab35dc96e6bbce45620929bf29165dbbb659e8ce5436f3f",
+        "version": "1.2.0"
+      }
+    }
+  },
+  "provenance": {
+    "contracts": {
+      "changelog-entry": {
+        "source": "contracts/changelog-entry.md"
+      },
+      "verdict-format": {
+        "source": "contracts/verdict-format.md"
+      }
+    },
+    "generator": {
+      "name": "vendor.ts",
+      "source": "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
+      "version": "1.0.0"
+    }
+  }
+}
