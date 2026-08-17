@@ -252,6 +252,28 @@ test("a manifest missing its resolutions is refused, not read as empty", async (
   await expect(readWritten(`{"dependencies":{}}`)).rejects.toThrow(ConfigError);
 });
 
+test("a manifest whose resolutions are null is refused, not read as empty", async () => {
+  await expect(
+    readWritten(`{"dependencies":{},"resolutions":null}`),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a resolution that is not an object is refused", async () => {
+  await expect(
+    readWritten(manifestWith(`{"verdict-format":"oops"}`)),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a resolution whose conformance digest is not a sha256 digest is refused", async () => {
+  await expect(
+    readWritten(
+      manifestWith(
+        `{"verdict-format":{"conformance":"notadigest","digest":"${DIGEST}"}}`,
+      ),
+    ),
+  ).rejects.toThrow(ConfigError);
+});
+
 test("resolutions written as a list are refused", async () => {
   await expect(readWritten(manifestWith(`["verdict-format"]`))).rejects.toThrow(
     ConfigError,

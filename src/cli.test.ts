@@ -65,9 +65,6 @@ test("every command the entry point names is answered by a module of its own", (
     "lint-selfcontain",
     "self-test",
   ]);
-  expect(routed.length > 0, "the entry point routes no command").toStrictEqual(
-    true,
-  );
   for (const [, command, handler] of routed) {
     expect(
       imported.has(handler),

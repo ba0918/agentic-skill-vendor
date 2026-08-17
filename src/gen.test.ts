@@ -184,6 +184,80 @@ test("gen over a tree that already matches its lock reports nothing", async () =
   });
 });
 
+test("updating a contract leaves every SKILL.md byte identical", async () => {
+  await withGoodTree(async (root) => {
+    // A declaration names ids and never digests, so nothing about a contract's
+    // text reaches a SKILL.md. Were a digest pinned there instead, every
+    // contract update would touch every skill declaring it — a diff on files
+    // whose dependency intent did not change, and tokens spent reading it every
+    // time the skill is loaded.
+    const before = new Map<string, string>();
+    for (const name of ["release-notes", "review-writer"]) {
+      before.set(
+        name,
+        await fs.readFile(`${root}/skills/${name}/SKILL.md`, "utf8"),
+      );
+    }
+    await append(`${root}/contracts/verdict-format.md`, "\nOne more rule.\n");
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    for (const [name, text] of before) {
+      expect(
+        await fs.readFile(`${root}/skills/${name}/SKILL.md`, "utf8"),
+        name,
+      ).toStrictEqual(text);
+    }
+  });
+});
+
+test("rewriting the lock for one contract leaves another's resolution alone", async () => {
+  await withGoodTree(async (root) => {
+    const before = (await readManifest(root)).resolutions["changelog-entry"];
+    await append(`${root}/contracts/verdict-format.md`, "\nOne more rule.\n");
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect(
+      (await readManifest(root)).resolutions["changelog-entry"],
+    ).toStrictEqual(before);
+  });
+});
+
+test("gen records a conformance digest for a declared contract that gains tests", async () => {
+  await withGoodTree(async (root) => {
+    // verdict-format ships no conformance tests, so nothing is recorded for it.
+    // Adding tests has to add the digest, and verification digests them from
+    // then on.
+    expect(
+      "conformance" in (await readManifest(root)).resolutions["verdict-format"],
+    ).toStrictEqual(false);
+    await writeFile(
+      `${root}/contracts/verdict-format/conformance/cases/first.md`,
+      "a new case\n",
+    );
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect(
+      (await readManifest(root)).resolutions["verdict-format"].conformance,
+    ).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("gen drops the conformance digest of a declared contract that loses its tests", async () => {
+  await withGoodTree(async (root) => {
+    // The other direction, and the one a carried-across resolution gets wrong:
+    // a digest kept for tests that are gone fails every later verification.
+    await fs.rm(`${root}/contracts/changelog-entry`, { recursive: true });
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect(
+      "conformance" in
+        (await readManifest(root)).resolutions["changelog-entry"],
+    ).toStrictEqual(false);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
 test("gen rewrites the conformance digest of a contract no skill declares", async () => {
   await withGoodTree(async (root) => {
     // The lock still records the contract and the tree still holds its text,
@@ -757,22 +831,18 @@ const WRITE_TARGETS = [
 
 test("gen refuses a named pipe standing where the run would write", async () => {
   for (const site of WRITE_TARGETS) {
-    for (const command of [["gen"]]) {
-      await withGoodTree(async (root) => {
-        await fs.rm(`${root}/${site}`).catch(() => {});
-        await promisify(execFile)("mkfifo", [`${root}/${site}`]);
+    await withGoodTree(async (root) => {
+      await fs.rm(`${root}/${site}`).catch(() => {});
+      await promisify(execFile)("mkfifo", [`${root}/${site}`]);
 
-        const where = `${site} / ${command[0]}`;
-        const result = await runCli([...command, "--root", root]);
-        expect(result.code, where).toStrictEqual(2);
-        expect(result.stderr.join("\n"), where).toContain(site);
-        // Left as it was found: refusing is not a licence to clear the path.
-        expect(
-          (await fs.lstat(`${root}/${site}`)).isFIFO(),
-          where,
-        ).toStrictEqual(true);
-      });
-    }
+      const result = await runCli(["gen", "--root", root]);
+      expect(result.code, site).toStrictEqual(2);
+      expect(result.stderr.join("\n"), site).toContain(site);
+      // Left as it was found: refusing is not a licence to clear the path.
+      expect((await fs.lstat(`${root}/${site}`)).isFIFO(), site).toStrictEqual(
+        true,
+      );
+    });
   }
 }, 15000);
 
