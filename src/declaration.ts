@@ -157,6 +157,7 @@ function readContractIds(value: unknown, site: string): string[] {
     );
   }
   const ids: string[] = [];
+  const seen = new Set<string>();
   for (const entry of value) {
     if (entry !== null && typeof entry === "object") {
       // The pin belongs to the lock, not to the skill. A digest written here
@@ -175,11 +176,12 @@ function readContractIds(value: unknown, site: string): string[] {
       );
     }
     assertValidContractId(entry, site);
-    if (ids.includes(entry)) {
+    if (seen.has(entry)) {
       throw new ConfigError(
         `${site}: contract declared more than once: ${entry}`,
       );
     }
+    seen.add(entry);
     ids.push(entry);
   }
   if (ids.length === 0) {

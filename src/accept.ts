@@ -49,11 +49,13 @@ export async function commandAccept(
   if (ids.length === 0) {
     throw new ConfigError("accept needs at least one contract id");
   }
-  for (const [position, id] of ids.entries()) {
+  const seen = new Set<string>();
+  for (const id of ids) {
     assertValidContractId(id, "accept");
-    if (ids.indexOf(id) !== position) {
+    if (seen.has(id)) {
       throw new ConfigError(`accept was given ${id} more than once`);
     }
+    seen.add(id);
   }
 
   await assertTreeRoot(root);
