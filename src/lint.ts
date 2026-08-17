@@ -146,6 +146,15 @@ async function deepestExistingPrefix(
   let candidate = path;
   const missing: string[] = [];
   while (true) {
+    // On an absolute chain the walk ends at "" — dirNameOf's spelling of the
+    // file system root, where nothing is left to resolve. Walking on would
+    // answer ".", which glues the working directory onto an absolute path and
+    // spells a hostile dangling target inside the skill exactly when lint
+    // runs from there. "." itself stays walkable: it is the legitimate end of
+    // a relative chain, whose base the working directory genuinely is.
+    if (candidate === "") {
+      return { prefix: null, suffix: missing.join("/") };
+    }
     const real = await realPathOrNull(candidate);
     if (real !== null) {
       return {

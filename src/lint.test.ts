@@ -249,6 +249,29 @@ test("a dangling link inside the skill passes even when the root is reached thro
   });
 });
 
+test("an absolute link to a missing top-level path is an escape even when lint runs from inside the skill", async () => {
+  await withGoodTree(async (root) => {
+    // An absolute target whose whole ancestor chain is missing has no realpath
+    // to answer for any part of it. The verdict must still not depend on where
+    // the lint process happens to run: gluing the working directory onto the
+    // chain would spell the target inside the skill exactly when lint runs
+    // from the skill directory, and the escape would go unreported.
+    await replaceWithSymlink(
+      `${root}/skills/release-notes/dangling-absolute.md`,
+      "/no-such-top-level-entry",
+    );
+    const previous = process.cwd();
+    process.chdir(`${root}/skills/release-notes`);
+    try {
+      const result = await lint(root);
+      expect(kindsOf(result.stdout)).toStrictEqual(["symlink-escape"]);
+      expect(result.code).toStrictEqual(1);
+    } finally {
+      process.chdir(previous);
+    }
+  });
+});
+
 test("files outside the skills directory are not linted", async () => {
   await withGoodTree(async (root) => {
     await writeFile(`${root}/contracts/notes.md`, "See ../elsewhere\n");
