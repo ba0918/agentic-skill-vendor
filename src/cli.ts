@@ -23,7 +23,7 @@ const USAGE = [
   "  verify                   check the tree against the lock",
   "  accept <contract-id>...  adopt the current text of the named contracts",
   "  lint-selfcontain         check that no skill points outside itself",
-  "  self-test                check this file against its embedded vectors",
+  "  self-test                check the tool against its embedded vectors",
   "",
   "options:",
   "  --root <path>            the tree to work on (default: .)",
