@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { readResolutions, type Resolutions } from "./manifest.ts";
 import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
@@ -248,5 +250,29 @@ test("provenance refuses a contract file that is there but is not a regular file
       );
     }
     expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("a manifest that is a named pipe is refused rather than opened", async () => {
+  await withGoodTree(async (root) => {
+    // The lock is read before anything else a command does, and it was read
+    // without asking what stands at the path. Opening a pipe to read blocks
+    // until something on the other side writes: measured before this was
+    // closed, all three commands ran on without ever returning.
+    await fs.rm(`${root}/${MANIFEST}`);
+    await promisify(execFile)("mkfifo", [`${root}/${MANIFEST}`]);
+
+    for (const command of [
+      ["gen"],
+      ["verify"],
+      ["accept", "changelog-entry"],
+    ]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        `${MANIFEST}: not a regular file`,
+      );
+    }
   });
 });

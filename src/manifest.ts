@@ -13,12 +13,7 @@ import {
   contractPath,
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
-import {
-  assertPlainChain,
-  decodeUtf8,
-  isNotFound,
-  isRegularFileOrAbsent,
-} from "./walk.ts";
+import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import type { Dependencies } from "./declaration.ts";
 
 /** The one file the lock and the provenance record live in. */
@@ -143,11 +138,15 @@ export async function presentContractIds(
 /** The resolutions currently recorded, or none when there is no manifest yet. */
 export async function readResolutions(root: string): Promise<Resolutions> {
   await assertPlainChain(root, MANIFEST_FILE);
+  // Asked before the file is opened, and this is the read that makes it matter:
+  // every command reads the lock before it does anything else, so a named pipe
+  // standing here blocked all of them where nothing else in the run had yet
+  // looked at the path. A tree with no manifest still has no resolutions.
+  if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) return {};
   let bytes: Uint8Array;
   try {
     bytes = await fs.readFile(`${root}/${MANIFEST_FILE}`);
   } catch (cause) {
-    if (isNotFound(cause)) return {};
     throw new ConfigError(
       `cannot read ${MANIFEST_FILE}: ${describeCause(cause)}`,
     );
