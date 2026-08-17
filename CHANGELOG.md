@@ -9,11 +9,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- The vendoring tool: `gen` distributes the accepted contracts into each skill that
-  declares them, `verify` checks the tree against the lock with four independent checks,
-  `accept` adopts new contract text and is the only writer of the lock's resolutions,
-  `lint-selfcontain` checks that no skill points outside its own directory, and
-  `self-test` checks the tool against vectors embedded in it.
+- The vendoring tool: `gen` distributes each contract's current text into every skill that
+  declares it and rewrites the lock to match, reporting every digest it changed; `verify`
+  checks the tree against the lock with four independent checks; `lint-selfcontain` checks
+  that no skill points outside its own directory; and `self-test` checks the tool against
+  vectors embedded in it.
+- The lock file records the dependency lists and the resolved digests, and nothing else. No
+  tool version, repository URL or derivable path is written into it, so releasing a new
+  version of the tool never invalidates a consuming repository's tree.
 - Distribution through npm as `@ba0918/agentic-skill-vendor`, run with `bunx`, `npx`,
   `pnpm dlx`, `yarn dlx` or Deno's `npm:` specifier. The tool is written against
   Node-compatible builtins and web standard APIs only, so the same source runs on Node,

@@ -30,10 +30,9 @@ it is never committed.
 | `src/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
 | `src/conformance.ts` | The conformance framing rules and tree collection |
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
-| `src/manifest.ts` | The lock and provenance, in one canonical rendering |
-| `src/gen.ts` | Distribution: what may be expanded, and writing it |
+| `src/manifest.ts` | The lock, in one canonical rendering |
+| `src/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
 | `src/verify.ts` | The four independent identity checks |
-| `src/accept.ts` | The approval boundary — the only writer of resolutions |
 | `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
 | `src/selftest.ts` | The environment smoke check and its hand-computed vectors |
 | `src/{name}.test.ts` | Each module's tests, beside the module |
@@ -85,7 +84,13 @@ it is never committed.
   subprocess. Under Deno that is enforceable with `--allow-read --allow-write`; on Node and
   Bun there is no sandbox to enforce it with, so it is a property of the code rather than a
   guarantee of the runtime.
-- `provenance.generator.version` is the package's own version, read from `package.json` and
-  written into every manifest. Bumping the version therefore makes the committed fixture
-  stale until `gen` is run over it again, and CI's fixture `verify` is what catches a bump
-  that forgot to.
+- The manifest records the lock and nothing else — no tool version, no repository URL, no
+  derivable path. Every one of those was a value no check consumed, and the tool's own
+  version put a byte nobody verified into a byte-for-byte comparison: releasing a new
+  version made every consuming repository's `verify` fail until each tree was regenerated.
+  A format marker is deliberately absent too; a future breaking release introduces one, and
+  the absence of the field is what marks the older form.
+- The canonical text is the authority and the lock is derived from it, so `gen` is the only
+  writer of resolutions and the only command that reports `adopted` / `retired`. What guards
+  a change of contract text is the review of the pull request the rewritten lock lands in —
+  the tool has no approval boundary of its own.

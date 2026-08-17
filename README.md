@@ -2,7 +2,7 @@
 
 Vendors shared reference documents into the skills of a skill repository. Each skill carries
 its own copy of the documents it depends on, every copy is provably byte-identical to its
-canonical source, and adopting a new version of a document is an explicit, reviewable act —
+canonical source, and every change to what a skill carries lands in one reviewable diff —
 nothing reaches a skill silently.
 
 Compatibility judgment is explicitly out of scope: a digest can prove a copy matches its
@@ -41,7 +41,7 @@ contracts/<id>.md                         the canonical text of a contract
 contracts/<id>/conformance/**             its conformance tests, if any
 skills/<name>/SKILL.md                    a skill, declaring what it depends on
 skills/<name>/references/vendor/<id>.md   the copy this tool writes into that skill
-vendor-manifest.json                      the lock: which digest of each contract is accepted
+vendor-manifest.json                      the lock: the digest recorded for each contract
 ```
 
 A skill declares its dependencies by id — and only by id — in its `SKILL.md` frontmatter:
@@ -56,21 +56,25 @@ The cycle is then:
 
 | Command | What it does |
 |---|---|
-| `accept <id>...` | Approves the current text of the named contracts, recording their digests in the lock |
-| `gen` | Writes the accepted text into every skill that declares it |
+| `gen` | Writes each contract's current text into every skill that declares it, and rewrites the lock to match |
 | `verify` | Checks the whole tree against the lock; exit `1` on any violation |
 | `lint-selfcontain` | Checks that no skill points outside its own directory |
 | `self-test` | Smoke-checks the tool against vectors embedded in it |
 
-Editing a contract is a two-step act: change `contracts/<id>.md`, then `accept` it and run
-`gen`. Until the accept, `verify` reports the edit as unaccepted drift; an edited vendored
-copy, a missing or extra file, and a stale lock fail the same run. There is no accept-all —
-approval means naming what is approved — and `accept` reports the old digest, the new digest
-and the dependent skills, which is what a reviewer needs.
+Editing a contract is one act: change `contracts/<id>.md` and run `gen`. The canonical text is
+the authority and the lock is the snapshot of it, the relation `package.json` has to a
+lockfile — there is no separate approval command, because the text, the lock and the copies
+are reviewed together in the pull request they land in. `gen` reports what it changed as
+`adopted: <id> <old digest> -> <new digest>` (a first recording names one digest only), which
+is the line to read in a review and the value a consuming repository's regression machinery
+matches its own evidence against.
+
+Until `gen` runs, `verify` reports the edit as `stale-lock`; an edited vendored copy, a
+missing or extra file, and a stale manifest fail the same run.
 
 Withdrawing a contract — removing it from the skills' declarations and deleting its canonical
-text — is the same act at the other end: the next `gen` or `accept` retires its resolution
-from the lock and reports it as `retired: <id>`, so the removal never happens silently.
+text — is the same act at the other end: the next `gen` retires its resolution from the lock
+and reports it as `retired: <id>`, so the removal never happens silently.
 
 `--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
 nothing to report, `1` violations (one per line on standard output), `2` a refusal or an
@@ -79,8 +83,8 @@ finished: whatever it leaves behind is a state `verify` reports as a violation.
 
 ### Where to run `verify`
 
-- CI runs `verify` and fails the build on a non-zero exit. CI never runs `accept` — its job
-  is detecting unapproved drift, not approving it.
+- CI runs `verify` and fails the build on a non-zero exit. CI never runs `gen` — its job is
+  detecting a tree that disagrees with its lock, not resolving the disagreement.
 - A pre-commit hook running `verify` is an optional tightening. It reads the tree and digests
   the copies, nothing more, so it is cheap enough to run on every commit.
 
@@ -109,7 +113,7 @@ unchanged input produce the same bytes.
 framed as `<relative posix path> NUL <byte length in decimal> NUL <bytes>`, in path order,
 raw bytes, never canonicalized. Files excluded by the tree's own `.gitignore` rules are left
 out — the rules are read, never git's index — so editing a `.gitignore` can change a
-conformance digest, and `verify` reports that until it is accepted.
+conformance digest, and `verify` reports that until `gen` records the new value.
 
 **Declarations** — frontmatter is read as YAML and judged against a schema. Any YAML spelling
 of "a list of ids under `metadata.contracts`" is accepted. A declaration the tool cannot make
@@ -122,11 +126,12 @@ id — pins live in the lock, never in a skill.
 different kind of file system entity than expected stops the run instead of reading as
 absent; writes are atomic; identity is verified byte for byte.
 
-**Violation kinds** — every reported line opens with a stable kind prefix: `closure`,
-`unresolved` and `unaccepted-drift` from the acceptance check (run by `gen`, `verify` and
-`accept` alike); `drift`, `extra`, `manifest` and `conformance-mismatch` from `verify`;
-`parent-escape`, `absolute-path` and `symlink-escape` from `lint-selfcontain`; `self-test`
-from `self-test`.
+**Violation kinds** — every reported line opens with a stable kind prefix: `closure` from
+`gen` and `verify` alike (a skill declares a contract whose canonical text is not there, the
+one state `gen` refuses to write over); `unresolved`, `stale-lock`, `drift`, `extra`,
+`manifest` and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
+`symlink-escape` from `lint-selfcontain`; `self-test` from `self-test`. A successful `gen`
+reports what it changed in the same shape: `adopted` and `retired`.
 
 ## Development
 
