@@ -522,10 +522,10 @@ test("a skill directory removed altogether is still a removal", async () => {
     await fs.rm(`${root}/${CLOBBERED}`, { recursive: true });
 
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
-    const lock = JSON.parse(
+    const manifest = JSON.parse(
       await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
-    ).lock;
-    expect(Object.keys(lock.dependencies)).toStrictEqual(["release-notes"]);
+    );
+    expect(Object.keys(manifest.dependencies)).toStrictEqual(["release-notes"]);
   });
 });
 
@@ -549,7 +549,7 @@ test("a skill whose name is a prototype key survives the whole round trip", asyn
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
 
     const raw = await fs.readFile(`${root}/vendor-manifest.json`, "utf8");
-    const dependencies = JSON.parse(raw).lock.dependencies;
+    const dependencies = JSON.parse(raw).dependencies;
     expect(raw).toContain('"__proto__"');
     expect(Object.hasOwn(dependencies, "__proto__")).toStrictEqual(true);
     expect(Object.keys(dependencies)).toStrictEqual([

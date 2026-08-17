@@ -154,7 +154,7 @@ test("a contract with no resolution is reported as unresolved", async () => {
     const manifest = JSON.parse(
       await fs.readFile(`${root}/${MANIFEST}`, "utf8"),
     );
-    delete manifest.lock.resolutions["verdict-format"];
+    delete manifest.resolutions["verdict-format"];
     await fs.writeFile(
       `${root}/${MANIFEST}`,
       JSON.stringify(manifest, null, 2) + "\n",
@@ -169,7 +169,12 @@ test("a hand-edited manifest is reported as a manifest mismatch", async () => {
     const manifest = JSON.parse(
       await fs.readFile(`${root}/${MANIFEST}`, "utf8"),
     );
-    manifest.provenance.generator.version = "9.9.9";
+    // A key the reader consumes nothing of, so nothing but the byte comparison
+    // against what the tree renders to can notice it. The manifest used to
+    // record the tool's own version in exactly this position, and it is gone
+    // for the same reason this edit is a finding: a value in the compared bytes
+    // that no check reads.
+    manifest.generator = { version: "9.9.9" };
     await fs.writeFile(
       `${root}/${MANIFEST}`,
       JSON.stringify(manifest, null, 2) + "\n",

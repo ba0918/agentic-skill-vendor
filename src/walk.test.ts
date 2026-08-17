@@ -497,8 +497,7 @@ test("a tree holding none of the optional paths is a tree, not a refusal", async
     const verified = await runCli(["verify", "--root", root]);
     expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);
     expect(
-      JSON.parse(await fs.readFile(`${root}/vendor-manifest.json`, "utf8"))
-        .lock,
+      JSON.parse(await fs.readFile(`${root}/vendor-manifest.json`, "utf8")),
     ).toStrictEqual({ dependencies: {}, resolutions: {} });
   });
 });

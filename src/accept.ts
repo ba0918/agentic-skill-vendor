@@ -74,7 +74,6 @@ export async function commandAccept(
     const resolution: Resolution = { digest: contract.digest };
     const conformance = await conformanceDigest(root, id);
     if (conformance !== null) resolution.conformance = conformance;
-    if (contract.version !== undefined) resolution.version = contract.version;
     records.push({
       id,
       previous: previous[id]?.digest ?? null,

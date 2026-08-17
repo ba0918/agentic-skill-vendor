@@ -164,10 +164,11 @@ export function canonicalBody(text: string, site?: string): string {
 /**
  * One trailing newline on a body `splitDocument` already produced.
  *
- * Kept apart from `canonicalBody` so a caller that split the document already
- * does not pay for the split twice.
+ * Named apart from `canonicalBody` so the two steps of the canonical form —
+ * dropping the frontmatter and fixing the trailing newline — read as two
+ * steps.
  */
-export function normalizeBody(body: string): string {
+function normalizeBody(body: string): string {
   return body.replace(/\n+$/, "") + "\n";
 }
 

@@ -1,11 +1,17 @@
-// manifest.ts — the lock and the provenance record, in one canonical form.
+// manifest.ts — the lock, in one canonical form.
 //
 // Verify compares the manifest byte for byte, so "the manifest is up to date"
 // has to be a decidable question rather than a question about JSON formatting.
 // One rendering, stated here, is what makes it decidable.
+//
+// The file holds the lock and nothing else. Every metadata field it used to
+// carry — the tool's own version, the repository it came from, the source path
+// of each contract — was a value no check consumed, and the tool's version in
+// particular put a byte nobody verified into the comparison: releasing a new
+// version of the tool made every consuming repository's verify fail until the
+// tree was regenerated.
 
 import * as fs from "node:fs/promises";
-import packageManifest from "../package.json" with { type: "json" };
 import { ConfigError, describeCause } from "./errors.ts";
 import {
   assertValidContractId,
@@ -21,45 +27,13 @@ import {
   type SkillDeclaration,
 } from "./declaration.ts";
 
-/** The one file the lock and the provenance record live in. */
+/** The one file the lock lives in. */
 export const MANIFEST_FILE = "vendor-manifest.json";
 const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
-
-/**
- * What generated the artifacts, recorded in provenance and in every vendored
- * copy's header.
- *
- * The name is frozen at `agentic-skill-vendor` from here on. It is a value on
- * the wire, not a path: it sits in bytes that verify compares exactly, so
- * changing it reports every already generated copy in every consuming
- * repository as drift. It was `vendor.ts` — the name of the single file the
- * tool used to be — and moving it to the published name is the last time it
- * may move, taken while no version has been released and no copy exists to
- * break.
- *
- * The version is the package's own, read from the one place it is written.
- * Kept as a second literal it would be a number that means nothing: it stood
- * at 1.0.0 while the package stood at 0.1.0, so provenance named a release
- * that had never happened. A JSON import is what carries this identically on
- * every runtime — the bundler inlines it, so the published artifact holds the
- * value rather than a read that would have to find the file again.
- *
- * The source is derived from package.json's repository URL by the same
- * argument: kept as a second literal it kept naming the repository's old name
- * after a rename, while the package pointed at the new one.
- */
-export const GENERATOR = {
-  name: "agentic-skill-vendor",
-  version: packageManifest.version,
-  source: packageManifest.repository.url
-    .replace(/^git\+/, "")
-    .replace(/\.git$/, ""),
-} as const;
 
 export interface Resolution {
   digest: string;
   conformance?: string;
-  version?: string;
 }
 
 export type Resolutions = Record<string, Resolution>;
@@ -89,27 +63,25 @@ function withSortedKeys(value: unknown): unknown {
 
 /**
  * The manifest as the declarations, the resolutions and the present contracts
- * render to it.
+ * render to it: the two halves of the lock and nothing else.
  *
  * `present` names the contracts whose canonical file the tree actually holds,
- * and it limits both halves of the record. A source path recorded for a
- * contract that has been withdrawn would name a file no reader can open, and
- * provenance exists to say where text came from — not where it used to. A
- * resolution kept for such a contract answers no question either: nothing can
- * accept it (the text is not there) and nothing can verify it, while a
- * conformance digest recorded for it fails every run that checks conformance.
- * Pruning resolutions to the present contracts is what lets one `gen` recover
- * a tree whose contract was withdrawn.
+ * and it limits what is recorded. A resolution kept for a withdrawn contract
+ * answers no question: nothing can rewrite it (the text is not there) and
+ * nothing can verify it, while a conformance digest recorded for it fails
+ * every run that checks conformance. Pruning resolutions to the present
+ * contracts is what lets one `gen` recover a tree whose contract was
+ * withdrawn.
+ *
+ * The two halves stay logically separate because adding a dependency and
+ * changing what a contract says are different acts: mixed into one map they
+ * would read as the same kind of diff.
  */
 export function buildManifest(
   dependencies: Dependencies,
   resolutions: Resolutions,
   present: string[],
 ): unknown {
-  const contracts: Record<string, { source: string }> = emptyRecord();
-  for (const id of [...present].sort(compareStrings)) {
-    contracts[id] = { source: contractPath(id) };
-  }
   const resolved: Resolutions = emptyRecord();
   for (const id of [...present].sort(compareStrings)) {
     resolved[id] = resolutions[id];
@@ -117,10 +89,7 @@ export function buildManifest(
   // No wall-clock value is recorded anywhere in here. Reproducibility is the
   // reason this file exists, and a timestamp would make every regeneration a
   // change.
-  return {
-    lock: { dependencies, resolutions: resolved },
-    provenance: { contracts, generator: GENERATOR },
-  };
+  return { dependencies, resolutions: resolved };
 }
 
 /**
@@ -155,14 +124,15 @@ export async function renderExpectedManifest(
  *
  * The ids come from the lock rather than from any declaration, so this is the
  * one route to contracts/ a tree whose skills declare nothing still takes. The
- * link check therefore belongs here too: without it such a tree would record
- * provenance for files sitting outside the boundary the run was pointed at.
+ * link check therefore belongs here too: without it such a tree would decide
+ * what the lock records by looking at files sitting outside the boundary the
+ * run was pointed at.
  *
  * The conformance tests beside the text are covered by the same check, on the
  * same grounds: whether a link is refused is a fact about the tree, not about
  * which command is looking. A contract only the lock still names is reached
  * through here and nowhere else, so left out here that shape stopped verify,
- * which digests those tests, while gen and accept carried on.
+ * which digests those tests, while gen carried on.
  */
 export async function presentContractIds(
   root: string,
@@ -235,62 +205,50 @@ export async function readLock(root: string): Promise<Lock> {
     );
   }
   const document = pickObject(parsed, "");
-  const rawLock = document["lock"];
-  // A manifest that is valid JSON but holds no lock is refused rather than
-  // read as "no lock yet". The one empty lock is the whole file being absent,
-  // which is answered before JSON is ever read; a file present but missing the
-  // lock is a hand-corrupted state, and adopting it as empty would let the
-  // next gen silently discard the dependency memory every resolution records.
-  if (rawLock === undefined) {
-    throw new ConfigError(`${MANIFEST_FILE}: has no lock key`);
-  }
-  const lock = pickObject(rawLock, "lock");
-  const rawDependencies = lock["dependencies"];
-  // A present lock must carry both halves, the dependencies and the
-  // resolutions. The lock this tool writes always does; a lock missing its
-  // dependencies is the same hand-corrupted state as one missing the whole
-  // lock key, and reading it as "no skills recorded" would let the next gen
-  // forget every skill the tree adopted.
+  const rawDependencies = document["dependencies"];
+  // A manifest must carry both halves of the lock. The one empty lock is the
+  // whole file being absent, which is answered before JSON is ever read; a
+  // file present but missing a half is a hand-corrupted state, and reading it
+  // as "no skills recorded" would let the next gen forget every skill the tree
+  // records a dependency list for.
+  //
+  // A manifest written by a superseded form of this tool is refused by the
+  // same check rather than by a format marker: the earlier form wrapped both
+  // halves in a `lock` key, so its dependencies are not where a manifest keeps
+  // them and the absence of the field is itself the mark of the old form.
   if (rawDependencies === undefined) {
-    throw new ConfigError(`${MANIFEST_FILE}: lock has no dependencies key`);
+    throw new ConfigError(`${MANIFEST_FILE}: has no dependencies key`);
   }
   return {
     recordedSkills: new Set(
-      Object.keys(pickObject(rawDependencies, "lock.dependencies")),
+      Object.keys(pickObject(rawDependencies, "dependencies")),
     ),
-    resolutions: validateResolutions(lock),
+    resolutions: validateResolutions(document),
   };
 }
 
-function validateResolutions(lock: Record<string, unknown>): Resolutions {
-  const raw = lock["resolutions"];
-  // The same refusal as a lock missing its dependencies, for the other half:
-  // the lock this tool writes always carries both, and reading an absent half
-  // as empty would let the next gen silently drop what it recorded.
+function validateResolutions(document: Record<string, unknown>): Resolutions {
+  const raw = document["resolutions"];
+  // The same refusal as a manifest missing its dependencies, for the other
+  // half: the manifest this tool writes always carries both, and reading an
+  // absent half as empty would let the next gen silently drop what it
+  // recorded.
   if (raw === undefined) {
-    throw new ConfigError(`${MANIFEST_FILE}: lock has no resolutions key`);
+    throw new ConfigError(`${MANIFEST_FILE}: has no resolutions key`);
   }
-  const entries = pickObject(raw, "lock.resolutions");
+  const entries = pickObject(raw, "resolutions");
   const resolutions: Resolutions = emptyResolutions();
   for (const id of Object.keys(entries)) {
-    assertValidContractId(id, `${MANIFEST_FILE}: lock.resolutions`);
-    const entry = pickObject(entries[id], `lock.resolutions.${id}`);
+    assertValidContractId(id, `${MANIFEST_FILE}: resolutions`);
+    const entry = pickObject(entries[id], `resolutions.${id}`);
     const resolution: Resolution = {
-      digest: requireDigest(entry["digest"], `lock.resolutions.${id}.digest`),
+      digest: requireDigest(entry["digest"], `resolutions.${id}.digest`),
     };
     if (entry["conformance"] !== undefined) {
       resolution.conformance = requireDigest(
         entry["conformance"],
-        `lock.resolutions.${id}.conformance`,
+        `resolutions.${id}.conformance`,
       );
-    }
-    if (entry["version"] !== undefined) {
-      if (typeof entry["version"] !== "string") {
-        throw new ConfigError(
-          `${MANIFEST_FILE}: lock.resolutions.${id}.version must be a string`,
-        );
-      }
-      resolution.version = entry["version"];
     }
     resolutions[id] = resolution;
   }

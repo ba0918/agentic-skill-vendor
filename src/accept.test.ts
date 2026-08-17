@@ -40,7 +40,7 @@ test("a dependent skill name with control bytes is quoted in the accept report",
 
 async function forget(root: string, id: string): Promise<void> {
   const manifest = await readManifest(root);
-  delete manifest.lock.resolutions[id];
+  delete manifest.resolutions[id];
   await writeManifest(root, manifest);
 }
 
@@ -52,7 +52,7 @@ test("accepting a contract for the first time records its resolution", async () 
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
     expect(
-      (await readManifest(root)).lock.resolutions["verdict-format"].digest,
+      (await readManifest(root)).resolutions["verdict-format"].digest,
     ).toContain("sha256:");
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
@@ -71,13 +71,13 @@ test("a first adoption is reported as having no previous digest", async () => {
 
 test("accepting an updated contract reports the old digest, the new one and its dependents", async () => {
   await withGoodTree(async (root) => {
-    const before = (await readManifest(root)).lock.resolutions["verdict-format"]
+    const before = (await readManifest(root)).resolutions["verdict-format"]
       .digest;
     await append(`${root}/${CONTRACT}`, "\n- One further rule.\n");
 
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    const after = (await readManifest(root)).lock.resolutions["verdict-format"]
+    const after = (await readManifest(root)).resolutions["verdict-format"]
       .digest;
     expect(result.stdout).toStrictEqual([
       "accepted: verdict-format",
@@ -138,44 +138,29 @@ test("accepting rewrites the vendored copies to the newly accepted text", async 
 
 test("accepting adopts the conformance tree alongside the text", async () => {
   await withGoodTree(async (root) => {
-    const before = (await readManifest(root)).lock.resolutions[
-      "changelog-entry"
-    ].conformance;
+    const before = (await readManifest(root)).resolutions["changelog-entry"]
+      .conformance;
     await append(`${root}/${CONFORMANCE}`, "\nAnd one more expectation.\n");
 
     expect(
       (await runCli(["accept", "changelog-entry", "--root", root])).code,
     ).toStrictEqual(0);
-    const after = (await readManifest(root)).lock.resolutions["changelog-entry"]
+    const after = (await readManifest(root)).resolutions["changelog-entry"]
       .conformance;
     expect(after === before).toStrictEqual(false);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
 
-test("accepting records the version written in the contract frontmatter", async () => {
-  await withGoodTree(async (root) => {
-    await forget(root, "verdict-format");
-    expect(
-      (await runCli(["accept", "verdict-format", "--root", root])).code,
-    ).toStrictEqual(0);
-    expect(
-      (await readManifest(root)).lock.resolutions["verdict-format"].version,
-    ).toStrictEqual("1.2.0");
-  });
-});
-
 test("accepting one contract leaves the resolution of another alone", async () => {
   await withGoodTree(async (root) => {
-    const before = (await readManifest(root)).lock.resolutions[
-      "changelog-entry"
-    ];
+    const before = (await readManifest(root)).resolutions["changelog-entry"];
     await append(`${root}/${CONTRACT}`, "\n- One further rule.\n");
     expect(
       (await runCli(["accept", "verdict-format", "--root", root])).code,
     ).toStrictEqual(0);
     expect(
-      (await readManifest(root)).lock.resolutions["changelog-entry"],
+      (await readManifest(root)).resolutions["changelog-entry"],
     ).toStrictEqual(before);
   });
 });
@@ -310,7 +295,7 @@ test("accepting reports a resolution retired by a withdrawn contract", async () 
     ).toStrictEqual(0);
     expect(result.stdout.join("\n")).toContain("retired: changelog-entry");
     expect(
-      "changelog-entry" in (await readManifest(root)).lock.resolutions,
+      "changelog-entry" in (await readManifest(root)).resolutions,
     ).toStrictEqual(false);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });

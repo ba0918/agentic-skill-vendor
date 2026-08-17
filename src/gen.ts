@@ -13,12 +13,11 @@
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
+  canonicalBody,
   CONTRACTS_DIR,
   compareStrings,
   contractPath,
   digestOfText,
-  normalizeBody,
-  splitDocument,
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
@@ -39,7 +38,6 @@ import {
   SKILLS_DIR,
 } from "./declaration.ts";
 import {
-  GENERATOR,
   MANIFEST_FILE,
   presentContractIds,
   readLock,
@@ -49,86 +47,25 @@ import {
 
 const VENDOR_SUBPATH = "references/vendor";
 
+/**
+ * The name the vendored copy header credits the generation to.
+ *
+ * Frozen at `agentic-skill-vendor` from here on. It is a value on the wire, not
+ * a path: it sits in bytes that verify compares exactly, so changing it reports
+ * every already generated copy in every consuming repository as drift. It was
+ * `vendor.ts` — the name of the single file the tool used to be — and moving it
+ * to the published name is the last time it may move, taken while no version
+ * has been released and no copy exists to break.
+ *
+ * The name is all that is left of what used to be a generator record. The
+ * version and the repository URL that stood beside it were written into the
+ * manifest, where no check consumed them and the version made a release of the
+ * tool fail every consuming repository's verify.
+ */
+export const GENERATOR_NAME = "agentic-skill-vendor";
+
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
-}
-
-function indentOf(line: string): number {
-  return line.length - line.trimStart().length;
-}
-
-/**
- * Drops a trailing comment, respecting quoted segments.
- *
- * No value read by the scanner below holds a '#' outside quotes. Inside a
- * quoted scalar a hash is part of the text (`"a # b"` means the author wrote
- * the hash), so the cut must happen only when the line is not inside a quote:
- * a comment is ` #` seen from a spot no quote opened. Quotes entered and left
- * are single or double, and inside a double-quoted scalar a backslash escapes
- * the character after it. Escaping is carried as scan state rather than read
- * back off the previous character: the character before a closing quote may
- * itself be an escaped backslash (`"a\\"`), which a one-character look-back
- * would misread as escaping the quote.
- */
-function withoutComment(text: string): string {
-  if (text.trimStart().startsWith("#")) return "";
-  let inDouble = false;
-  let inSingle = false;
-  let escaped = false;
-  for (let index = 0; index < text.length; index++) {
-    const char = text[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (inDouble && char === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (char === '"' && !inSingle) {
-      inDouble = !inDouble;
-      continue;
-    }
-    if (char === "'" && !inDouble) {
-      inSingle = !inSingle;
-      continue;
-    }
-    if (!inDouble && !inSingle && char === " " && text[index + 1] === "#") {
-      return text.slice(0, index);
-    }
-  }
-  return text;
-}
-/**
- * A top-level scalar in a contract's frontmatter, read by scanning lines rather
- * than by parsing the document.
- *
- * Deliberately not the YAML parser that reads declarations. The only value read
- * this way is `version`, which is display-only: no pin, no path, and no
- * decision depends on it, so an unreadable frontmatter here has nothing to
- * unpin. Parsing it strictly would instead turn a contract whose text digests
- * perfectly well into a run that refuses to work at all.
- */
-function frontmatterScalar(
-  frontmatter: string[],
-  key: string,
-): string | undefined {
-  const line = frontmatter.find(
-    (candidate) =>
-      indentOf(candidate) === 0 &&
-      // The colon is what separates the key from its value; the YAML grammar
-      // does not require a space after it (`version:1` is valid), so neither
-      // does this scanner. What must hold is that the key names the scalar
-      // asked for and that a value follows the colon at all.
-      /^[^:]+:/.test(candidate) &&
-      candidate.slice(0, candidate.indexOf(":")).trim() === key,
-  );
-  if (line === undefined) return undefined;
-  const value = withoutComment(line)
-    .slice(line.indexOf(":") + 1)
-    .trim();
-  if (value === "") return undefined;
-  return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
 }
 
 /**
@@ -170,16 +107,8 @@ export async function readContracts(
       continue;
     }
     const text = await readTextFile(`${root}/${site}`, site);
-    // The document is split once here; the body is normalized from what the
-    // split produced instead of calling canonicalBody, which would split it
-    // again.
-    const document = splitDocument(text, site);
-    const body = normalizeBody(document.body);
-    contracts.set(id, {
-      digest: await digestOfText(body),
-      body,
-      version: frontmatterScalar(document.frontmatter, "version"),
-    });
+    const body = canonicalBody(text, site);
+    contracts.set(id, { digest: await digestOfText(body), body });
   }
   return contracts;
 }
@@ -187,7 +116,6 @@ export async function readContracts(
 interface CanonicalContract {
   digest: string;
   body: string;
-  version?: string;
 }
 
 /**
@@ -209,7 +137,7 @@ export function renderVendorFile(
 /** The fixed prefix of a vendored copy, rebuilt from an id and a pinned digest. */
 export function vendorHeader(id: string, digest: string): string {
   return (
-    `<!-- DO NOT EDIT. Generated by ${GENERATOR.name}. -->\n` +
+    `<!-- DO NOT EDIT. Generated by ${GENERATOR_NAME}. -->\n` +
     `<!-- contract: ${id} -->\n` +
     `<!-- source-digest: ${digest} -->\n\n`
   );
