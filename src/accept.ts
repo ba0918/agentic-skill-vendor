@@ -86,9 +86,6 @@ export async function commandAccept(
   const exit = await expandTree(root, skills, contracts, resolutions, out);
   if (exit !== 0) return exit;
 
-  // The report asks "which skills take up this contract" for every accepted
-  // id, so the reverse index is built once instead of rescanning every skill's
-  // contract list per id.
   const dependentsOfId = dependentIndex(skills);
   for (const record of records) {
     const dependents = dependentsOfId.get(record.id) ?? [];

@@ -374,8 +374,6 @@ export function acceptanceViolations(
   resolutions: Resolutions,
 ): string[] {
   const violations: string[] = [];
-  // The dependent list is asked for every declared id, so the reverse index is
-  // built once instead of rescanning every skill's contract list per id.
   const dependentsOfId = dependentIndex(skills);
   for (const id of declaredIds(skills)) {
     const dependents = (dependentsOfId.get(id) ?? [])
