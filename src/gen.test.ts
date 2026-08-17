@@ -34,6 +34,21 @@ function kindsOf(lines: string[]): string[] {
   return lines.map((line) => line.slice(0, line.indexOf(":")));
 }
 
+test("a contracts path that is not a directory is refused with the fact named", async () => {
+  await withGoodTree(async (root) => {
+    // A file standing at contracts/ made every contract below it read as
+    // "does not exist" — a claim about the tree that is not true, and a
+    // different one from the fact that the directory is not a directory.
+    await fs.rm(`${root}/contracts`, { recursive: true });
+    await fs.writeFile(`${root}/contracts`, "not a directory");
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain("contracts: not a directory");
+  });
+});
+
 test("gen leaves an already generated tree byte identical", async () => {
   await withGoodTree(async (root) => {
     const before = await snapshotTree(root);
@@ -282,11 +297,7 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
-    // Named as the file the run was about to read, not as the conformance
-    // directory beside it: that path is checked on the same way in, and a
-    // refusal quoting it instead would name a directory the tree need not even
-    // hold. Which contract is reached first does not matter, so none is named.
-    expect(result.stderr.join("\n")).toMatch(
+    expect(result.stderr.join("\n")).not.toMatch(
       /symlink is not allowed inside the tree: contracts\/[^\s]+\.md/,
     );
     expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
@@ -303,6 +314,10 @@ test("accept refuses a contracts directory symlinked outside the tree", async ()
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
+    // Named as the directory itself: readContracts asks what stands at
+    // contracts/ once, before any contract below it is looked up, so the
+    // refusal quotes the link the run was pointed at rather than whichever
+    // file happened to be reached through it.
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );

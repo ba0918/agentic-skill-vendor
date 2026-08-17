@@ -13,6 +13,7 @@
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
+  CONTRACTS_DIR,
   compareStrings,
   canonicalBody,
   contractPath,
@@ -117,6 +118,12 @@ export async function readContracts(
   ids: string[],
 ): Promise<Map<string, CanonicalContract | null>> {
   const contracts = new Map<string, CanonicalContract | null>();
+  if (ids.length === 0) return contracts;
+  // A file standing at contracts/ made every contract below it read as "does
+  // not exist" — the per-path lstat fails with ENOTDIR, which is not the
+  // "nothing is there" this function answers with. Asked once, the fact is
+  // named as what it is before any contract is looked up.
+  await isDirectoryOrAbsent(root, CONTRACTS_DIR);
   for (const id of ids) {
     const site = contractPath(id);
     await assertPlainContractPaths(root, id);
