@@ -106,7 +106,21 @@ export function splitDocument(text: string, site?: string): Document {
     return { frontmatter: [], body: normalized };
   }
   for (let index = 1; index < lines.length; index++) {
-    if (lines[index] !== FRONTMATTER_DELIMITER) continue;
+    if (lines[index] !== FRONTMATTER_DELIMITER) {
+      // The closing side is guarded the same way as the opening one. A line
+      // that reads as the delimiter without being it exactly would otherwise
+      // be skipped, and the scan would run on to the next exact `---` — a
+      // horizontal rule in the body — pinning a truncated body as the
+      // canonical text while gen and verify agree on the truncated value.
+      if (readsAsDelimiter(lines[index])) {
+        throw new ConfigError(
+          `${where}: the line closing the frontmatter is not exactly '---': ${JSON.stringify(
+            lines[index],
+          )}`,
+        );
+      }
+      continue;
+    }
     let start = index + 1;
     while (start < lines.length && lines[start] === "") start++;
     return {

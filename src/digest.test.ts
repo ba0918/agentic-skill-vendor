@@ -48,6 +48,15 @@ test("frontmatter opened but never closed is a configuration error", () => {
   );
 });
 
+test("a closing delimiter with trailing whitespace is refused, never silently skipped", () => {
+  // A closing `--- ` reads as the delimiter but is not one, exactly. Skipping
+  // it would let the scan run on to the next exact `---` — a horizontal rule
+  // in the body — and pin a truncated body as the canonical text.
+  expect(() =>
+    canonicalBody('---\nversion: "1"\n--- \nBody\n---\nmore\n'),
+  ).toThrow(ConfigError);
+});
+
 test("the contract digest matches its reference vector", async () => {
   // Hand-normalized to "Hello  \nWorld\n" and hashed with sha256sum, so the
   // expectation is independent of the normalizer it checks.
