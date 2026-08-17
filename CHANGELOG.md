@@ -119,6 +119,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outside the directory it was judged against. The same mistake in the creation of a parent
   directory is fixed with it: a name holding no separator had its last character cut off,
   and the directory made was a sibling of the file rather than the one holding it.
+- Every path where the tree is expected to hold a directory or a file is refused when it
+  holds something else, on every command that reads it, with exit `2` naming the path. The
+  two questions "is anything there" and "is it what it should be" were answered as one, so a
+  regular file, a named pipe or a socket standing at such a path read as "nothing there yet"
+  and the run took the branch written for an empty tree: a regular file at `skills/` emptied
+  the lock of every dependency while `gen` reported `0`, and `verify` then called that tree
+  clean. It reached `contracts/<id>/conformance`, a skill's `references/vendor`, a vendored
+  copy, the manifest and a conformance tree's `.gitignore` alike. Paths that genuinely hold
+  nothing are unchanged in every case — a tree with no `skills/` still adopts cleanly, a
+  contract with no conformance tests still pins none, a missing canonical file is still a
+  closure gap, and a missing copy is still drift.
+- An entry inside a scanned tree that is neither a directory nor a regular file is refused
+  instead of read. A named pipe read as an ordinary file does not fail: it blocks until
+  something on the other side writes, so one placed in a conformance tree left `verify`
+  running forever, and one inside a skill did the same to `lint-selfcontain`.
 - A `SKILL.md` that is there but is not a regular file — a directory, a named pipe, a socket
   — stops the run with exit `2` naming it. It answered exactly as no `SKILL.md` at all does,
   so the skill read as declaring nothing: `gen` deleted the vendored copies its declarations
