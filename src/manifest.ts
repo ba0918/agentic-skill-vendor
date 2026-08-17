@@ -14,6 +14,7 @@ import {
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
+  assertAbsent,
   assertPlainChain,
   decodeUtf8,
   isNotFound,
@@ -136,6 +137,7 @@ export async function presentContractIds(
     const site = contractPath(id);
     await assertPlainContractPaths(root, id);
     if (await isRegularFile(root, site)) present.push(id);
+    else await assertAbsent(root, site);
   }
   return present;
 }

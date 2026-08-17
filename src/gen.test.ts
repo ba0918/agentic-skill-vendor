@@ -595,3 +595,30 @@ describeRemoval(
     });
   },
 );
+
+test("every command refuses a declared contract whose canonical text is not a regular file", async () => {
+  await withGoodTree(async (root) => {
+    // The same shape one step earlier, where a declaration still names the
+    // contract. Text that is not there at all is a closure gap — a fact about
+    // the tree, reported with exit 1. A directory standing where the text
+    // belongs is not that fact: the run cannot find out what the contract says,
+    // which is what separates a report from a refusal.
+    await fs.rm(`${root}/contracts/verdict-format.md`);
+    await fs.mkdir(`${root}/contracts/verdict-format.md`);
+    const before = await snapshotTree(root);
+
+    for (const command of [
+      ["gen"],
+      ["verify"],
+      ["accept", "changelog-entry"],
+    ]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        "contracts/verdict-format.md: not a regular file",
+      );
+    }
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});

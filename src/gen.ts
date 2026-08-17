@@ -20,6 +20,7 @@ import {
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
+  assertAbsent,
   assertPlainChain,
   assertTreeRoot,
   atomicWriteFile,
@@ -103,6 +104,13 @@ function frontmatterScalar(
  * nothing read here lies below their directory. That is the whole point of
  * asking it here: left to the commands that do read them, a link planted there
  * stopped verify while gen expanded the tree without a word.
+ *
+ * Null means the canonical file is not there at all, and nothing else. Anything
+ * standing at the path that is not a file the run can read stops it instead:
+ * carried as null it would be reported as a closure gap, which states that the
+ * tree does not hold the text — a claim about the tree the run is in no
+ * position to make. Keeping the two apart is also what leaves that report
+ * truthful, since the only way left to reach it is a file genuinely absent.
  */
 export async function readContracts(
   root: string,
@@ -113,6 +121,7 @@ export async function readContracts(
     const site = contractPath(id);
     await assertPlainContractPaths(root, id);
     if (!(await isRegularFile(root, site))) {
+      await assertAbsent(root, site);
       contracts.set(id, null);
       continue;
     }

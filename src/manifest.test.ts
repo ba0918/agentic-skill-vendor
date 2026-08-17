@@ -217,3 +217,36 @@ test("resolutions written as a list are refused", async () => {
 test("a manifest that is not readable JSON is refused", async () => {
   await expect(readWritten(`{"lock":{`)).rejects.toThrow(ConfigError);
 });
+
+test("provenance refuses a contract file that is there but is not a regular file", async () => {
+  await withGoodTree(async (root) => {
+    // The contract no skill declares any more: reading canonical text never
+    // reaches it, so provenance is the only route left to it. A directory
+    // standing where its text belongs answered exactly as text that is not
+    // there does, and the contract dropped out of provenance without a word —
+    // gen finished at 0 and verify called the result clean.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    await fs.rm(`${root}/contracts/verdict-format.md`);
+    await fs.mkdir(`${root}/contracts/verdict-format.md`);
+    const before = await snapshotTree(root);
+
+    for (const command of [
+      ["gen"],
+      ["verify"],
+      ["accept", "changelog-entry"],
+    ]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        "contracts/verdict-format.md: not a regular file",
+      );
+    }
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
