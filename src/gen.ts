@@ -322,10 +322,19 @@ export function lockViolations(
   resolutions: Resolutions,
 ): string[] {
   const violations: string[] = [];
-  for (const id of declaredIds(skills)) {
+  // The same contracts gen would rewrite the lock over, not the declared ones
+  // alone. Walked over the declarations only, this judged a narrower set than
+  // gen acts on: editing the canonical text of a contract nothing declares any
+  // more left the tree reported as clean, and the next gen recorded the new
+  // digest with nothing having said the text moved.
+  for (const id of lockedOrDeclared(skills, resolutions)) {
     const contract = contracts.get(id) ?? null;
     if (contract === null) continue;
     const resolution = resolutions[id];
+    // Only a declaration can be unresolved: it is the declaration that asks for
+    // a pin, and an id reached through the lock has one by definition. Reported
+    // for a contract nothing declares, every stray document under contracts/
+    // would become a violation.
     if (resolution === undefined) {
       violations.push(
         `unresolved: ${id} has no entry in ${MANIFEST_FILE}; run gen to record one`,
@@ -380,6 +389,23 @@ function lockedOrDeclared(
   return [
     ...new Set([...declaredIds(skills), ...Object.keys(resolutions)]),
   ].sort(compareStrings);
+}
+
+/**
+ * The canonical text of every contract a run has to look at, read once.
+ *
+ * Asked through this one function by gen and by verify, because the two must not
+ * disagree about which contracts a tree holds. Each calling `readContracts` with
+ * its own list is how they came apart: verify passed the declared ids while gen
+ * passed the declared ids and the recorded ones, so a contract only the lock
+ * named was rewritten by one command and never judged by the other.
+ */
+export async function readTreeContracts(
+  root: string,
+  skills: SkillDeclaration[],
+  resolutions: Resolutions,
+): Promise<Map<string, CanonicalContract | null>> {
+  return await readContracts(root, lockedOrDeclared(skills, resolutions));
 }
 
 /**
@@ -493,10 +519,7 @@ function rewrittenValues(
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
   const { resolutions: recorded, skills } = await readTreeState(root);
-  const contracts = await readContracts(
-    root,
-    lockedOrDeclared(skills, recorded),
-  );
+  const contracts = await readTreeContracts(root, skills, recorded);
   const violations = closureViolations(skills, contracts);
   if (violations.length > 0) {
     for (const violation of violations) out(violation);

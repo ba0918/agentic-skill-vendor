@@ -384,6 +384,82 @@ test("a retired resolution is reported once, not again for the conformance diges
   });
 });
 
+/**
+ * Leaves changelog-entry recorded in the lock with its text present, but
+ * declared by nobody: release-notes takes up the other contract instead of it,
+ * and review-writer simply drops it, so no declaration list is left empty.
+ */
+async function withdrawDeclarationsOf(root: string): Promise<void> {
+  const skill = `${root}/skills/release-notes/SKILL.md`;
+  await fs.writeFile(
+    skill,
+    (await fs.readFile(skill, "utf8")).replace(
+      "    - changelog-entry\n",
+      "    - verdict-format\n",
+    ),
+  );
+  const reviewer = `${root}/skills/review-writer/SKILL.md`;
+  await fs.writeFile(
+    reviewer,
+    (await fs.readFile(reviewer, "utf8")).replace(
+      "    - changelog-entry\n",
+      "",
+    ),
+  );
+}
+
+test("editing the canonical text of a contract no skill declares is reported as a stale lock", async () => {
+  await withGoodTree(async (root) => {
+    // The text twin of the conformance case below. verify compared the lock
+    // against the contracts a declaration names, while gen rewrites the lock
+    // over every contract the lock records as well — so this edit left verify
+    // reporting a clean tree, and the next gen recorded the new digest with
+    // nothing having reported the change. Whichever set gen would act on is the
+    // set verify has to judge.
+    await withdrawDeclarationsOf(root);
+    const settled = await runCli(["gen", "--root", root]);
+    expect(
+      settled.code,
+      settled.stdout.concat(settled.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+    const recorded = (await readManifest(root)).resolutions["changelog-entry"]
+      .digest;
+
+    await append(
+      `${root}/contracts/changelog-entry.md`,
+      "\n- One more rule.\n",
+    );
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(1);
+    expect(kindsOf(result.stdout)).toContain("stale-lock");
+    expect(
+      result.stdout.find((line) => line.startsWith("stale-lock:")),
+    ).toContain(recorded);
+  });
+});
+
+test("a contract no skill declares is not reported as unresolved when the lock has no entry for it", async () => {
+  await withGoodTree(async (root) => {
+    // Only a declaration can be unresolved: it is the declaration that asks for
+    // a pin. A contract whose text merely sits in contracts/, declared by
+    // nobody and recorded by nothing, is not a state to report — reporting it
+    // would make every stray document under contracts/ a violation.
+    await withdrawDeclarationsOf(root);
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const manifest = await readManifest(root);
+    delete manifest.resolutions["changelog-entry"];
+    await writeManifest(root, manifest);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(kindsOf(result.stdout)).not.toContain("unresolved");
+  });
+});
+
 test("gen rewrites the conformance digest of a contract no skill declares", async () => {
   await withGoodTree(async (root) => {
     // The lock still records the contract and the tree still holds its text,

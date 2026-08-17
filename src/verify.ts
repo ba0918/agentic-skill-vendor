@@ -12,7 +12,7 @@ import {
   readBytes,
 } from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
-import { declaredIds, type SkillDeclaration } from "./declaration.ts";
+import type { SkillDeclaration } from "./declaration.ts";
 import {
   MANIFEST_FILE,
   renderExpectedManifest,
@@ -22,7 +22,7 @@ import {
   closureViolations,
   listVendorEntries,
   lockViolations,
-  readContracts,
+  readTreeContracts,
   readTreeState,
   vendorDirOf,
   vendorHeader,
@@ -153,7 +153,7 @@ async function conformanceViolations(
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const { resolutions, skills } = await readTreeState(root);
-  const contracts = await readContracts(root, declaredIds(skills));
+  const contracts = await readTreeContracts(root, skills, resolutions);
 
   // The three file-system checks are independent of one another and of the
   // check against the canonical text, so they overlap; their findings are
