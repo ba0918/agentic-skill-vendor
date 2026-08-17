@@ -10,6 +10,7 @@ import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
   assertTreeRoot,
   dirNameOf,
+  displayName,
   isDirectoryOrAbsent,
   readBytes,
   readEntries,
@@ -51,7 +52,7 @@ function lintLines(site: string, text: string): string[] {
   const violations: string[] = [];
   for (const [index, original] of text.split("\n").entries()) {
     const number = index + 1;
-    const where = `${site}:${number}`;
+    const where = `${displayName(site)}:${number}`;
     if (PARENT_ESCAPE_TOKENS.some((token) => original.includes(token))) {
       violations.push(
         `parent-escape: ${where}: reference above the skill directory`,
@@ -109,14 +110,56 @@ async function resolveLink(path: string, site: string): Promise<string> {
   try {
     target = await fs.readlink(path);
   } catch (cause) {
-    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot read ${displayName(site)}: ${describeCause(cause)}`,
+    );
   }
   const joined = target.startsWith("/")
     ? target
     : `${dirNameOf(path)}/${target}`;
   const normalized = normalizePath(joined);
-  const parent = await realPathOrNull(dirNameOf(normalized));
-  return parent === null ? normalized : `${parent}/${baseNameOf(normalized)}`;
+  // The deepest existing ancestor is resolved, not just the immediate parent.
+  // A dangling target's parent does not exist, and the link above it may sit
+  // on a symlinked path — a root reached through a link spells the same place
+  // two different ways, and the boundary check below compares resolved text.
+  // Resolving as far up as anything exists brings both spellings to one; the
+  // components that do not exist are kept, so the resolved text still names
+  // the same target the link names.
+  const { prefix, suffix } = await deepestExistingPrefix(dirNameOf(normalized));
+  if (prefix === null) return normalized;
+  const tail = [suffix, baseNameOf(normalized)].filter((part) => part !== "");
+  return [prefix, ...tail].join("/");
+}
+
+/**
+ * The realpath of `path` or of its nearest existing ancestor, with the
+ * components that do not exist kept beside it.
+ *
+ * `realpath` answers nothing for a path that does not exist. Asked for the
+ * deepest ancestor that does exist instead, a dangling target still gets its
+ * resolvable prefix spelled the way the boundary below is spelled, and the
+ * unresolvable tail stays attached so the answer names the same place.
+ */
+async function deepestExistingPrefix(
+  path: string,
+): Promise<{ prefix: string | null; suffix: string }> {
+  let candidate = path;
+  const missing: string[] = [];
+  while (true) {
+    const real = await realPathOrNull(candidate);
+    if (real !== null) {
+      return {
+        prefix: real,
+        suffix: [...missing].reverse().join("/"),
+      };
+    }
+    const parent = dirNameOf(candidate);
+    if (parent === candidate) {
+      return { prefix: null, suffix: missing.join("/") };
+    }
+    missing.push(baseNameOf(candidate));
+    candidate = parent;
+  }
 }
 
 /**
@@ -140,7 +183,7 @@ async function symlinkViolations(
   const resolved = await resolveLink(path, relative);
   if (resolved === boundary || resolved.startsWith(`${boundary}/`)) return [];
   return [
-    `symlink-escape: ${relative}: symlink resolves outside the skill directory`,
+    `symlink-escape: ${displayName(relative)}: symlink resolves outside the skill directory`,
   ];
 }
 

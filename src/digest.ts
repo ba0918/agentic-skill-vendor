@@ -105,6 +105,13 @@ export function splitDocument(text: string, site?: string): Document {
     }
     return { frontmatter: [], body: normalized };
   }
+  // The closing scan keeps a lone `\r` within a line for the same reason the
+  // body does. A line already split on `\n` can only contain a lone CR because
+  // CRLF was normalized away, and treating that CR as a line break here while
+  // keeping it as content in the body would pull the scanned boundary away
+  // from the digest boundary. A document closed after a lone CR is refused
+  // loudly instead — named as a missing closing line, never read as a silently
+  // closed one.
   for (let index = 1; index < lines.length; index++) {
     if (lines[index] !== FRONTMATTER_DELIMITER) {
       // The closing side is guarded the same way as the opening one. A line
@@ -139,6 +146,16 @@ export function splitDocument(text: string, site?: string): Document {
  * Only line endings and the end of file are canonicalized. Whitespace at the
  * end of a line is content: in Markdown two trailing spaces are a hard line
  * break, so trimming per line would change what the document means.
+ *
+ * An empty body is canonicalized to a single newline, never to the empty
+ * string: the digest contract reads "text ends in exactly one newline", and
+ * the empty text does not. A genuinely empty contract is therefore pinned to
+ * the one byte no editor renders, which is deliberate and consistent between
+ * gen and verify.
+ *
+ * Exported for the test suite's assertions, which state a document and its
+ * canonical form side by side — one implementation, so a change to the
+ * normalization cannot silently diverge between the tool and its tests.
  */
 export function canonicalBody(text: string, site?: string): string {
   return normalizeBody(splitDocument(text, site).body);

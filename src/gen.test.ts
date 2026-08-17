@@ -3,38 +3,23 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
-import { planExpansion } from "./gen.ts";
+import { planExpansion, readContracts } from "./gen.ts";
 import {
   escapeThrough,
+  kindsOf,
   PERMISSIONS_APPLY,
+  readManifest,
   replaceWithSymlink,
   runCli,
   snapshotTree,
   withGoodTree,
   withUnreadable,
   writeFile,
+  writeManifest,
 } from "./testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const MANIFEST = "vendor-manifest.json";
-
-// deno-lint-ignore no-explicit-any
-type Json = any;
-
-async function readManifest(root: string): Promise<Json> {
-  return JSON.parse(await fs.readFile(`${root}/${MANIFEST}`, "utf8"));
-}
-
-async function writeManifest(root: string, manifest: Json): Promise<void> {
-  await fs.writeFile(
-    `${root}/${MANIFEST}`,
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
-}
-
-function kindsOf(lines: string[]): string[] {
-  return lines.map((line) => line.slice(0, line.indexOf(":")));
-}
 
 test("planning over a declared contract whose text is missing refuses instead of skipping", async () => {
   await withGoodTree(async (root) => {
@@ -215,6 +200,26 @@ test("gen refuses a skill whose declaration cannot be read and keeps its vendore
     expect(result.stdout).toStrictEqual([]);
     expect(result.stderr.join("\n")).toContain("error:");
     expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("a dependent skill name with control bytes is quoted in the closure finding", async () => {
+  await withGoodTree(async (root) => {
+    // The acceptance violation names the skills that declare the contract; a
+    // skill name holding an ANSI escape would paint the terminal on the line.
+    const name = "esc\u001b[31m";
+    await writeFile(
+      `${root}/skills/${name}/SKILL.md`,
+      "---\nname: esc\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# esc\n",
+    );
+    await fs.rm(`${root}/contracts/verdict-format.md`);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    const closure = result.stdout.find((line) => line.startsWith("closure:"));
+    expect(closure).toBeDefined();
+    expect(closure).not.toContain("\u001b");
+    expect(closure).toContain("\\u001b");
   });
 });
 
@@ -710,7 +715,10 @@ test("a contract named for an inherited property is reported as unresolved, not 
     );
 
     // Asked of every command that reads the lock, including the one that
-    // works from its own copy of it.
+    // works from its own copy of it. The first finding reported is the
+    // acceptance one: the acceptance check runs before the file-system checks
+    // in every command, so the run says the contract was never accepted before
+    // it says anything about how the state drifted.
     for (const command of [
       ["gen"],
       ["verify"],
@@ -718,8 +726,9 @@ test("a contract named for an inherited property is reported as unresolved, not 
     ]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(1);
-      expect(kindsOf(result.stdout)[0], command[0]).toStrictEqual("unresolved");
+      expect(kindsOf(result.stdout), command[0]).toContain("unresolved");
       expect(result.stdout[0], command[0]).toContain("constructor");
+      expect(result.stdout[0].startsWith("unresolved:"), command[0]).toBe(true);
     }
   });
 });
@@ -790,5 +799,45 @@ test("a removed canonical text with its declaration left behind keeps its resolu
     expect(
       "verdict-format" in (await readManifest(root)).lock.resolutions,
     ).toStrictEqual(true);
+  });
+});
+
+test("a version quoted with a ' #' inside is read whole, not cut at the hash", async () => {
+  await withGoodTree(async (root) => {
+    // The version is display-only, so a hash inside a quoted value must not
+    // read as the start of a comment: a value that says `a # b` means the
+    // author wrote the hash as part of the text.
+    await fs.writeFile(
+      `${root}/contracts/verdict-format.md`,
+      '---\nversion: "a # b"\n---\n\nBody\n',
+    );
+    const contracts = await readContracts(root, ["verdict-format"]);
+    expect(contracts.get("verdict-format")?.version).toStrictEqual("a # b");
+  });
+});
+
+test("a version written bare with a comment is read without the comment", async () => {
+  await withGoodTree(async (root) => {
+    // Outside quotes a hash does start a comment, and the value left behind is
+    // trimmed: `version: 1.2.0 # released in June` names the version as 1.2.0.
+    await fs.writeFile(
+      `${root}/contracts/verdict-format.md`,
+      "---\nversion: 1.2.0 # released in June\n---\n\nBody\n",
+    );
+    const contracts = await readContracts(root, ["verdict-format"]);
+    expect(contracts.get("verdict-format")?.version).toStrictEqual("1.2.0");
+  });
+});
+
+test("a version written without a space after the colon is read", async () => {
+  await withGoodTree(async (root) => {
+    // `version:1.2.0` is valid YAML and reads the same as `version: 1.2.0`;
+    // the scanner must not demand the space the YAML grammar does not.
+    await fs.writeFile(
+      `${root}/contracts/verdict-format.md`,
+      "---\nversion:1.2.0\n---\n\nBody\n",
+    );
+    const contracts = await readContracts(root, ["verdict-format"]);
+    expect(contracts.get("verdict-format")?.version).toStrictEqual("1.2.0");
   });
 });

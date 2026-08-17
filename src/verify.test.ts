@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
+  kindsOf,
   PERMISSIONS_APPLY,
   replaceWithSymlink,
   runCli,
@@ -13,10 +14,6 @@ const CONTRACT = "contracts/verdict-format.md";
 const MANIFEST = "vendor-manifest.json";
 const CONFORMANCE = "contracts/changelog-entry/conformance/cases/minimal.md";
 
-function kindsOf(lines: string[]): string[] {
-  return lines.map((line) => line.slice(0, line.indexOf(":"))).sort();
-}
-
 async function verify(root: string) {
   return await runCli(["verify", "--root", root]);
 }
@@ -24,6 +21,25 @@ async function verify(root: string) {
 async function append(path: string, text: string): Promise<void> {
   await fs.writeFile(path, (await fs.readFile(path, "utf8")) + text);
 }
+
+test("a skill name with control bytes is quoted in the extra finding", async () => {
+  await withGoodTree(async (root) => {
+    // The report lines carry the same tree-supplied names as the refusals, and
+    // a name holding an ANSI escape would paint the CI log exactly where the
+    // guard was added. The extra finding must quote it the same way.
+    const name = "esc\u001b[31m";
+    await writeFile(
+      `${root}/skills/${name}/references/vendor/stray.md`,
+      "stray\n",
+    );
+    const result = await verify(root);
+    expect(result.code).toStrictEqual(1);
+    const extra = result.stdout.find((line) => line.startsWith("extra:"));
+    expect(extra).toBeDefined();
+    expect(extra).not.toContain("\u001b");
+    expect(extra).toContain("\\u001b");
+  });
+});
 
 test("a freshly generated tree verifies clean", async () => {
   await withGoodTree(async (root) => {

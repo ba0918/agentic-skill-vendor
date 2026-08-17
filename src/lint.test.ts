@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirNameOf } from "./walk.ts";
 import {
+  kindsOf,
   replaceWithSymlink,
   runCli,
   withGoodTree,
@@ -22,10 +23,6 @@ async function lintWith(
 ) {
   await writeFile(`${root}/skills/release-notes/${name}`, content);
   return await lint(root);
-}
-
-function kindsOf(lines: string[]): string[] {
-  return lines.map((line) => line.slice(0, line.indexOf(":"))).sort();
 }
 
 test("a self-contained tree passes with no violations", async () => {
@@ -223,6 +220,31 @@ test("a symlink resolving inside the same skill directory passes", async () => {
     );
     const result = await lint(root);
     expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
+  });
+});
+
+test("a dangling link inside the skill passes even when the root is reached through a symlink", async () => {
+  await withGoodTree(async (root) => {
+    // The link points inside the skill at a target that does not exist yet;
+    // that is an ordinary checkout state, not an escape. When the root is
+    // named through a symlink, the resolved parent chain carries the symlink
+    // name on one side and its realpath on the other, and a naive string
+    // comparison reads the two as different places.
+    const linkRoot = `${root.slice(0, root.lastIndexOf("/"))}/rootlink`;
+    await fs.rm(linkRoot, { recursive: true, force: true });
+    await fs.symlink(root, linkRoot);
+    // The link names its target relative to itself, as a link written by hand
+    // would. Resolving it walks through the symlinked root, and the dangling
+    // target's parent does not exist, so no realpath answers for it: the two
+    // spellings of the same skill — through the link and through its target —
+    // must still compare as the same place.
+    await replaceWithSymlink(
+      `${linkRoot}/skills/release-notes/dangling.md`,
+      "./missing/deep.md",
+    );
+    const result = await runCli(["lint-selfcontain", "--root", linkRoot]);
+    expect(result.stdout, result.stdout.join("\n")).toStrictEqual([]);
     expect(result.code).toStrictEqual(0);
   });
 });

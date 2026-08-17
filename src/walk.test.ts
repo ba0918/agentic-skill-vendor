@@ -14,6 +14,7 @@ import {
 } from "./walk.ts";
 import {
   PERMISSIONS_APPLY,
+  processUidOf,
   rejectedBy,
   replaceWithSymlink,
   runCli,
@@ -123,6 +124,40 @@ test("a parent directory is made for a name sitting at the tree root", async () 
     // file instead of the one holding it.
     await ensureParentDirectory(dir, "out.md");
     expect(await fs.readdir(dir)).toStrictEqual([]);
+  });
+});
+
+test("a write refuses a symlink standing where the parent directory belongs", async () => {
+  await withGoodTree(async (root) => {
+    // The write primitive itself guards the whole chain, not just the file at
+    // the end of it: a link at a parent level redirects the creation of
+    // anything below it outside the tree, and the run would write through it
+    // without ever asking the file's own path. Only the caller remembering to
+    // ask first was what stopped this before, and a future caller that forgets
+    // must still be refused here.
+    const secret = await plantOutsideFile(root, "target.md");
+    await fs.rm(`${root}/skills/release-notes/references/vendor/props`, {
+      recursive: true,
+      force: true,
+    });
+    await replaceWithSymlink(
+      `${root}/skills/release-notes/references/vendor/props`,
+      secret,
+    );
+
+    const error = await rejectedBy(
+      () =>
+        atomicWriteFile(
+          root,
+          "skills/release-notes/references/vendor/props/new.md",
+          encoder.encode("written\n"),
+        ),
+      ConfigError,
+    );
+    expect(error.message).toContain("symlink");
+    expect(await fs.readFile(secret, "utf8")).toStrictEqual(
+      "content that must never be touched\n",
+    );
   });
 });
 
@@ -355,7 +390,7 @@ test("a symlink found inside a conformance tree is named as the tree spells it",
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
     expect(result.stderr.join("\n")).toContain(
-      `symlink is not allowed inside a scanned tree: ${site}`,
+      `symlink is not allowed inside the tree: ${site}`,
     );
   });
 });
@@ -482,5 +517,34 @@ test("a named pipe inside a scanned tree is refused rather than read", async () 
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
     expect(result.stderr.join("\n")).toContain(`${site}: not a regular file`);
+  });
+});
+
+test("a runtime with no process global contributes no uid", () => {
+  // The permission gating is computed at module load. On a runtime without a
+  // `process` global — Deno, which this package claims to support — reading the
+  // global directly throws a ReferenceError; the helper answers the same way a
+  // runtime with no getuid method does instead of reaching for it.
+  expect(processUidOf({})).toBeUndefined();
+});
+
+test("a getuid method contributes the uid it returns", () => {
+  expect(processUidOf({ getuid: () => 0 })).toStrictEqual(0);
+  expect(processUidOf({ getuid: () => 1000 })).toStrictEqual(1000);
+});
+
+test("a tree-supplied name with control bytes is quoted in the refusal", async () => {
+  await withEmptyDir(async (root) => {
+    // A filename may legally carry an ANSI escape or a control byte, and the
+    // tree's own names are exactly what this walk interpolates into its
+    // refusal messages. Emitted raw, a hostile name paints arbitrary terminal
+    // output in a CI log or a review tool; the message must escape it instead.
+    const name = `esc\x1b[31m.md`;
+    await fs.writeFile(`${root}/${name}`, "content");
+    await replaceWithSymlink(`${root}/${name}`, `${root}/nowhere`);
+    const error = await rejectedBy(() => walkFiles(root), ConfigError);
+    expect(error.message).not.toContain("\u001b");
+    expect(error.message).toContain("\\u001b");
+    expect(error.message).toContain("esc");
   });
 });

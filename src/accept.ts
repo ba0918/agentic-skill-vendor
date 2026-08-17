@@ -12,11 +12,11 @@ import {
   contractPath,
 } from "./digest.ts";
 import { conformanceDigest } from "./conformance.ts";
-import { assertTreeRoot } from "./walk.ts";
-import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
+import { declaredIds, dependentIndex } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
-import { readLock, type Resolution, type Resolutions } from "./manifest.ts";
-import { expandTree, readContracts } from "./gen.ts";
+import type { Resolution, Resolutions } from "./manifest.ts";
+import { displayName } from "./walk.ts";
+import { expandTree, readContracts, readTreeState } from "./gen.ts";
 
 interface AcceptanceRecord {
   id: string;
@@ -53,9 +53,7 @@ export async function commandAccept(
     seen.add(id);
   }
 
-  await assertTreeRoot(root);
-  const { recordedSkills, resolutions: previous } = await readLock(root);
-  const skills = await readSkills(root, recordedSkills);
+  const { resolutions: previous, skills } = await readTreeState(root);
   const wanted = [...new Set([...ids, ...declaredIds(skills)])].sort(
     compareStrings,
   );
@@ -88,14 +86,20 @@ export async function commandAccept(
   const exit = await expandTree(root, skills, contracts, resolutions, out);
   if (exit !== 0) return exit;
 
+  // The report asks "which skills take up this contract" for every accepted
+  // id, so the reverse index is built once instead of rescanning every skill's
+  // contract list per id.
+  const dependentsOfId = dependentIndex(skills);
   for (const record of records) {
-    const dependents = dependentsOf(skills, record.id);
+    const dependents = dependentsOfId.get(record.id) ?? [];
     out(`accepted: ${record.id}`);
     out(`  old-digest: ${record.previous ?? "none (initial adoption)"}`);
     out(`  new-digest: ${record.adopted}`);
     out(
       `  dependents: ${
-        dependents.length > 0 ? dependents.join(", ") : "(none)"
+        dependents.length > 0
+          ? dependents.map(displayName).join(", ")
+          : "(none)"
       }`,
     );
   }

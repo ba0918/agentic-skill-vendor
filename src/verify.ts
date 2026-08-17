@@ -6,34 +6,30 @@
 import type { Sink } from "./errors.ts";
 import { compareStrings, digestOfBytes } from "./digest.ts";
 import {
-  assertTreeRoot,
   decodeUtf8,
+  displayName,
   isRegularFileOrAbsent,
   readBytes,
 } from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
+import { declaredIds, type SkillDeclaration } from "./declaration.ts";
 import {
-  declaredIds,
-  dependenciesOf,
-  readSkills,
-  type SkillDeclaration,
-} from "./declaration.ts";
-import {
-  buildManifest,
-  canonicalJson,
   MANIFEST_FILE,
-  presentContractIds,
-  readLock,
+  renderExpectedManifest,
   type Resolutions,
 } from "./manifest.ts";
 import {
   acceptanceViolations,
   listVendorEntries,
   readContracts,
+  readTreeState,
   vendorDirOf,
   vendorHeader,
 } from "./gen.ts";
 
+/** True when `bytes` opens with `prefix`. Local to this one comparison: the only
+ * raw byte-prefix match the tool makes, so it is kept beside its sole caller
+ * rather than lifted to walk.ts beside the other byte primitives. */
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (bytes.length < prefix.length) return false;
   for (let index = 0; index < prefix.length; index++) {
@@ -62,7 +58,7 @@ async function copyViolations(
       if (resolution === undefined) continue;
       const site = `${dir}/${id}.md`;
       if (!(await isRegularFileOrAbsent(root, site))) {
-        violations.push(`drift: ${site} is missing`);
+        violations.push(`drift: ${displayName(site)} is missing`);
         continue;
       }
       const bytes = await readBytes(`${root}/${site}`, site);
@@ -71,7 +67,7 @@ async function copyViolations(
       // rather than an error about the tool's own input.
       if (!startsWith(bytes, header)) {
         violations.push(
-          `drift: ${site} does not carry the header generated for ${resolution.digest}`,
+          `drift: ${displayName(site)} does not carry the header generated for ${resolution.digest}`,
         );
         continue;
       }
@@ -80,13 +76,15 @@ async function copyViolations(
       const body = await digestOfBytes(bytes.subarray(header.length));
       if (body !== resolution.digest) {
         violations.push(
-          `drift: ${site} holds text digesting to ${body}, the lock pins ${resolution.digest}`,
+          `drift: ${displayName(site)} holds text digesting to ${body}, the lock pins ${resolution.digest}`,
         );
       }
     }
     for (const name of present) {
       if (!accountedFor.has(name)) {
-        violations.push(`extra: ${dir}/${name} answers to no declaration`);
+        violations.push(
+          `extra: ${displayName(`${dir}/${name}`)} answers to no declaration`,
+        );
       }
     }
   }
@@ -109,13 +107,7 @@ async function manifestViolations(
   if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) {
     return [`manifest: ${MANIFEST_FILE} is missing`];
   }
-  const expected = canonicalJson(
-    buildManifest(
-      dependenciesOf(skills),
-      resolutions,
-      await presentContractIds(root, resolutions),
-    ),
-  );
+  const expected = await renderExpectedManifest(root, skills, resolutions);
   const actual = decodeUtf8(
     await readBytes(`${root}/${MANIFEST_FILE}`, MANIFEST_FILE),
     MANIFEST_FILE,
@@ -157,9 +149,7 @@ async function conformanceViolations(
  * another is failing.
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
-  await assertTreeRoot(root);
-  const { recordedSkills, resolutions } = await readLock(root);
-  const skills = await readSkills(root, recordedSkills);
+  const { resolutions, skills } = await readTreeState(root);
   const contracts = await readContracts(root, declaredIds(skills));
 
   // The three file-system checks are independent of one another and of the

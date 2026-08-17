@@ -13,9 +13,10 @@ import {
   splitDocument,
 } from "./digest.ts";
 import {
+  displayName,
   isDirectoryOrAbsent,
   isRegularFileOrAbsent,
-  readEntries,
+  listEntries,
   readTextFile,
 } from "./walk.ts";
 import { emptyRecord } from "./records.ts";
@@ -218,19 +219,14 @@ export async function readSkills(
   if (!(await isDirectoryOrAbsent(root, SKILLS_DIR))) return [];
   const skillsDir = `${root}/${SKILLS_DIR}`;
   const names: string[] = [];
-  for (const entry of await readEntries(skillsDir, SKILLS_DIR)) {
-    if (entry.isSymlink) {
-      throw new ConfigError(
-        `symlink is not allowed inside the tree: ${SKILLS_DIR}/${entry.name}`,
-      );
-    }
+  for (const entry of await listEntries(skillsDir, SKILLS_DIR)) {
     if (entry.isDirectory) {
       names.push(entry.name);
       continue;
     }
     if (recorded.has(entry.name)) {
       throw new ConfigError(
-        `${SKILLS_DIR}/${entry.name} is recorded in the lock but is not a directory`,
+        `${displayName(`${SKILLS_DIR}/${entry.name}`)} is recorded in the lock but is not a directory`,
       );
     }
   }
@@ -277,11 +273,31 @@ export function declaredIds(skills: SkillDeclaration[]): string[] {
   return [...ids].sort(compareStrings);
 }
 
-export function dependentsOf(skills: SkillDeclaration[], id: string): string[] {
-  return skills
-    .filter((skill) => skill.contracts.includes(id))
-    .map((skill) => skill.name)
-    .sort(compareStrings);
+/**
+ * The reverse of `dependentsOf`: one lookup from a contract id to the skills
+ * that declare it.
+ *
+ * Built once for a set of skills that is queried repeatedly. Rescanning every
+ * skill's contract list per id would pay skills × contracts per lookup; the
+ * index pays the same scan once and answers each following id with a map
+ * lookup.
+ */
+export function dependentIndex(
+  skills: SkillDeclaration[],
+): Map<string, string[]> {
+  const index = new Map<string, string[]>();
+  for (const skill of skills) {
+    for (const id of skill.contracts) {
+      const dependents = index.get(id);
+      if (dependents === undefined) {
+        index.set(id, [skill.name]);
+      } else {
+        dependents.push(skill.name);
+      }
+    }
+  }
+  for (const names of index.values()) names.sort(compareStrings);
+  return index;
 }
 
 /** The dependency half of the lock: a skill mapped to what it declares. */

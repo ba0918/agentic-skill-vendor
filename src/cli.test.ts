@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { runCli, withEmptyDir, withGoodTree } from "./testing.ts";
+import { startedThisProgram } from "./cli.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
 
@@ -191,4 +192,16 @@ test("accept still takes the contract ids it is given", async () => {
       result.stdout.filter((line) => line.startsWith("accepted:")),
     ).toStrictEqual(["accepted: verdict-format", "accepted: changelog-entry"]);
   });
+});
+
+test("the entry-point probe answers false when no program is started", () => {
+  // A runtime with no `process` global — Deno, which this package claims to
+  // support — has no argv entry to name the started program. Reading the
+  // global directly throws a ReferenceError on module load there; the probe
+  // must answer the same way an absent arg does instead.
+  expect(startedThisProgram([])).toStrictEqual(false);
+});
+
+test("the entry-point probe answers false for a path it was not started with", () => {
+  expect(startedThisProgram(["node", "/no/such/entry"])).toStrictEqual(false);
 });

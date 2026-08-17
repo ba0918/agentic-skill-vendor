@@ -15,7 +15,11 @@ import {
 import { assertPlainContractPaths } from "./conformance.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
-import type { Dependencies } from "./declaration.ts";
+import {
+  dependenciesOf,
+  type Dependencies,
+  type SkillDeclaration,
+} from "./declaration.ts";
 
 /** The one file the lock and the provenance record live in. */
 export const MANIFEST_FILE = "vendor-manifest.json";
@@ -120,6 +124,28 @@ export function buildManifest(
 }
 
 /**
+ * The canonical text of the manifest the tree renders to.
+ *
+ * gen writes exactly this and verify compares the file against exactly this,
+ * so the rendering is stated once here rather than twice — spelled twice, a
+ * change to one side would make gen and verify silently disagree about what
+ * "up to date" means.
+ */
+export async function renderExpectedManifest(
+  root: string,
+  skills: SkillDeclaration[],
+  resolutions: Resolutions,
+): Promise<string> {
+  return canonicalJson(
+    buildManifest(
+      dependenciesOf(skills),
+      resolutions,
+      await presentContractIds(root, resolutions),
+    ),
+  );
+}
+
+/**
  * The resolved contracts whose canonical file the tree holds.
  *
  * Every command that renders a manifest asks this one question through this one
@@ -208,10 +234,29 @@ export async function readLock(root: string): Promise<Lock> {
       `${MANIFEST_FILE}: not readable JSON: ${describeCause(cause)}`,
     );
   }
-  const lock = pickObject(pickObject(parsed, "")["lock"], "lock");
+  const document = pickObject(parsed, "");
+  const rawLock = document["lock"];
+  // A manifest that is valid JSON but holds no lock is refused rather than
+  // read as "no lock yet". The one empty lock is the whole file being absent,
+  // which is answered before JSON is ever read; a file present but missing the
+  // lock is a hand-corrupted state, and adopting it as empty would let the
+  // next gen silently discard the dependency memory every resolution records.
+  if (rawLock === undefined) {
+    throw new ConfigError(`${MANIFEST_FILE}: has no lock key`);
+  }
+  const lock = pickObject(rawLock, "lock");
+  const rawDependencies = lock["dependencies"];
+  // A present lock must carry both halves, the dependencies and the
+  // resolutions. The lock this tool writes always does; a lock missing its
+  // dependencies is the same hand-corrupted state as one missing the whole
+  // lock key, and reading it as "no skills recorded" would let the next gen
+  // forget every skill the tree adopted.
+  if (rawDependencies === undefined) {
+    throw new ConfigError(`${MANIFEST_FILE}: lock has no dependencies key`);
+  }
   return {
     recordedSkills: new Set(
-      Object.keys(pickObject(lock["dependencies"], "lock.dependencies")),
+      Object.keys(pickObject(rawDependencies, "lock.dependencies")),
     ),
     resolutions: validateResolutions(lock),
   };

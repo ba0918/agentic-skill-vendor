@@ -69,6 +69,18 @@ test("the contract digest matches its reference vector", async () => {
   );
 });
 
+test("a closing delimiter after a lone carriage return is refused loudly, never skipped", () => {
+  // The body digest keeps a lone `\r` as content (it is a byte a document may
+  // contain, and treating it as a line break would change what an already
+  // pinned document digests to). The closing scan answers the same way: a line
+  // bearing a lone CR before the delimiter is not read as a closing line. The
+  // refusal is the honest answer either way — never a closed-looking document
+  // silently misread — and it is named, not thrown away.
+  expect(() => canonicalBody("---\nversion: 1\r---\nBody line\n")).toThrow(
+    ConfigError,
+  );
+});
+
 test("the digest is rendered as a sha256 prefix and lowercase hex", async () => {
   const digest = await contractDigest("Body\n");
   expect(/^sha256:[0-9a-f]{64}$/.test(digest), digest).toStrictEqual(true);

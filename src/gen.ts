@@ -25,27 +25,25 @@ import {
   assertPlainChain,
   assertTreeRoot,
   atomicWriteFile,
-  ensureParentDirectory,
+  displayName,
   isDirectoryOrAbsent,
   isRegularFileOrAbsent,
-  readEntries,
+  listEntries,
   readTextFile,
 } from "./walk.ts";
 import {
   declaredIds,
-  dependenciesOf,
-  dependentsOf,
+  dependentIndex,
   readSkills,
   type SkillDeclaration,
   SKILLS_DIR,
 } from "./declaration.ts";
 import {
-  buildManifest,
-  canonicalJson,
   GENERATOR,
   MANIFEST_FILE,
   presentContractIds,
   readLock,
+  renderExpectedManifest,
   type Resolutions,
 } from "./manifest.ts";
 
@@ -59,11 +57,36 @@ function indentOf(line: string): number {
   return line.length - line.trimStart().length;
 }
 
-/** Drops a trailing comment. No value read by the scanner below holds a '#'. */
+/**
+ * Drops a trailing comment, respecting quoted segments.
+ *
+ * No value read by the scanner below holds a '#' outside quotes. Inside a
+ * quoted scalar a hash is part of the text (`"a # b"` means the author wrote
+ * the hash), so the cut must happen only when the line is not inside a quote:
+ * a comment is ` #` seen from a spot no quote opened. Quotes entered and left
+ * are single or double, and a backslash-quote inside a double-quoted scalar
+ * is escaped, not closing.
+ */
 function withoutComment(text: string): string {
   if (text.trimStart().startsWith("#")) return "";
-  const start = text.indexOf(" #");
-  return start === -1 ? text : text.slice(0, start);
+  let inDouble = false;
+  let inSingle = false;
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index];
+    if (char === '"' && !inSingle) {
+      if (inDouble && text[index - 1] === "\\") continue;
+      inDouble = !inDouble;
+      continue;
+    }
+    if (char === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (!inDouble && !inSingle && char === " " && text[index + 1] === "#") {
+      return text.slice(0, index);
+    }
+  }
+  return text;
 }
 /**
  * A top-level scalar in a contract's frontmatter, read by scanning lines rather
@@ -82,12 +105,16 @@ function frontmatterScalar(
   const line = frontmatter.find(
     (candidate) =>
       indentOf(candidate) === 0 &&
-      candidate.startsWith(`${key}:`) &&
-      /^[^:]+:(\s|$)/.test(candidate),
+      // The colon is what separates the key from its value; the YAML grammar
+      // does not require a space after it (`version:1` is valid), so neither
+      // does this scanner. What must hold is that the key names the scalar
+      // asked for and that a value follows the colon at all.
+      /^[^:]+:/.test(candidate) &&
+      candidate.slice(0, candidate.indexOf(":")).trim() === key,
   );
   if (line === undefined) return undefined;
   const value = withoutComment(line)
-    .slice(key.length + 1)
+    .slice(line.indexOf(":") + 1)
     .trim();
   if (value === "") return undefined;
   return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
@@ -186,16 +213,7 @@ export async function listVendorEntries(
   await assertPlainChain(root, relative);
   if (!(await isDirectoryOrAbsent(root, relative))) return [];
   const dir = `${root}/${relative}`;
-  const names: string[] = [];
-  for (const entry of await readEntries(dir, relative)) {
-    if (entry.isSymlink) {
-      throw new ConfigError(
-        `symlink is not allowed inside the tree: ${relative}/${entry.name}`,
-      );
-    }
-    names.push(entry.name);
-  }
-  return names;
+  return (await listEntries(dir, relative)).map((entry) => entry.name);
 }
 
 /**
@@ -283,9 +301,7 @@ export async function planExpansion(
     manifest: {
       site: MANIFEST_FILE,
       content: encoder.encode(
-        canonicalJson(
-          buildManifest(dependenciesOf(skills), resolutions, present),
-        ),
+        await renderExpectedManifest(root, skills, resolutions),
       ),
     },
     removals,
@@ -312,7 +328,6 @@ export async function executePlan(
   plan: WritePlan,
 ): Promise<void> {
   for (const file of plan.files) {
-    await ensureParentDirectory(root, file.site);
     await atomicWriteFile(root, file.site, file.content);
   }
   await atomicWriteFile(root, plan.manifest.site, plan.manifest.content);
@@ -332,7 +347,7 @@ export async function executePlan(
   if (failures.length > 0) {
     const [first] = failures;
     throw new ConfigError(
-      `cannot remove ${first.site}: ${describeCause(first.cause)}`,
+      `cannot remove ${displayName(first.site)}: ${describeCause(first.cause)}`,
     );
   }
 }
@@ -348,8 +363,13 @@ export function acceptanceViolations(
   resolutions: Resolutions,
 ): string[] {
   const violations: string[] = [];
+  // The dependent list is asked for every declared id, so the reverse index is
+  // built once instead of rescanning every skill's contract list per id.
+  const dependentsOfId = dependentIndex(skills);
   for (const id of declaredIds(skills)) {
-    const dependents = dependentsOf(skills, id).join(", ");
+    const dependents = (dependentsOfId.get(id) ?? [])
+      .map(displayName)
+      .join(", ");
     const contract = contracts.get(id) ?? null;
     if (contract === null) {
       violations.push(
@@ -375,6 +395,28 @@ export function acceptanceViolations(
     }
   }
   return violations;
+}
+
+/**
+ * The tree read every command starts with: the root checked, the lock read,
+ * the skills read from the names the lock remembers.
+ *
+ * gen, verify and accept read the exact same preamble before they part ways —
+ * gen and verify over the declared ids, accept over the ids asked for. One
+ * place for the preamble is what makes a change to how tree state is read land
+ * everywhere at once instead of in whichever commands the author happened to
+ * touch.
+ */
+export interface TreeState {
+  resolutions: Resolutions;
+  skills: SkillDeclaration[];
+}
+
+export async function readTreeState(root: string): Promise<TreeState> {
+  await assertTreeRoot(root);
+  const { recordedSkills, resolutions } = await readLock(root);
+  const skills = await readSkills(root, recordedSkills);
+  return { resolutions, skills };
 }
 
 /**
@@ -413,9 +455,7 @@ export async function expandTree(
  * state continuous integration has to be able to judge.
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
-  await assertTreeRoot(root);
-  const { recordedSkills, resolutions } = await readLock(root);
-  const skills = await readSkills(root, recordedSkills);
+  const { resolutions, skills } = await readTreeState(root);
   const contracts = await readContracts(root, declaredIds(skills));
   return expandTree(root, skills, contracts, resolutions, out);
 }

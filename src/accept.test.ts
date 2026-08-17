@@ -1,29 +1,42 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { runCli, snapshotTree, withGoodTree, writeFile } from "./testing.ts";
+import {
+  readManifest,
+  runCli,
+  snapshotTree,
+  withGoodTree,
+  writeFile,
+  writeManifest,
+} from "./testing.ts";
 
 const CONTRACT = "contracts/verdict-format.md";
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const MANIFEST = "vendor-manifest.json";
 const CONFORMANCE = "contracts/changelog-entry/conformance/cases/minimal.md";
 
-// deno-lint-ignore no-explicit-any
-type Json = any;
-
-async function readManifest(root: string): Promise<Json> {
-  return JSON.parse(await fs.readFile(`${root}/${MANIFEST}`, "utf8"));
-}
-
-async function writeManifest(root: string, manifest: Json): Promise<void> {
-  await fs.writeFile(
-    `${root}/${MANIFEST}`,
-    JSON.stringify(manifest, null, 2) + "\n",
-  );
-}
-
 async function append(path: string, text: string): Promise<void> {
   await fs.writeFile(path, (await fs.readFile(path, "utf8")) + text);
 }
+
+test("a dependent skill name with control bytes is quoted in the accept report", async () => {
+  await withGoodTree(async (root) => {
+    // accept reports which skills take up the adopted contract; a skill name
+    // holding an ANSI escape would paint the terminal on that report line.
+    const name = "esc\u001b[31m";
+    await writeFile(
+      `${root}/skills/${name}/SKILL.md`,
+      "---\nname: esc\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# esc\n",
+    );
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    const dependents = result.stdout.find((line) =>
+      line.startsWith("  dependents:"),
+    );
+    expect(dependents).toBeDefined();
+    expect(dependents).not.toContain("\u001b");
+    expect(dependents).toContain("\\u001b");
+  });
+});
 
 async function forget(root: string, id: string): Promise<void> {
   const manifest = await readManifest(root);

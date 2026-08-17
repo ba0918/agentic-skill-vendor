@@ -148,9 +148,15 @@ export async function run(
  * because an npm bin is installed as a symlink: run through npx the process
  * starts at `.bin/<name>` while this module's own URL names the file that link
  * points at, and comparing the two unresolved never matches.
+ *
+ * The arguments are passed in rather than read from `process` so the same
+ * probe runs on a runtime with no `process` global at all — Deno, which this
+ * package claims to support. Read directly, the global itself throws a
+ * ReferenceError at module load there: the guard lives in the caller, which
+ * hands a runtime with no argv an empty list.
  */
-function startedThisProgram(): boolean {
-  const started = process.argv[1];
+export function startedThisProgram(argv: string[]): boolean {
+  const started = argv[1];
   if (started === undefined) return false;
   try {
     return import.meta.url === pathToFileURL(realpathSync(started)).href;
@@ -159,12 +165,16 @@ function startedThisProgram(): boolean {
   }
 }
 
-if (startedThisProgram()) {
+// A runtime with no `process` global is asked whether this module was `main`,
+// and the honest answer is "no": there is no started path to compare against.
+// On a runtime that does have one, the probe is asked with its argv.
+const argv = typeof process === "undefined" ? [] : process.argv;
+if (startedThisProgram(argv)) {
   // The code is set rather than exited on, so anything already queued still
   // finishes: an exit here would cut off output that has been written but not
   // yet flushed.
   process.exitCode = await run(
-    process.argv.slice(2),
+    argv.slice(2),
     (line) => console.log(line),
     (line) => console.error(line),
   );

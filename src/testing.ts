@@ -5,6 +5,16 @@ import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
 import { compareStrings, sha256Hex } from "./digest.ts";
 
+const MANIFEST_FILE = "vendor-manifest.json";
+
+/**
+ * The manifest, read and written as arbitrary JSON. The tests address the
+ * fields they need by name, and a recursive JSON type would put a cast at
+ * every one of those sites for nothing.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: manifests are arbitrary JSON.
+export type Json = any;
+
 export interface CliResult {
   code: number;
   stdout: string[];
@@ -108,13 +118,29 @@ export async function rejectedBy<E extends Error>(
 }
 
 /**
+ * The uid a runtime would report, or undefined where it has no getuid method.
+ *
+ * The permission gating below needs one answer on every runtime this package
+ * claims to support. A runtime with no `process` global at all — Deno — must
+ * not be reached for `process.getuid` directly: reading the global throws a
+ * ReferenceError. The helper is handed an environment-like value instead, so
+ * the module's own `process` reference stays behind a guard in one place.
+ */
+export function processUidOf(env: unknown): number | undefined {
+  if (typeof env !== "object" || env === null) return undefined;
+  const getuid = (env as { getuid?: () => number }).getuid;
+  return typeof getuid === "function" ? getuid() : undefined;
+}
+
+/**
  * True where the permission bits a case sets are the ones the run obeys.
  *
  * A process running as root reads through a mode of 000, so a case built on
  * one would assert that a failure was handled while no failure ever happened.
  * Skipping is the honest answer: the behaviour is unobservable here.
  */
-export const PERMISSIONS_APPLY = process.getuid?.() !== 0;
+export const PERMISSIONS_APPLY =
+  processUidOf(typeof process === "undefined" ? undefined : process) !== 0;
 
 /**
  * Runs `fn` while nothing may read `path`, and puts the mode back afterwards.
@@ -147,7 +173,12 @@ export async function escapeThrough(
 ): Promise<string> {
   const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
   await fs.mkdir(outside, { recursive: true });
-  const target = `${outside}/${relative.replaceAll("/", "-")}`;
+  // The relative path is folded into one file name by replacing its separators.
+  // `replaceAll` was once used for that, and it is not injective: `a/b` and
+  // `a-b` folded to the same name, so two otherwise distinct escapes could hit
+  // the same file. Percent-encoding keeps one relative to one target while
+  // staying a legal file name.
+  const target = `${outside}/${relative.replaceAll("/", "%2F")}`;
   await fs.rename(`${root}/${relative}`, target);
   await fs.symlink(target, `${root}/${relative}`);
   return outside;
@@ -164,8 +195,7 @@ export async function replaceWithSymlink(
   await fs.symlink(target, path);
 }
 
-/**
- * Maps every entry under `root` to a description of its content: the SHA-256
+/** Maps every entry under `root` to a description of its content: the SHA-256
  * of a file's bytes, or `symlink:<target>` for a link. Comparing two snapshots
  * is how a test states "this run changed nothing", and links are described
  * rather than followed so that a link swapped for a file still shows up as a
@@ -175,6 +205,34 @@ export async function snapshotTree(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
   await walk(root, "", snapshot);
   return snapshot;
+}
+
+/**
+ * The kind word that opens each of a command's output lines.
+ *
+ * Every line the tool writes is a parseable `kind: detail` line, so a test
+ * asserting which findings a command produced reads the kinds. The sort is
+ * part of the help here: the tests that assert a set of findings written by a
+ * run with nondeterministic ordering state the set, not the order.
+ */
+export function kindsOf(lines: string[]): string[] {
+  return lines.map((line) => line.slice(0, line.indexOf(":"))).sort();
+}
+
+/** The manifest as read back from disk, as the shape tests hand to the tool. */
+export async function readManifest(root: string): Promise<Json> {
+  return JSON.parse(await fs.readFile(`${root}/${MANIFEST_FILE}`, "utf8"));
+}
+
+/** Writes `manifest` as the tree's manifest, in the canonical rendering. */
+export async function writeManifest(
+  root: string,
+  manifest: Json,
+): Promise<void> {
+  await fs.writeFile(
+    `${root}/${MANIFEST_FILE}`,
+    JSON.stringify(manifest, null, 2) + "\n",
+  );
 }
 
 async function walk(

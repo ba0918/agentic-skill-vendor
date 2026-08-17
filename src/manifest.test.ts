@@ -4,16 +4,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { canonicalJson, readLock, type Resolutions } from "./manifest.ts";
-import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
+import {
+  readManifest,
+  runCli,
+  snapshotTree,
+  withEmptyDir,
+  withGoodTree,
+} from "./testing.ts";
 
 const MANIFEST = "vendor-manifest.json";
-
-// deno-lint-ignore no-explicit-any
-type Json = any;
-
-async function readManifest(root: string): Promise<Json> {
-  return JSON.parse(await fs.readFile(`${root}/${MANIFEST}`, "utf8"));
-}
 
 test("the manifest keeps dependencies and resolutions apart", async () => {
   await withGoodTree(async (root) => {
@@ -200,7 +199,7 @@ async function readWritten(manifest: string): Promise<Resolutions> {
 }
 
 function manifestWith(resolutions: string): string {
-  return `{"lock":{"resolutions":${resolutions}}}`;
+  return `{"lock":{"dependencies":{},"resolutions":${resolutions}}}`;
 }
 
 const DIGEST = `sha256:${"0".repeat(64)}`;
@@ -243,6 +242,30 @@ test("a resolution whose version is not text is refused", async () => {
 
 test("a lock that is not an object is refused", async () => {
   await expect(readWritten(`{"lock":"oops"}`)).rejects.toThrow(ConfigError);
+});
+
+test("a manifest whose lock key is absent is refused, not read as empty", async () => {
+  // A hand-corrupted manifest that dropped its lock would otherwise be adopted
+  // as "no lock yet", and the next gen would silently rewrite over it —
+  // discarding the dependency memory of every contract it recorded. The one
+  // empty lock is the whole file being absent, which is answered before JSON
+  // is ever read.
+  await expect(readWritten(`{}`)).rejects.toThrow(ConfigError);
+});
+
+test("a manifest whose lock key is null is refused, not read as empty", async () => {
+  await expect(readWritten(`{"lock":null}`)).rejects.toThrow(ConfigError);
+});
+
+test("a lock missing its dependencies is refused, not read as empty", async () => {
+  // The lock the tool writes always carries both halves. A present lock that
+  // dropped its dependencies is the same hand corruption as one that dropped
+  // the whole lock key, and reading it as "no skills recorded" would let the
+  // next gen forget every skill the tree adopted.
+  await expect(readWritten(`{"lock":{}}`)).rejects.toThrow(ConfigError);
+  await expect(readWritten(`{"lock":{"resolutions":{}}}`)).rejects.toThrow(
+    ConfigError,
+  );
 });
 
 test("resolutions written as a list are refused", async () => {

@@ -13,14 +13,22 @@
 // reader anyway — the underlying error is quoted, and it carries the absolute
 // path. The tree root itself is the one exception: named as it was given, there
 // being nothing yet for it to be relative to.
+//
+// The checks here are read-then-use pairs: the kind of a path is taken by one
+// lstat, and the file is opened by a later, separate call. Nothing re-checks
+// between the two, so a concurrent writer could swap the checked entry for a
+// symlink before the use. That race is outside the threat model this tool
+// guards: the tree is a single user's checkout, read and written by one
+// process at a time. Closing the window would take an O_NOFOLLOW open or an
+// fstat-of-the-open-handle comparison on every read and write; the cost is
+// carried only if shared-tree execution ever becomes a requirement.
 
 import * as fs from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { ConfigError, describeCause } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
 
-/**
- * True when the reason a file system call failed is that nothing is there.
+/** True when the reason a file system call failed is that nothing is there.
  *
  * The runtimes agree on the errno and disagree on everything around it, so the
  * code is what this reads. Every other failure means the tool could not find
@@ -30,12 +38,76 @@ function isNotFound(cause: unknown): boolean {
   return (cause as { code?: string } | null)?.code === "ENOENT";
 }
 
+/**
+ * A tree-supplied name as it may safely appear in a message.
+ *
+ * A filename may legally carry an ANSI escape or a control byte, and the
+ * tree's own names are exactly what gets interpolated into refusal messages.
+ * Emitted raw, a hostile name paints arbitrary terminal output in a CI log or
+ * a review tool. Ordinary paths are passed through unchanged, so a normal
+ * refusal still reads as the path; only a name with control bytes is quoted,
+ * which is what makes the escape visible instead of executed.
+ */
+export function displayName(name: string): string {
+  // Control characters are the ones a terminal would execute rather than
+  // render — C0 (U+0000..U+001F) and C1 (U+007F..U+009F). Checked per
+  // character rather than by a regex, which is how the lint rule that would
+  // flag an embedded control escape in the pattern is honored.
+  for (let index = 0; index < name.length; index++) {
+    const code = name.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return JSON.stringify(name);
+    }
+  }
+  return name;
+}
+
+/**
+ * The fixed wording every symlink-inside-the-tree refusal carries before the
+ * path it names.
+ *
+ * Kept as one constant so the spelling cannot drift: automation greps for this
+ * phrasing, and a second spelling — "a scanned tree" — was what this replaced
+ * after a reader missed a site the same search had shown before.
+ *
+ * This is the wording for a link found while reading the tree. Writing through
+ * a link is a different refusal — `refusing to write through a symlink` — and
+ * keeps its own wording on purpose: it names the action that was refused
+ * (writing through), which the "inside the tree" phrasing would not.
+ */
+export const SYMLINK_REFUSAL = "symlink is not allowed inside the tree";
+
 /** One entry of a directory, with its kind resolved without following it. */
-interface DirectoryEntry {
+export interface DirectoryEntry {
   name: string;
   isSymlink: boolean;
   isDirectory: boolean;
   isRegularFile: boolean;
+}
+
+/**
+ * A directory's entries, with a symlink refused along the way.
+ *
+ * Every enumeration that walks a directory inside the tree shares this one
+ * shape: list, refuse a link by the one fixed wording, hand the entries on.
+ * Stated once, a change to how such an enumeration treats a link lands
+ * everywhere at once instead of in whichever caller the author happened to
+ * touch.
+ */
+export async function listEntries(
+  dir: string,
+  site: string,
+): Promise<DirectoryEntry[]> {
+  const entries: DirectoryEntry[] = [];
+  for (const entry of await readEntries(dir, site)) {
+    if (entry.isSymlink) {
+      throw new ConfigError(
+        `${SYMLINK_REFUSAL}: ${displayName(`${site}/${entry.name}`)}`,
+      );
+    }
+    entries.push(entry);
+  }
+  return entries;
 }
 
 /**
@@ -67,7 +139,9 @@ export async function readEntries(
   try {
     names = await fs.readdir(dir);
   } catch (cause) {
-    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot read ${displayName(site)}: ${describeCause(cause)}`,
+    );
   }
   // The stats are independent of one another, so they are resolved in
   // parallel; the refusals are still reported in name order, whichever
@@ -79,7 +153,7 @@ export async function readEntries(
         info = await fs.lstat(`${dir}/${name}`);
       } catch (cause) {
         throw new ConfigError(
-          `cannot inspect ${site}/${name}: ${describeCause(cause)}`,
+          `cannot inspect ${displayName(`${site}/${name}`)}: ${describeCause(cause)}`,
         );
       }
       return {
@@ -115,13 +189,11 @@ async function kindAt(root: string, relative: string): Promise<Stats | null> {
   } catch (cause) {
     if (isNotFound(cause)) return null;
     throw new ConfigError(
-      `cannot inspect ${relative}: ${describeCause(cause)}`,
+      `cannot inspect ${displayName(relative)}: ${describeCause(cause)}`,
     );
   }
   if (info.isSymbolicLink()) {
-    throw new ConfigError(
-      `symlink is not allowed inside the tree: ${relative}`,
-    );
+    throw new ConfigError(`${SYMLINK_REFUSAL}: ${displayName(relative)}`);
   }
   return info;
 }
@@ -148,7 +220,7 @@ export async function isDirectoryOrAbsent(
   const info = await kindAt(root, relative);
   if (info === null) return false;
   if (!info.isDirectory()) {
-    throw new ConfigError(`${relative}: not a directory`);
+    throw new ConfigError(`${displayName(relative)}: not a directory`);
   }
   return true;
 }
@@ -183,9 +255,7 @@ async function walkInto(
     const named = `${site}/${entry.name}`;
     const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
     if (entry.isSymlink) {
-      throw new ConfigError(
-        `symlink is not allowed inside a scanned tree: ${named}`,
-      );
+      throw new ConfigError(`${SYMLINK_REFUSAL}: ${displayName(named)}`);
     }
     if (entry.isDirectory) {
       await walkInto(path, named, relative, into);
@@ -196,7 +266,7 @@ async function walkInto(
     // for an ordinary file does not fail on the read — it blocks the run until
     // something on the other side writes, which never comes.
     if (!entry.isRegularFile) {
-      throw new ConfigError(`${named}: not a regular file`);
+      throw new ConfigError(`${displayName(named)}: not a regular file`);
     }
     into.push(relative);
   }
@@ -208,6 +278,13 @@ async function walkInto(
  * The temporary file is a sibling rather than an OS temporary: a rename is only
  * atomic within one file system, and the OS temporary directory is frequently
  * on another one.
+ *
+ * The whole parent chain is guarded here, not left to the callers: a link at
+ * any parent level would let the write land outside the tree, and a future
+ * caller that forgets to ask first must still be refused by the one primitive
+ * every write goes through. The parent directory is made before the bytes are
+ * written, so a path whose parents do not exist yet is as writable as one that
+ * already does.
  */
 export async function atomicWriteFile(
   root: string,
@@ -216,6 +293,8 @@ export async function atomicWriteFile(
 ): Promise<void> {
   const path = `${root}/${relative}`;
   const temporary = `${path}.tmp`;
+  await assertPlainChain(root, dirNameOf(relative));
+  await ensureParentDirectory(root, relative);
   await assertWritableTarget(temporary, `${relative}.tmp`);
   await assertWritableTarget(path, relative);
   try {
@@ -223,7 +302,9 @@ export async function atomicWriteFile(
     await fs.rename(temporary, path);
   } catch (cause) {
     await fs.rm(temporary).catch(() => {});
-    throw new ConfigError(`cannot write ${relative}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot write ${displayName(relative)}: ${describeCause(cause)}`,
+    );
   }
 }
 
@@ -244,13 +325,19 @@ async function assertWritableTarget(path: string, site: string): Promise<void> {
     info = await fs.lstat(path);
   } catch (cause) {
     if (isNotFound(cause)) return;
-    throw new ConfigError(`cannot inspect ${site}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot inspect ${displayName(site)}: ${describeCause(cause)}`,
+    );
   }
   if (info.isSymbolicLink()) {
-    throw new ConfigError(`refusing to write through a symlink: ${site}`);
+    throw new ConfigError(
+      `refusing to write through a symlink: ${displayName(site)}`,
+    );
   }
   if (!info.isFile()) {
-    throw new ConfigError(`refusing to write over ${site}: not a regular file`);
+    throw new ConfigError(
+      `refusing to write over ${displayName(site)}: not a regular file`,
+    );
   }
 }
 
@@ -263,7 +350,7 @@ export function decodeUtf8(bytes: Uint8Array, site: string): string {
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {
-    throw new ConfigError(`${site}: not valid UTF-8`);
+    throw new ConfigError(`${displayName(site)}: not valid UTF-8`);
   }
 }
 
@@ -282,7 +369,9 @@ export async function readBytes(
   try {
     return await fs.readFile(path);
   } catch (cause) {
-    throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot read ${displayName(site)}: ${describeCause(cause)}`,
+    );
   }
 }
 
@@ -314,13 +403,11 @@ export async function assertPlainChain(
     } catch (cause) {
       if (isNotFound(cause)) return;
       throw new ConfigError(
-        `cannot inspect ${relative}: ${describeCause(cause)}`,
+        `cannot inspect ${displayName(relative)}: ${describeCause(cause)}`,
       );
     }
     if (info.isSymbolicLink()) {
-      throw new ConfigError(
-        `symlink is not allowed inside the tree: ${relative}`,
-      );
+      throw new ConfigError(`${SYMLINK_REFUSAL}: ${displayName(relative)}`);
     }
   }
 }
@@ -344,7 +431,7 @@ export async function isRegularFileOrAbsent(
   const info = await kindAt(root, relative);
   if (info === null) return false;
   if (!info.isFile()) {
-    throw new ConfigError(`${relative}: not a regular file`);
+    throw new ConfigError(`${displayName(relative)}: not a regular file`);
   }
   return true;
 }
@@ -363,7 +450,9 @@ export async function ensureParentDirectory(
   try {
     await fs.mkdir(`${root}/${parent}`, { recursive: true });
   } catch (cause) {
-    throw new ConfigError(`cannot create ${parent}: ${describeCause(cause)}`);
+    throw new ConfigError(
+      `cannot create ${displayName(parent)}: ${describeCause(cause)}`,
+    );
   }
 }
 
@@ -384,10 +473,13 @@ export async function assertTreeRoot(root: string): Promise<void> {
   try {
     info = await fs.stat(root);
   } catch (cause) {
-    if (isNotFound(cause)) throw new ConfigError(`no such tree: ${root}`);
-    throw new ConfigError(`cannot inspect ${root}: ${describeCause(cause)}`);
+    if (isNotFound(cause))
+      throw new ConfigError(`no such tree: ${displayName(root)}`);
+    throw new ConfigError(
+      `cannot inspect ${displayName(root)}: ${describeCause(cause)}`,
+    );
   }
   if (!info.isDirectory()) {
-    throw new ConfigError(`not a directory: ${root}`);
+    throw new ConfigError(`not a directory: ${displayName(root)}`);
   }
 }
