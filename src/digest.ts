@@ -119,12 +119,25 @@ export function splitDocument(text: string, site?: string): Document {
   );
 }
 
-/** Frontmatter stripped, LF endings, exactly one trailing newline. */
+/**
+ * Frontmatter stripped, LF endings, exactly one trailing newline.
+ *
+ * Only line endings and the end of file are canonicalized. Whitespace at the
+ * end of a line is content: in Markdown two trailing spaces are a hard line
+ * break, so trimming per line would change what the document means.
+ */
 export function canonicalBody(text: string, site?: string): string {
-  // Only line endings and the end of file are canonicalized. Whitespace at the
-  // end of a line is content: in Markdown two trailing spaces are a hard line
-  // break, so trimming per line would change what the document means.
-  return splitDocument(text, site).body.replace(/\n+$/, "") + "\n";
+  return normalizeBody(splitDocument(text, site).body);
+}
+
+/**
+ * One trailing newline on a body `splitDocument` already produced.
+ *
+ * Kept apart from `canonicalBody` so a caller that split the document already
+ * does not pay for the split twice.
+ */
+export function normalizeBody(body: string): string {
+  return body.replace(/\n+$/, "") + "\n";
 }
 
 /** One buffer holding these chunks end to end, in the order given. */
@@ -139,7 +152,14 @@ export function concatBytes(chunks: Uint8Array[]): Uint8Array {
   return joined;
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
+/**
+ * The lowercase hex form of a SHA-256 digest, without the `sha256:` prefix.
+ *
+ * Exported for the test suite's snapshot helpers, which describe file content
+ * the same way this tool describes a digest — one implementation, so a change
+ * to the algorithm cannot silently diverge between the tool and its tests.
+ */
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   // Copied rather than cast. Web Crypto asks for bytes backed by a plain
   // ArrayBuffer, while a file read hands back a view that may sit in the
   // runtime's shared pool, and the two are reconciled here by making one — an

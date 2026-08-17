@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
+import { compareStrings, sha256Hex } from "./digest.ts";
 
 export interface CliResult {
   code: number;
@@ -163,22 +164,12 @@ export async function replaceWithSymlink(
   await fs.symlink(target, path);
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  // Copied rather than cast. Web Crypto asks for bytes backed by a plain
-  // ArrayBuffer, while a file read hands back a view that may sit in the
-  // runtime's shared pool, and the two are reconciled here by making one — an
-  // assertion would silence the difference instead of resolving it.
-  const digest = await crypto.subtle.digest("SHA-256", new Uint8Array(bytes));
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 /**
- * Maps every entry under `root` to a description of its content: the SHA-256 of
- * a file's bytes, or `symlink:<target>` for a link. Comparing two snapshots is
- * how a test states "this run changed nothing", and links are described rather
- * than followed so that a link swapped for a file still shows up as a change.
+ * Maps every entry under `root` to a description of its content: the SHA-256
+ * of a file's bytes, or `symlink:<target>` for a link. Comparing two snapshots
+ * is how a test states "this run changed nothing", and links are described
+ * rather than followed so that a link swapped for a file still shows up as a
+ * change.
  */
 export async function snapshotTree(root: string): Promise<Map<string, string>> {
   const snapshot = new Map<string, string>();
@@ -191,7 +182,7 @@ async function walk(
   prefix: string,
   into: Map<string, string>,
 ): Promise<void> {
-  const names = (await fs.readdir(dir)).sort((a, b) => (a < b ? -1 : 1));
+  const names = (await fs.readdir(dir)).sort(compareStrings);
   for (const name of names) {
     const path = `${dir}/${name}`;
     const rel = prefix === "" ? name : `${prefix}/${name}`;
