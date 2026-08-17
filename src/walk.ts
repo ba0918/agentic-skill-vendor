@@ -69,22 +69,34 @@ export async function readEntries(
   } catch (cause) {
     throw new ConfigError(`cannot read ${site}: ${describeCause(cause)}`);
   }
+  // The stats are independent of one another, so they are resolved in
+  // parallel; the refusals are still reported in name order, whichever
+  // failure settled first, so the message a run produces stays deterministic.
+  const settled = await Promise.allSettled(
+    names.sort(compareStrings).map(async (name) => {
+      let info: Stats;
+      try {
+        info = await fs.lstat(`${dir}/${name}`);
+      } catch (cause) {
+        throw new ConfigError(
+          `cannot inspect ${site}/${name}: ${describeCause(cause)}`,
+        );
+      }
+      return {
+        name,
+        isSymlink: info.isSymbolicLink(),
+        isDirectory: info.isDirectory(),
+        isRegularFile: info.isFile(),
+      };
+    }),
+  );
   const entries: DirectoryEntry[] = [];
-  for (const name of names.sort(compareStrings)) {
-    let info: Stats;
-    try {
-      info = await fs.lstat(`${dir}/${name}`);
-    } catch (cause) {
-      throw new ConfigError(
-        `cannot inspect ${site}/${name}: ${describeCause(cause)}`,
-      );
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      entries.push(result.value);
+      continue;
     }
-    entries.push({
-      name,
-      isSymlink: info.isSymbolicLink(),
-      isDirectory: info.isDirectory(),
-      isRegularFile: info.isFile(),
-    });
+    throw result.reason;
   }
   return entries;
 }

@@ -30,15 +30,20 @@ const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
 const ABSOLUTE_PATH =
   /(?:^|(?<=[\s"'`=([,;]))(?:\/[^\s"'`)\]/]+\/[^\s"'`)\]]+|~\/[^\s"'`)\]]*|[A-Za-z]:[\\/][^\s"'`)\]]+)/g;
 
+// Reused rather than built per file: a decoder is stateless between decode
+// calls, and the scan reads a whole file in one call.
+const UTF8_DECODER = new TextDecoder("utf-8", { fatal: true });
+const WINDOWS_1252_DECODER = new TextDecoder("windows-1252");
+
 function decodeForScan(bytes: Uint8Array): string {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return UTF8_DECODER.decode(bytes);
   } catch {
     // Every one of the 256 bytes maps to a character here, so a file that is
     // not UTF-8 is still scanned to its last line instead of being skipped.
     // Which single-byte encoding it is does not matter: the patterns above are
     // pure ASCII, and every one of them agrees throughout the ASCII range.
-    return new TextDecoder("windows-1252").decode(bytes);
+    return WINDOWS_1252_DECODER.decode(bytes);
   }
 }
 

@@ -75,7 +75,9 @@ async function copyViolations(
         );
         continue;
       }
-      const body = await digestOfBytes(bytes.slice(header.length));
+      // A view rather than a copy: the bytes up to the header are not needed
+      // again, and the Web Crypto input is copied inside the digest anyway.
+      const body = await digestOfBytes(bytes.subarray(header.length));
       if (body !== resolution.digest) {
         violations.push(
           `drift: ${site} holds text digesting to ${body}, the lock pins ${resolution.digest}`,
@@ -160,12 +162,24 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   const skills = await readSkills(root, recordedSkills);
   const contracts = await readContracts(root, declaredIds(skills));
 
-  const violations = [
-    ...acceptanceViolations(skills, contracts, resolutions),
-    ...(await copyViolations(root, skills, resolutions)),
-    ...(await manifestViolations(root, skills, resolutions)),
-    ...(await conformanceViolations(root, resolutions)),
-  ];
+  // The three file-system checks are independent of one another and of the
+  // acceptance check, so they overlap; their findings are reported in the
+  // same order a serial run would have produced them in, and a refusal names
+  // the first failing check in that fixed order rather than whichever
+  // settled first.
+  const settled = await Promise.allSettled([
+    copyViolations(root, skills, resolutions),
+    manifestViolations(root, skills, resolutions),
+    conformanceViolations(root, resolutions),
+  ]);
+  const violations = [...acceptanceViolations(skills, contracts, resolutions)];
+  for (const result of settled) {
+    if (result.status === "fulfilled") {
+      violations.push(...result.value);
+      continue;
+    }
+    throw result.reason;
+  }
   for (const violation of violations) out(violation);
   return violations.length > 0 ? 1 : 0;
 }
