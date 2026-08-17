@@ -2,10 +2,12 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
   escapeThrough,
+  PERMISSIONS_APPLY,
   replaceWithSymlink,
   runCli,
   snapshotTree,
   withGoodTree,
+  withUnreadable,
   writeFile,
 } from "./testing.ts";
 
@@ -562,3 +564,34 @@ test("gen refuses a skill reaching its opening delimiter only after a blank line
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
+
+const describeRemoval = PERMISSIONS_APPLY ? test : test.skip;
+
+describeRemoval(
+  "gen refuses a stale vendored copy it could not remove, having written everything else",
+  async () => {
+    await withGoodTree(async (root) => {
+      // The removals run last, so a failure here finds every copy and the lock
+      // already in place: what is left over is the one thing the run could not
+      // clear. Passed over in silence, gen answered 0 while verify reported the
+      // leftover as an extra — and running gen again changed neither answer, so
+      // the two commands disagreed for as long as the tree stayed that way.
+      const orphan = "skills/release-notes/references/vendor/orphan.md";
+      await writeFile(`${root}/${orphan}/inside.md`, "blocks the removal\n");
+      await fs.rm(`${root}/${COPY}`);
+
+      await withUnreadable(`${root}/${orphan}`, async () => {
+        const result = await runCli(["gen", "--root", root]);
+        expect(result.code).toStrictEqual(2);
+        expect(result.stdout).toStrictEqual([]);
+        expect(result.stderr.join("\n")).toContain(orphan);
+      });
+
+      // What the run did finish is still there: the copy deleted above was
+      // written back before the removals were attempted.
+      expect(await fs.readFile(`${root}/${COPY}`, "utf8")).toContain(
+        "# Verdict Format",
+      );
+    });
+  },
+);

@@ -11,7 +11,7 @@
 // this tree be expanded at all" instead of restating it.
 
 import * as fs from "node:fs/promises";
-import { ConfigError, type Sink } from "./errors.ts";
+import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
   canonicalBody,
   contractPath,
@@ -248,6 +248,13 @@ export async function planExpansion(
  * A run stopped part way therefore never loses a file it had not yet replaced,
  * and the state it leaves is one verify reports as a violation rather than one
  * that looks finished.
+ *
+ * A removal that fails is reported rather than passed over. Because removals
+ * run last, stopping here abandons nothing: every copy and the lock are already
+ * written, and what the refusal names is the one file the run could not clear.
+ * Silence cost more than it saved — gen answered 0 while verify reported the
+ * leftover as an extra, and running gen again answered 0 again, so the tree
+ * stayed in a state one command called clean and the other called a violation.
  */
 export async function executePlan(
   root: string,
@@ -258,12 +265,24 @@ export async function executePlan(
     await atomicWriteFile(root, file.site, file.content);
   }
   await atomicWriteFile(root, plan.manifest.site, plan.manifest.content);
+  const failures: { site: string; cause: unknown }[] = [];
   for (const site of plan.removals) {
-    // A removal that fails leaves a file no declaration accounts for, which
-    // verify reports as an extra. Stopping here instead would abandon the run
-    // after the copies and the manifest are already written, turning a
-    // reportable leftover into a half-finished tree.
-    await fs.rm(`${root}/${site}`, { recursive: true }).catch(() => {});
+    try {
+      // A path already gone is the state this asks for, not a failure: `force`
+      // is what separates "there is nothing to remove" from "this could not be
+      // removed", and only the second is worth stopping over.
+      await fs.rm(`${root}/${site}`, { recursive: true, force: true });
+    } catch (cause) {
+      // Every removal is attempted before any of them is reported, so one file
+      // that cannot be cleared does not leave the rest standing behind it.
+      failures.push({ site, cause });
+    }
+  }
+  if (failures.length > 0) {
+    const [first] = failures;
+    throw new ConfigError(
+      `cannot remove ${first.site}: ${describeCause(first.cause)}`,
+    );
   }
 }
 
