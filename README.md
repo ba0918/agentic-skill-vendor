@@ -66,6 +66,22 @@ no subprocess. Run under Deno, that can be held to further: `verify`, `lint-self
 need `--allow-write`. That is an additional restriction Deno makes available, not a
 guarantee this tool provides — Node and Bun have no permission sandbox to enforce it.
 
+### Where to run `verify`
+
+`accept` is the only way a change of contract text becomes adopted, but where that boundary
+is checked is wiring the consuming repository owns. The recommended shape:
+
+- **CI runs `verify` and fails the build on a non-zero exit.** This is the enforcement
+  point: an edit made to a vendored copy, a contract changed without `accept`, and a
+  half-written tree all surface here as violations. CI never runs `accept` — its job is
+  detecting unapproved drift, not approving it.
+- **A pre-commit hook running `verify` is an optional tightening.** It moves the same
+  report from the CI round-trip to the moment of committing. `verify` reads the tree and
+  digests the copies, nothing more, so it is cheap enough to run on every commit.
+
+Neither replaces the header a vendored copy carries: the header informs an editor before an
+edit lands in the wrong file, and `verify` catches whatever lands anyway.
+
 ### The tree it works on
 
 ```
