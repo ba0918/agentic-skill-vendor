@@ -72,6 +72,22 @@ function parseArguments(argv: string[]): Invocation | "help" {
 }
 
 /**
+ * Refuses an argument the named command has no use for.
+ *
+ * Asked by each command that takes none, rather than once before the routing.
+ * Answered ahead of it, `frobnicate stray` would be refused for the stray word
+ * while the reason nothing can run is the command itself.
+ *
+ * Ignoring the word is what a wrong answer given confidently looks like:
+ * `verify tree` — a forgotten `--root` — read as a plain `verify` of the
+ * current directory and reported on a tree nobody asked about.
+ */
+function refuseOperands(operands: string[]): void {
+  if (operands.length === 0) return;
+  throw new ConfigError(`unexpected argument: ${operands[0]}\n${USAGE}`);
+}
+
+/**
  * Runs one invocation and answers with its exit code: 0 clean, 1 violations
  * reported on `out`, 2 a configuration or usage error reported on `err`.
  *
@@ -91,14 +107,18 @@ export async function run(
     }
     switch (invocation.command) {
       case "gen":
+        refuseOperands(invocation.operands);
         return await commandGen(invocation.root, out);
       case "verify":
+        refuseOperands(invocation.operands);
         return await commandVerify(invocation.root, out);
       case "accept":
         return await commandAccept(invocation.root, invocation.operands, out);
       case "lint-selfcontain":
+        refuseOperands(invocation.operands);
         return await commandLint(invocation.root, out);
       case "self-test":
+        refuseOperands(invocation.operands);
         return await commandSelfTest(out);
       default:
         throw new ConfigError(
