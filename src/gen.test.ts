@@ -690,3 +690,56 @@ test("a contract named for an inherited property is reported as unresolved, not 
     }
   });
 });
+
+// The same inherited-property read, on the two paths that answer "nothing is
+// resolved yet" rather than reading recorded resolutions: a tree with no
+// manifest at all, and a lock that records dependencies but no resolutions.
+// Both are what a repository adopting this tool starts from.
+
+const EMPTY_LOCK_SHAPES: {
+  what: string;
+  write: (root: string) => Promise<void>;
+}[] = [
+  {
+    what: "no manifest at all",
+    write: async (root) => await fs.rm(`${root}/${MANIFEST}`),
+  },
+  {
+    what: "a lock recording no resolutions",
+    write: async (root) =>
+      await fs.writeFile(
+        `${root}/${MANIFEST}`,
+        '{"lock":{"dependencies":{"release-notes":["changelog-entry","constructor"]}}}\n',
+      ),
+  },
+];
+
+test("a contract named for an inherited property is unresolved on a tree that has resolved nothing", async () => {
+  for (const { what, write } of EMPTY_LOCK_SHAPES) {
+    await withGoodTree(async (root) => {
+      await fs.copyFile(
+        `${root}/contracts/verdict-format.md`,
+        `${root}/contracts/constructor.md`,
+      );
+      const skill = `${root}/skills/release-notes/SKILL.md`;
+      await fs.writeFile(
+        skill,
+        (await fs.readFile(skill, "utf8")).replace(
+          "    - changelog-entry\n",
+          "    - changelog-entry\n    - constructor\n",
+        ),
+      );
+      await write(root);
+
+      for (const command of ["gen", "verify"]) {
+        const where = `${what} / ${command}`;
+        const result = await runCli([command, "--root", root]);
+        const line = result.stdout.find((entry) =>
+          entry.includes("constructor"),
+        );
+        expect(line, where).toBeDefined();
+        expect(line?.startsWith("unresolved:"), `${where}: ${line}`).toBe(true);
+      }
+    });
+  }
+});

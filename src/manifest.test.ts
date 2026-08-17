@@ -313,3 +313,13 @@ test("a lock whose dependencies are not an object is refused", async () => {
     ConfigError,
   );
 });
+
+test("every empty resolutions map is made without a prototype", async () => {
+  // Stated directly because the two paths that produce one are reached before
+  // anything has been recorded, which is exactly when a tree is being adopted.
+  const absent = await withEmptyDir(async (root) => await readLock(root));
+  expect(Object.getPrototypeOf(absent.resolutions)).toBeNull();
+
+  const withoutKey = await readWritten('{"lock":{"dependencies":{}}}');
+  expect(Object.getPrototypeOf(withoutKey)).toBeNull();
+});

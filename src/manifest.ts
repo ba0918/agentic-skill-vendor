@@ -156,6 +156,23 @@ export interface Lock {
   resolutions: Resolutions;
 }
 
+/**
+ * An empty map of resolutions, and the only place one is made.
+ *
+ * Without a prototype, because a contract id may name an inherited property —
+ * `constructor` is a usable id — and looking one up in an ordinary object finds
+ * Object's own constructor rather than nothing. The run then reads a resolution
+ * nobody recorded and reports text drifting from a digest of `undefined`
+ * instead of a contract that was never accepted.
+ *
+ * Every path that answers "nothing is resolved" comes through here: a tree with
+ * no manifest, a lock recording no resolutions, and the map the recorded ones
+ * are read into. Kept as one place so a fourth path cannot answer differently.
+ */
+function emptyResolutions(): Resolutions {
+  return Object.create(null);
+}
+
 /** The lock currently recorded, or an empty one when there is no manifest yet. */
 export async function readLock(root: string): Promise<Lock> {
   await assertPlainChain(root, MANIFEST_FILE);
@@ -164,7 +181,7 @@ export async function readLock(root: string): Promise<Lock> {
   // standing here blocked all of them where nothing else in the run had yet
   // looked at the path. A tree with no manifest still has no resolutions.
   if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) {
-    return { recordedSkills: new Set(), resolutions: {} };
+    return { recordedSkills: new Set(), resolutions: emptyResolutions() };
   }
   let bytes: Uint8Array;
   try {
@@ -194,9 +211,9 @@ export async function readLock(root: string): Promise<Lock> {
 
 function validateResolutions(lock: Record<string, unknown>): Resolutions {
   const raw = lock["resolutions"];
-  if (raw === undefined) return {};
+  if (raw === undefined) return emptyResolutions();
   const entries = pickObject(raw, "lock.resolutions");
-  const resolutions: Resolutions = Object.create(null);
+  const resolutions: Resolutions = emptyResolutions();
   for (const id of Object.keys(entries)) {
     assertValidContractId(id, `${MANIFEST_FILE}: lock.resolutions`);
     const entry = pickObject(entries[id], `lock.resolutions.${id}`);
