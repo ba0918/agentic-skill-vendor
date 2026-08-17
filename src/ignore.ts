@@ -6,7 +6,7 @@
 
 import ignore, { type Ignore } from "ignore";
 import { compareStrings } from "./digest.ts";
-import { isRegularFile, readTextFile } from "./walk.ts";
+import { isRegularFileOrAbsent, readTextFile } from "./walk.ts";
 
 /** The file git reads its rules from, in every directory that has one. */
 export const IGNORE_FILE = ".gitignore";
@@ -64,7 +64,7 @@ export async function readIgnoreRules(
     (a, b) => depthOf(a) - depthOf(b) || compareStrings(a, b),
   )) {
     const site = joinRelative(directory, IGNORE_FILE);
-    if (!(await isRegularFile(root, site))) continue;
+    if (!(await isRegularFileOrAbsent(root, site))) continue;
     levels.push({
       directory,
       matcher: ignore().add(await readTextFile(`${root}/${site}`, site)),

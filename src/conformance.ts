@@ -13,7 +13,12 @@ import {
   CONTRACTS_DIR,
   digestOfBytes,
 } from "./digest.ts";
-import { assertPlainChain, isDirectory, readBytes, walkFiles } from "./walk.ts";
+import {
+  assertPlainChain,
+  isDirectoryOrAbsent,
+  readBytes,
+  walkFiles,
+} from "./walk.ts";
 import {
   ancestorDirectories,
   IGNORE_FILE,
@@ -53,6 +58,11 @@ export async function assertPlainContractPaths(
 ): Promise<void> {
   await assertPlainChain(root, contractPath(id));
   await assertPlainChain(root, conformanceDirectory(id));
+  // Asked for its refusal rather than its answer. Whether the tests are there
+  // is the business of the commands that digest them; whether something else
+  // entirely stands where that directory belongs is the business of every
+  // command, including the ones that never read below it.
+  await isDirectoryOrAbsent(root, conformanceDirectory(id));
 }
 
 /**
@@ -105,7 +115,7 @@ export async function collectConformanceEntries(
 ): Promise<ConformanceEntry[]> {
   await assertPlainChain(root, relative);
   const dir = `${root}/${relative}`;
-  if (!(await isDirectory(root, relative))) return [];
+  if (!(await isDirectoryOrAbsent(root, relative))) return [];
   const found = await walkFiles(dir, relative);
   const rules = await readIgnoreRules(root, [
     ...ancestorDirectories(relative),

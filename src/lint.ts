@@ -10,7 +10,7 @@ import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
   assertTreeRoot,
   dirNameOf,
-  isDirectory,
+  isDirectoryOrAbsent,
   readBytes,
   readEntries,
 } from "./walk.ts";
@@ -165,7 +165,7 @@ async function lintInto(
 export async function commandLint(root: string, out: Sink): Promise<number> {
   await assertTreeRoot(root);
   const skillsDir = `${root}/${SKILLS_DIR}`;
-  if (!(await isDirectory(root, SKILLS_DIR))) {
+  if (!(await isDirectoryOrAbsent(root, SKILLS_DIR))) {
     throw new ConfigError(`${SKILLS_DIR}/ does not exist under ${root}`);
   }
   const violations: string[] = [];

@@ -20,13 +20,12 @@ import {
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
-  assertAbsent,
   assertPlainChain,
   assertTreeRoot,
   atomicWriteFile,
   ensureParentDirectory,
-  isDirectory,
-  isRegularFile,
+  isDirectoryOrAbsent,
+  isRegularFileOrAbsent,
   readEntries,
   readTextFile,
 } from "./walk.ts";
@@ -120,8 +119,7 @@ export async function readContracts(
   for (const id of ids) {
     const site = contractPath(id);
     await assertPlainContractPaths(root, id);
-    if (!(await isRegularFile(root, site))) {
-      await assertAbsent(root, site);
+    if (!(await isRegularFileOrAbsent(root, site))) {
       contracts.set(id, null);
       continue;
     }
@@ -175,7 +173,7 @@ export async function listVendorEntries(
 ): Promise<string[]> {
   const relative = vendorDirOf(skill);
   await assertPlainChain(root, relative);
-  if (!(await isDirectory(root, relative))) return [];
+  if (!(await isDirectoryOrAbsent(root, relative))) return [];
   const dir = `${root}/${relative}`;
   const names: string[] = [];
   for (const entry of await readEntries(dir, relative)) {

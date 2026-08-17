@@ -87,24 +87,56 @@ export async function readEntries(
   return entries;
 }
 
-/** True for a real directory; a symlink in its place is refused outright. */
-export async function isDirectory(
-  root: string,
-  relative: string,
-): Promise<boolean> {
+/**
+ * What the tree holds at `relative`, or null where it holds nothing.
+ *
+ * A link is refused here rather than described, so no caller has to remember
+ * to ask: every question below is about what the tree holds at a path, and a
+ * link is not an answer to it — it is a path leading out of the tree.
+ */
+async function kindAt(root: string, relative: string): Promise<Stats | null> {
   let info: Stats;
   try {
     info = await fs.lstat(`${root}/${relative}`);
   } catch (cause) {
-    if (isNotFound(cause)) return false;
-    throw new ConfigError(`cannot read ${relative}: ${describeCause(cause)}`);
+    if (isNotFound(cause)) return null;
+    throw new ConfigError(
+      `cannot inspect ${relative}: ${describeCause(cause)}`,
+    );
   }
   if (info.isSymbolicLink()) {
     throw new ConfigError(
       `symlink is not allowed inside the tree: ${relative}`,
     );
   }
-  return info.isDirectory();
+  return info;
+}
+
+/**
+ * True for a directory, false where the tree holds nothing at the path, and a
+ * refusal for anything else standing there.
+ *
+ * The two outcomes are in the name because collapsing them is a whole class of
+ * bug. Asked as "is this a directory", a regular file, a named pipe or a socket
+ * standing at the path answers no — the same answer an empty tree gives — and
+ * every caller then takes the branch written for "nothing is there yet". A
+ * regular file at `skills/` made every skill in the tree vanish that way: gen
+ * rewrote the lock with no dependencies at all and finished at 0, and verify
+ * called the result clean.
+ *
+ * Nothing here opens the path. A named pipe would block the run until something
+ * on the other side wrote, so the kind is read from the entry itself.
+ */
+export async function isDirectoryOrAbsent(
+  root: string,
+  relative: string,
+): Promise<boolean> {
+  const info = await kindAt(root, relative);
+  if (info === null) return false;
+  if (!info.isDirectory()) {
+    throw new ConfigError(`${relative}: not a directory`);
+  }
+  return true;
 }
 
 /**
@@ -255,54 +287,28 @@ export async function assertPlainChain(
   }
 }
 
-export async function isRegularFile(
+/**
+ * True for a regular file, false where the tree holds nothing at the path, and
+ * a refusal for anything else standing there.
+ *
+ * The counterpart of `isDirectoryOrAbsent`, and it exists for the same reason.
+ * Nothing being there is a fact a caller can act on: a skill directory with no
+ * SKILL.md declares nothing, a contract with no canonical text is a closure
+ * gap, a tree with no manifest has adopted nothing yet. Something standing
+ * there that the run cannot read as a file is not that fact — it is the run
+ * being unable to find out — and answering the two alike is what let a
+ * directory named SKILL.md retire every contract a skill declared.
+ */
+export async function isRegularFileOrAbsent(
   root: string,
   relative: string,
 ): Promise<boolean> {
-  let info: Stats;
-  try {
-    info = await fs.lstat(`${root}/${relative}`);
-  } catch (cause) {
-    if (isNotFound(cause)) return false;
-    throw new ConfigError(
-      `cannot inspect ${relative}: ${describeCause(cause)}`,
-    );
+  const info = await kindAt(root, relative);
+  if (info === null) return false;
+  if (!info.isFile()) {
+    throw new ConfigError(`${relative}: not a regular file`);
   }
-  if (info.isSymbolicLink()) {
-    throw new ConfigError(
-      `symlink is not allowed inside the tree: ${relative}`,
-    );
-  }
-  return info.isFile();
-}
-
-/**
- * Refuses a path that has something standing at it.
- *
- * Asked where a regular file was expected and not found, because the two ways
- * `isRegularFile` answers false say entirely different things and only one of
- * them is an answer about the tree. Nothing being there is a fact a caller can
- * act on: a skill directory holding no SKILL.md declares nothing. Something
- * being there that the run cannot read as a file — a directory, a named pipe, a
- * socket, a device — is not that fact at all, and taken for it, a skill that
- * declares contracts silently becomes one that declares nothing.
- *
- * Nothing here opens the path. A named pipe would block the run until something
- * on the other side wrote, so the kind is read from the entry itself.
- */
-export async function assertAbsent(
-  root: string,
-  relative: string,
-): Promise<void> {
-  try {
-    await fs.lstat(`${root}/${relative}`);
-  } catch (cause) {
-    if (isNotFound(cause)) return;
-    throw new ConfigError(
-      `cannot inspect ${relative}: ${describeCause(cause)}`,
-    );
-  }
-  throw new ConfigError(`${relative}: not a regular file`);
+  return true;
 }
 
 /** The directory the path sits in; the current directory when it names none. */

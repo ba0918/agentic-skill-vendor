@@ -8,7 +8,7 @@ import { compareStrings, digestOfBytes } from "./digest.ts";
 import {
   assertTreeRoot,
   decodeUtf8,
-  isRegularFile,
+  isRegularFileOrAbsent,
   readBytes,
 } from "./walk.ts";
 import { conformanceDigest } from "./conformance.ts";
@@ -52,11 +52,16 @@ async function copyViolations(
   for (const skill of skills) {
     const dir = vendorDirOf(skill.name);
     const accountedFor = new Set(skill.contracts.map((id) => `${id}.md`));
+    // What the vendor directory holds is read before any copy inside it is
+    // asked about. Asked the other way round, a tree where that path is not a
+    // directory at all is refused for whichever copy happened to be looked up
+    // first, naming a file below a directory that is not one.
+    const present = await listVendorEntries(root, skill.name);
     for (const id of [...skill.contracts].sort(compareStrings)) {
       const resolution = resolutions[id];
       if (resolution === undefined) continue;
       const site = `${dir}/${id}.md`;
-      if (!(await isRegularFile(root, site))) {
+      if (!(await isRegularFileOrAbsent(root, site))) {
         violations.push(`drift: ${site} is missing`);
         continue;
       }
@@ -77,7 +82,7 @@ async function copyViolations(
         );
       }
     }
-    for (const name of await listVendorEntries(root, skill.name)) {
+    for (const name of present) {
       if (!accountedFor.has(name)) {
         violations.push(`extra: ${dir}/${name} answers to no declaration`);
       }
@@ -99,7 +104,7 @@ async function manifestViolations(
   skills: SkillDeclaration[],
   resolutions: Resolutions,
 ): Promise<string[]> {
-  if (!(await isRegularFile(root, MANIFEST_FILE))) {
+  if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) {
     return [`manifest: ${MANIFEST_FILE} is missing`];
   }
   const expected = canonicalJson(

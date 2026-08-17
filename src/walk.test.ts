@@ -1,12 +1,14 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import {
   atomicWriteFile,
   decodeUtf8,
   ensureParentDirectory,
-  isDirectory,
-  isRegularFile,
+  isDirectoryOrAbsent,
+  isRegularFileOrAbsent,
   readEntries,
   walkFiles,
 } from "./walk.ts";
@@ -262,7 +264,7 @@ describeRead(
       const vendor = "skills/review-writer/references/vendor";
       await withUnreadable(`${root}/${vendor}`, async () => {
         const error = await rejectedBy(
-          () => isRegularFile(root, site),
+          () => isRegularFileOrAbsent(root, site),
           ConfigError,
         );
         expect(error.message).toContain(`cannot inspect ${site}`);
@@ -280,10 +282,10 @@ describeRead(
         `${root}/skills/review-writer/references`,
         async () => {
           const error = await rejectedBy(
-            () => isDirectory(root, site),
+            () => isDirectoryOrAbsent(root, site),
             ConfigError,
           );
-          expect(error.message).toContain(`cannot read ${site}`);
+          expect(error.message).toContain(`cannot inspect ${site}`);
         },
       );
     });
@@ -364,4 +366,105 @@ test("content that is not valid UTF-8 is a configuration error naming the file",
     ConfigError,
   );
   expect(error.message).toContain("contracts/broken.md");
+});
+
+// The kinds a tree is expected to hold, and what happens when it holds
+// something else. Asked as a plain "is it a directory" or "is it a file", every
+// one of these paths answered no exactly as an absent path does, and the branch
+// written for "nothing there yet" ran on a tree that held something: a regular
+// file at skills/ emptied the lock of every dependency while gen reported 0.
+//
+// `refusal` is the message where the kind is what stops all three commands.
+// Where a command reaches the path by writing to it instead, it stops on that
+// write, so only the exit code is shared.
+
+const WRONG_KIND_SITES: {
+  site: string;
+  expected: "directory" | "file";
+  refusal: string | null;
+}[] = [
+  { site: "skills", expected: "directory", refusal: "skills: not a directory" },
+  {
+    site: "skills/release-notes/references/vendor",
+    expected: "directory",
+    refusal: "vendor: not a directory",
+  },
+  {
+    site: "contracts/changelog-entry/conformance",
+    expected: "directory",
+    refusal: "conformance: not a directory",
+  },
+  {
+    site: "skills/review-writer/SKILL.md",
+    expected: "file",
+    refusal: "SKILL.md: not a regular file",
+  },
+  {
+    site: "contracts/verdict-format.md",
+    expected: "file",
+    refusal: "contracts/verdict-format.md: not a regular file",
+  },
+  { site: "vendor-manifest.json", expected: "file", refusal: null },
+  {
+    site: "skills/review-writer/references/vendor/verdict-format.md",
+    expected: "file",
+    refusal: null,
+  },
+];
+
+const READING_COMMANDS = [["gen"], ["verify"], ["accept", "changelog-entry"]];
+
+test("a path holding the wrong kind of thing is refused by every command", async () => {
+  for (const { site, expected, refusal } of WRONG_KIND_SITES) {
+    await withGoodTree(async (root) => {
+      await fs.rm(`${root}/${site}`, { recursive: true });
+      if (expected === "directory") {
+        await fs.writeFile(`${root}/${site}`, "not a directory\n");
+      } else {
+        await fs.mkdir(`${root}/${site}`);
+      }
+      const before = await snapshotTree(root);
+
+      for (const command of READING_COMMANDS) {
+        const where = `${site} / ${command[0]}`;
+        const result = await runCli([...command, "--root", root]);
+        expect(result.code, where).toStrictEqual(2);
+        expect(result.stdout, where).toStrictEqual([]);
+        if (refusal !== null) {
+          expect(result.stderr.join("\n"), where).toContain(refusal);
+        }
+      }
+      expect(await snapshotTree(root), site).toStrictEqual(before);
+    });
+  }
+});
+
+test("a named pipe standing where a directory belongs is refused as a kind", async () => {
+  await withGoodTree(async (root) => {
+    // The kind is read from the entry, never by opening it: a pipe opened for
+    // reading blocks until something on the other side writes.
+    await fs.rm(`${root}/skills`, { recursive: true });
+    await promisify(execFile)("mkfifo", [`${root}/skills`]);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain("skills: not a directory");
+  });
+});
+
+test("a tree holding none of the optional paths is a tree, not a refusal", async () => {
+  await withEmptyDir(async (root) => {
+    // What every one of these refusals must not touch. A tree with no skills/
+    // at all is where a repository starts, and the answers below are what let
+    // it be adopted: nothing is declared, so nothing is vendored, and the
+    // manifest that gets written says exactly that.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const verified = await runCli(["verify", "--root", root]);
+    expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);
+    expect(
+      JSON.parse(await fs.readFile(`${root}/vendor-manifest.json`, "utf8"))
+        .lock,
+    ).toStrictEqual({ dependencies: {}, resolutions: {} });
+  });
 });

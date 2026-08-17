@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
+  PERMISSIONS_APPLY,
   replaceWithSymlink,
   runCli,
   withGoodTree,
@@ -241,19 +242,33 @@ test("a conformance directory holding only ignored files still counts as absent"
   });
 });
 
-test("verify reports the state a run interrupted part way through leaves", async () => {
-  await withGoodTree(async (root) => {
-    // A directory where a copy belongs stops the run once it has already
-    // replaced the copies ordered before it.
-    const blocked = "skills/review-writer/references/vendor/changelog-entry.md";
-    await fs.rm(`${root}/${COPY}`);
-    await fs.rm(`${root}/${blocked}`);
-    await fs.mkdir(`${root}/${blocked}`);
+const describeWrite = PERMISSIONS_APPLY ? test : test.skip;
 
-    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(2);
-    expect((await verify(root)).code).toStrictEqual(1);
-  });
-});
+describeWrite(
+  "verify reports the state a run interrupted part way through leaves",
+  async () => {
+    await withGoodTree(async (root) => {
+      // The interruption has to be one that leaves a tree verify can still
+      // read, which is what a vendor directory nothing may write into gives:
+      // gen stops where it stands, every file already in the tree stays
+      // readable, and the copy deleted beforehand is still missing. A file of
+      // the wrong kind would do the stopping too, but verify refuses that tree
+      // rather than reporting it — the same answer gen gives, by design.
+      const blocked = `${root}/skills/release-notes/references/vendor`;
+      await fs.rm(`${root}/${COPY}`);
+      const { mode } = await fs.stat(blocked);
+      await fs.chmod(blocked, 0o555);
+      try {
+        expect((await runCli(["gen", "--root", root])).code).toStrictEqual(2);
+        const result = await verify(root);
+        expect(result.code).toStrictEqual(1);
+        expect(result.stdout.join("\n")).toContain(`drift: ${COPY} is missing`);
+      } finally {
+        await fs.chmod(blocked, mode);
+      }
+    });
+  },
+);
 
 test("verify refuses a vendor directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {

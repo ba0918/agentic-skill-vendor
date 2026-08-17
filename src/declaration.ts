@@ -13,9 +13,8 @@ import {
   splitDocument,
 } from "./digest.ts";
 import {
-  assertAbsent,
-  isDirectory,
-  isRegularFile,
+  isDirectoryOrAbsent,
+  isRegularFileOrAbsent,
   readEntries,
   readTextFile,
 } from "./walk.ts";
@@ -197,7 +196,7 @@ export interface SkillDeclaration {
 
 /** Every skill directly under skills/, with the contracts it declares. */
 export async function readSkills(root: string): Promise<SkillDeclaration[]> {
-  if (!(await isDirectory(root, SKILLS_DIR))) return [];
+  if (!(await isDirectoryOrAbsent(root, SKILLS_DIR))) return [];
   const skillsDir = `${root}/${SKILLS_DIR}`;
   const names: string[] = [];
   for (const entry of await readEntries(skillsDir, SKILLS_DIR)) {
@@ -235,13 +234,12 @@ async function declaredContracts(
   name: string,
 ): Promise<string[]> {
   const site = skillFileOf(name);
-  if (await isRegularFile(root, site)) {
+  if (await isRegularFileOrAbsent(root, site)) {
     return parseContractDeclarations(
       await readTextFile(`${root}/${site}`, site),
       site,
     );
   }
-  await assertAbsent(root, site);
   return [];
 }
 
