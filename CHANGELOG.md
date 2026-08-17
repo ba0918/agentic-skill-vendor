@@ -119,3 +119,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   outside the directory it was judged against. The same mistake in the creation of a parent
   directory is fixed with it: a name holding no separator had its last character cut off,
   and the directory made was a sibling of the file rather than the one holding it.
+- A `SKILL.md` that is there but is not a regular file — a directory, a named pipe, a socket
+  — stops the run with exit `2` naming it. It answered exactly as no `SKILL.md` at all does,
+  so the skill read as declaring nothing: `gen` deleted the vendored copies its declarations
+  accounted for and finished at `0`, and `verify` then called the result clean. Nothing about
+  the document's content was wrong, which is what every earlier guard of this family looked
+  at. A skill directory genuinely holding no `SKILL.md` still declares nothing, and is still
+  scanned for copies no declaration accounts for.
+- An argument a command has no use for is a usage error naming it, rather than a word quietly
+  dropped. `verify some-tree` — a `--root` forgotten — ran against the current directory and
+  reported `0` for a tree nobody asked about. The contract ids `accept` is given are what it
+  is given; nothing there changes.
+- A stale vendored copy that cannot be removed stops the run with exit `2` naming it. The
+  failure was passed over, so `gen` finished at `0` while `verify` reported the leftover as an
+  extra, and running `gen` again changed neither answer. Removals still run last, so nothing
+  is abandoned: every copy and the lock are already written, and every removal is attempted
+  before the run stops. A path already gone is the state the removal asked for, not a failure.
