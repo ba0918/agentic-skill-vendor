@@ -13,6 +13,7 @@ import {
   contractPath,
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
+import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import type { Dependencies } from "./declaration.ts";
 
@@ -69,10 +70,7 @@ function withSortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withSortedKeys);
   if (value === null || typeof value !== "object") return value;
   const source = value as Record<string, unknown>;
-  // Keyed by names the tree supplies, so the map is made without a prototype:
-  // assigned into an ordinary object, the name `__proto__` writes the object's
-  // prototype instead of a key and the entry is gone from every later reading.
-  const sorted: Record<string, unknown> = Object.create(null);
+  const sorted: Record<string, unknown> = emptyRecord();
   for (const key of Object.keys(source).sort(compareStrings)) {
     sorted[key] = withSortedKeys(source[key]);
   }
@@ -93,7 +91,7 @@ export function buildManifest(
   resolutions: Resolutions,
   present: string[],
 ): unknown {
-  const contracts: Record<string, { source: string }> = Object.create(null);
+  const contracts: Record<string, { source: string }> = emptyRecord();
   for (const id of [...present].sort(compareStrings)) {
     contracts[id] = { source: contractPath(id) };
   }
@@ -159,18 +157,13 @@ export interface Lock {
 /**
  * An empty map of resolutions, and the only place one is made.
  *
- * Without a prototype, because a contract id may name an inherited property —
- * `constructor` is a usable id — and looking one up in an ordinary object finds
- * Object's own constructor rather than nothing. The run then reads a resolution
- * nobody recorded and reports text drifting from a digest of `undefined`
- * instead of a contract that was never accepted.
- *
- * Every path that answers "nothing is resolved" comes through here: a tree with
- * no manifest, a lock recording no resolutions, and the map the recorded ones
- * are read into. Kept as one place so a fourth path cannot answer differently.
+ * Every path that answers "nothing is resolved" comes through here: a tree
+ * with no manifest, a lock recording no resolutions, and the map the recorded
+ * ones are read into. Kept as one place so a fourth path cannot answer
+ * differently.
  */
 function emptyResolutions(): Resolutions {
-  return Object.create(null);
+  return emptyRecord();
 }
 
 /** The lock currently recorded, or an empty one when there is no manifest yet. */

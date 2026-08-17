@@ -18,6 +18,7 @@ import {
   readEntries,
   readTextFile,
 } from "./walk.ts";
+import { emptyRecord } from "./records.ts";
 
 /** Where the skills live, and what names a skill's own document. */
 export const SKILLS_DIR = "skills";
@@ -293,10 +294,7 @@ export type Dependencies = Record<string, string[]>;
  * lock should record.
  */
 export function dependenciesOf(skills: SkillDeclaration[]): Dependencies {
-  // Keyed by names the tree supplies, so the map is made without a prototype:
-  // assigned into an ordinary object, the name `__proto__` writes the object's
-  // prototype instead of a key and the entry is gone from every later reading.
-  const dependencies: Dependencies = Object.create(null);
+  const dependencies: Dependencies = emptyRecord();
   for (const skill of skills) {
     if (skill.contracts.length === 0) continue;
     dependencies[skill.name] = [...skill.contracts].sort(compareStrings);

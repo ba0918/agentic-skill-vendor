@@ -14,6 +14,7 @@ import {
 import { conformanceDigest } from "./conformance.ts";
 import { assertTreeRoot } from "./walk.ts";
 import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
+import { emptyRecord } from "./records.ts";
 import { readLock, type Resolution, type Resolutions } from "./manifest.ts";
 import {
   acceptanceViolations,
@@ -63,10 +64,10 @@ export async function commandAccept(
   );
   const contracts = await readContracts(root, wanted);
 
-  // Keyed by names the tree supplies, so the map is made without a prototype:
-  // assigned into an ordinary object, the name `__proto__` writes the object's
-  // prototype instead of a key and the entry is gone from every later reading.
-  const resolutions: Resolutions = Object.assign(Object.create(null), previous);
+  const resolutions: Resolutions = Object.assign(
+    emptyRecord<Resolution>(),
+    previous,
+  );
   const records: AcceptanceRecord[] = [];
   for (const id of ids) {
     const contract = contracts.get(id) ?? null;
