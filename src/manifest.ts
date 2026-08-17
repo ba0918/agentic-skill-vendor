@@ -122,19 +122,15 @@ export async function renderExpectedManifest(
  * writes differ from the manifest verify expects, and the difference would be
  * reported as a stale manifest that regenerating never fixes.
  *
- * The ids come from the lock rather than from any declaration, so this is the
- * one route to contracts/ a tree whose skills declare nothing still takes. The
- * link check therefore belongs here too: without it such a tree would decide
- * what the lock records by looking at files sitting outside the boundary the
- * run was pointed at.
- *
- * The conformance tests beside the text are covered by the same check, on the
- * same grounds: whether a link is refused is a fact about the tree, not about
- * which command is looking. A contract only the lock still names is reached
- * through here and nowhere else, so left out here that shape stopped verify,
- * which digests those tests, while gen carried on.
+ * The ids come from the lock rather than from any declaration, so this reaches
+ * contracts/ for a contract nothing declares any more. The link check therefore
+ * belongs here too, and the conformance tests beside the text are covered by it
+ * on the same grounds: whether a link is refused is a fact about the tree, not
+ * about which command is looking, and left out here a link planted at such a
+ * contract stopped verify — which digests those tests — while the run that
+ * rendered the manifest carried on.
  */
-export async function presentContractIds(
+async function presentContractIds(
   root: string,
   resolutions: Resolutions,
 ): Promise<string[]> {

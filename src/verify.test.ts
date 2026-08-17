@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
+  append,
   kindsOf,
   PERMISSIONS_APPLY,
   replaceWithSymlink,
@@ -16,10 +17,6 @@ const CONFORMANCE = "contracts/changelog-entry/conformance/cases/minimal.md";
 
 async function verify(root: string) {
   return await runCli(["verify", "--root", root]);
-}
-
-async function append(path: string, text: string): Promise<void> {
-  await fs.writeFile(path, (await fs.readFile(path, "utf8")) + text);
 }
 
 test("a skill name with control bytes is quoted in the extra finding", async () => {
@@ -127,14 +124,15 @@ test("a declared contract with no canonical file is reported as a closure gap", 
   });
 });
 
-test("canonical text ahead of the pin is unaccepted drift, and the copies still verify", async () => {
+test("canonical text ahead of the lock is a stale lock, and the copies still verify", async () => {
   await withGoodTree(async (root) => {
     await append(`${root}/${CONTRACT}`, "\n- One further rule.\n");
     const result = await verify(root);
     expect(result.code).toStrictEqual(1);
-    // The copies still match what was accepted, so only the unapproved change
-    // of the canonical text is reported. This is the state CI has to detect.
-    expect(kindsOf(result.stdout)).toStrictEqual(["unaccepted-drift"]);
+    // The copies still match what the lock records, so the one finding is that
+    // the lock was never rewritten over the edit. This is the state CI exists
+    // to detect: the edit landed and gen was not run.
+    expect(kindsOf(result.stdout)).toStrictEqual(["stale-lock"]);
   });
 });
 
@@ -144,7 +142,7 @@ test("a copy edited while the canonical text also moved is reported on both coun
     await append(`${root}/${COPY}`, "\nAlso edited by hand.\n");
     expect(kindsOf((await verify(root)).stdout)).toStrictEqual([
       "drift",
-      "unaccepted-drift",
+      "stale-lock",
     ]);
   });
 });

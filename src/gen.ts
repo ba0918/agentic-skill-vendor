@@ -18,7 +18,7 @@ import {
   contractPath,
   digestOfText,
 } from "./digest.ts";
-import { assertPlainContractPaths } from "./conformance.ts";
+import { assertPlainContractPaths, conformanceDigest } from "./conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
@@ -36,11 +36,12 @@ import {
   type SkillDeclaration,
   SKILLS_DIR,
 } from "./declaration.ts";
+import { emptyRecord } from "./records.ts";
 import {
   MANIFEST_FILE,
-  presentContractIds,
   readLock,
   renderExpectedManifest,
+  type Resolution,
   type Resolutions,
 } from "./manifest.ts";
 
@@ -163,17 +164,6 @@ interface WritePlan {
   files: { site: string; content: Uint8Array }[];
   manifest: { site: string; content: Uint8Array };
   removals: string[];
-  /**
-   * The contract ids whose resolutions the rewritten manifest drops, because
-   * their canonical text is gone. Reported by the commands that execute the
-   * plan, so a retirement is never silent.
-   */
-  retired: string[];
-}
-
-/** The line reported for a resolution the rewritten manifest drops. */
-export function retiredReport(id: string): string {
-  return `retired: ${id} (no canonical text; resolution removed from the lock)`;
 }
 
 /**
@@ -222,13 +212,6 @@ export async function planExpansion(
       }
     }
   }
-  const present = await presentContractIds(root, resolutions);
-  // The resolutions the rewritten manifest drops: the lock's own memory of a
-  // contract that no longer has canonical text. The plan reports them so the
-  // run that performs the retirement names it instead of staying silent.
-  const retired = Object.keys(resolutions)
-    .filter((id) => !present.includes(id))
-    .sort(compareStrings);
   return {
     files,
     manifest: {
@@ -238,7 +221,6 @@ export async function planExpansion(
       ),
     },
     removals,
-    retired,
   };
 }
 
@@ -286,42 +268,68 @@ export async function executePlan(
 }
 
 /**
- * The half of verification that compares canonical text against what was
- * accepted. gen runs exactly these checks and refuses to expand while any of
- * them holds, so no vendored copy can carry text nobody approved.
+ * The declared contracts whose canonical text the tree does not hold.
+ *
+ * The one gate gen applies before it writes anything. The canonical text is the
+ * authority over what the lock records, so there is nothing else for gen to
+ * refuse: a contract the lock says nothing about, or says something else about,
+ * is a lock gen rewrites rather than a state it stops on. Text that is not
+ * there is different in kind — it cannot be rewritten from, and a run that
+ * carried on would drop the resolution of a contract a skill still declares.
  */
-export function acceptanceViolations(
+export function closureViolations(
+  skills: SkillDeclaration[],
+  contracts: Map<string, CanonicalContract | null>,
+): string[] {
+  const violations: string[] = [];
+  const dependentsOfId = dependentIndex(skills);
+  for (const id of declaredIds(skills)) {
+    if ((contracts.get(id) ?? null) !== null) continue;
+    const dependents = (dependentsOfId.get(id) ?? [])
+      .map(displayName)
+      .join(", ");
+    violations.push(
+      `closure: ${id} is declared by ${dependents} but ${contractPath(
+        id,
+      )} does not exist`,
+    );
+  }
+  return violations;
+}
+
+/**
+ * What the lock records, against what the canonical text says.
+ *
+ * verify's half alone: gen answers these by writing the lock the canonical text
+ * implies, so it can never report one. What this catches is the tree gen was
+ * never run over — the edit landed, the lock still records the text before it —
+ * which is the state continuous integration exists to fail on.
+ *
+ * A contract whose canonical text is absent is passed over rather than reported
+ * twice: it is already named as a closure gap, and the lock cannot be judged
+ * against text the tree does not hold.
+ */
+export function lockViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
 ): string[] {
   const violations: string[] = [];
-  const dependentsOfId = dependentIndex(skills);
   for (const id of declaredIds(skills)) {
-    const dependents = (dependentsOfId.get(id) ?? [])
-      .map(displayName)
-      .join(", ");
     const contract = contracts.get(id) ?? null;
-    if (contract === null) {
-      violations.push(
-        `closure: ${id} is declared by ${dependents} but ${contractPath(
-          id,
-        )} does not exist`,
-      );
-      continue;
-    }
+    if (contract === null) continue;
     const resolution = resolutions[id];
     if (resolution === undefined) {
       violations.push(
-        `unresolved: ${id} has no entry in ${MANIFEST_FILE}; accept ${id} to record one`,
+        `unresolved: ${id} has no entry in ${MANIFEST_FILE}; run gen to record one`,
       );
       continue;
     }
     if (resolution.digest !== contract.digest) {
       violations.push(
-        `unaccepted-drift: ${id} is resolved to ${resolution.digest} but ${contractPath(
+        `stale-lock: ${id} is recorded as ${resolution.digest} but ${contractPath(
           id,
-        )} is ${contract.digest}; accept ${id} to adopt the new text`,
+        )} is ${contract.digest}; run gen to record the current text`,
       );
     }
   }
@@ -349,42 +357,101 @@ export async function readTreeState(root: string): Promise<TreeState> {
 }
 
 /**
- * Applies the acceptance gate and, when it passes, writes the expanded tree,
- * answering with the exit code.
+ * Every contract this run has to read: the ones a skill declares, and the ones
+ * the lock already records.
  *
- * What the run has read, this turns into either a refusal that lists the
- * violations it found or the written tree its plan spelled out, naming the
- * retirements it performed.
+ * The lock is rewritten from the canonical text, so a contract the lock records
+ * has to be read even when nothing declares it any more. Left carried across
+ * untouched, a conformance tree edited beside such a contract failed
+ * verification with nothing able to record the new value — the one command that
+ * could was the approval command, and it is gone.
  */
-export async function expandTree(
-  root: string,
+function lockedOrDeclared(
   skills: SkillDeclaration[],
-  contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
-  out: Sink,
-): Promise<number> {
-  const violations = acceptanceViolations(skills, contracts, resolutions);
+): string[] {
+  return [
+    ...new Set([...declaredIds(skills), ...Object.keys(resolutions)]),
+  ].sort(compareStrings);
+}
+
+/**
+ * The lock the canonical text implies: one resolution per contract the tree
+ * holds text for, its digest recomputed and its conformance digest taken as the
+ * tree has it.
+ *
+ * Derived rather than carried across, because the canonical text is the
+ * authority and the lock is the snapshot of it (the relation package.json has
+ * to a lockfile). A contract whose text is gone is left out, which is what
+ * retires its resolution.
+ */
+async function deriveResolutions(
+  root: string,
+  contracts: Map<string, CanonicalContract | null>,
+): Promise<Resolutions> {
+  const resolutions = emptyRecord<Resolution>();
+  for (const id of [...contracts.keys()].sort(compareStrings)) {
+    const contract = contracts.get(id) ?? null;
+    if (contract === null) continue;
+    const resolution: Resolution = { digest: contract.digest };
+    const conformance = await conformanceDigest(root, id);
+    if (conformance !== null) resolution.conformance = conformance;
+    resolutions[id] = resolution;
+  }
+  return resolutions;
+}
+
+/**
+ * What the run changed about the lock, one line each.
+ *
+ * Not a gate — a change summary to paste into a pull request, and the join a
+ * consuming repository's regression machinery matches its evidence against. A
+ * recorded pass or fail alone cannot tell adopting this text from adopting some
+ * third version, so both digests are named. The same values appear in the
+ * lock's own diff; this states them where the run that made them is read.
+ */
+function rewriteReport(recorded: Resolutions, derived: Resolutions): string[] {
+  const lines: string[] = [];
+  for (const id of Object.keys(derived).sort(compareStrings)) {
+    const previous = recorded[id]?.digest;
+    if (previous === derived[id].digest) continue;
+    lines.push(
+      previous === undefined
+        ? `adopted: ${id} ${derived[id].digest} (initial adoption)`
+        : `adopted: ${id} ${previous} -> ${derived[id].digest}`,
+    );
+  }
+  for (const id of Object.keys(recorded).sort(compareStrings)) {
+    if (id in derived) continue;
+    lines.push(
+      `retired: ${id} (no canonical text; resolution removed from the lock)`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * Writes the lock the canonical text implies and the copies that go with it.
+ *
+ * The canonical text is the authority; there is no approval step between an
+ * edit and the lock recording it. What guards a change of contract text is the
+ * review of the pull request the rewritten lock appears in, and this run's job
+ * is to make that diff exist and to say in one line what it changed.
+ */
+export async function commandGen(root: string, out: Sink): Promise<number> {
+  const { resolutions: recorded, skills } = await readTreeState(root);
+  const contracts = await readContracts(
+    root,
+    lockedOrDeclared(skills, recorded),
+  );
+  const violations = closureViolations(skills, contracts);
   if (violations.length > 0) {
     for (const violation of violations) out(violation);
     return 1;
   }
-  const plan = await planExpansion(root, skills, contracts, resolutions);
+  const derived = await deriveResolutions(root, contracts);
+  const plan = await planExpansion(root, skills, contracts, derived);
   await executePlan(root, plan);
-  for (const id of plan.retired) out(retiredReport(id));
+  for (const line of rewriteReport(recorded, derived)) out(line);
   return 0;
-}
-
-/**
- * Compares each vendored copy against the pin, never against the canonical
- * text.
- *
- * Comparing against the canonical text would leave this check undefined exactly
- * when it matters most: once a contract has been edited but not accepted, the
- * copies are still correct with respect to what was approved, and that is the
- * state continuous integration has to be able to judge.
- */
-export async function commandGen(root: string, out: Sink): Promise<number> {
-  const { resolutions, skills } = await readTreeState(root);
-  const contracts = await readContracts(root, declaredIds(skills));
-  return expandTree(root, skills, contracts, resolutions, out);
 }

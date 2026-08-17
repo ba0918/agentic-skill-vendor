@@ -106,12 +106,13 @@ test("the lock records only the contracts whose canonical text is present", asyn
   });
 });
 
-test("rendering the manifest refuses a contracts directory symlinked outside the tree", async () => {
+test("a tree whose skills declare nothing still refuses a contracts directory symlinked outside", async () => {
   await withGoodTree(async (root) => {
-    // Every skill is stripped of its declarations, so nothing on the way to
-    // the rendered manifest has looked at contracts/ yet: the resolutions are
-    // read from the lock, and which of them the render keeps is decided by
-    // asking the tree for the files they name.
+    // Every skill is stripped of its declarations, so the lock is the only
+    // thing still naming a contract. A run reads the contracts the lock records
+    // as well as the ones a declaration names, and both routes have to refuse
+    // the link: read through it, the run would digest text from outside the
+    // tree and record it as what the tree holds.
     for (const name of ["release-notes", "review-writer"]) {
       await fs.writeFile(
         `${root}/skills/${name}/SKILL.md`,
@@ -129,12 +130,12 @@ test("rendering the manifest refuses a contracts directory symlinked outside the
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
-    // Named as the file the render was about to ask the tree for, not as the
-    // conformance directory, which is checked on the same way in and which the
-    // tree need not even hold. Which contract is reached first does not matter,
-    // so none is named.
-    expect(result.stderr.join("\n")).toMatch(
-      /symlink is not allowed inside the tree: contracts\/[^\s]+\.md/,
+    // The planted link itself is what the refusal names. Naming a file below it
+    // instead would describe a path that only exists because the link was
+    // followed, and no contract is reached before the directory holding them
+    // all is checked.
+    expect(result.stderr.join("\n")).toStrictEqual(
+      "error: symlink is not allowed inside the tree: contracts",
     );
   });
 });

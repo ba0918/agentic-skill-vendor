@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { planExpansion } from "./gen.ts";
 import {
+  append,
   escapeThrough,
   kindsOf,
   PERMISSIONS_APPLY,
@@ -102,34 +103,130 @@ test("a vendored copy holds the canonical contract body", async () => {
   });
 });
 
-test("gen refuses a contract that has never been accepted and writes nothing", async () => {
+test("gen records a contract the lock says nothing about", async () => {
   await withGoodTree(async (root) => {
     const manifest = await readManifest(root);
+    const dropped = manifest.resolutions["verdict-format"];
     delete manifest.resolutions["verdict-format"];
     await writeManifest(root, manifest);
-    const before = await snapshotTree(root);
 
     const result = await runCli(["gen", "--root", root]);
-    expect(result.code).toStrictEqual(1);
-    expect(kindsOf(result.stdout)).toStrictEqual(["unresolved"]);
-    expect(await snapshotTree(root)).toStrictEqual(before);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect(
+      (await readManifest(root)).resolutions["verdict-format"],
+    ).toStrictEqual(dropped);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
 
-test("gen refuses a canonical text that drifted from its resolution and writes nothing", async () => {
+test("gen reports a contract it records for the first time without an old digest", async () => {
   await withGoodTree(async (root) => {
-    await fs.writeFile(
-      `${root}/contracts/verdict-format.md`,
-      (await fs.readFile(`${root}/contracts/verdict-format.md`, "utf8")) +
-        "\nOne more rule.\n",
-    );
-    const before = await snapshotTree(root);
+    const manifest = await readManifest(root);
+    const digest = manifest.resolutions["verdict-format"].digest;
+    delete manifest.resolutions["verdict-format"];
+    await writeManifest(root, manifest);
 
     const result = await runCli(["gen", "--root", root]);
-    expect(result.code).toStrictEqual(1);
-    expect(kindsOf(result.stdout)).toStrictEqual(["unaccepted-drift"]);
-    expect(result.stdout[0]).toContain("verdict-format");
-    expect(await snapshotTree(root)).toStrictEqual(before);
+    expect(result.stdout).toContain(
+      `adopted: verdict-format ${digest} (initial adoption)`,
+    );
+  });
+});
+
+test("gen rewrites the lock to the canonical text a contract now holds", async () => {
+  await withGoodTree(async (root) => {
+    const before = (await readManifest(root)).resolutions["verdict-format"]
+      .digest;
+    await append(`${root}/contracts/verdict-format.md`, "\nOne more rule.\n");
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    const after = (await readManifest(root)).resolutions["verdict-format"]
+      .digest;
+    expect(after).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(after === before).toStrictEqual(false);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("gen reports both digests when it replaces what a contract was recorded as", async () => {
+  await withGoodTree(async (root) => {
+    // The line a pull request carries, and the join a consuming repository's
+    // regression machinery matches its evidence against: a pass or fail on its
+    // own cannot tell adopting this text from adopting a third version.
+    const before = (await readManifest(root)).resolutions["verdict-format"]
+      .digest;
+    await append(`${root}/contracts/verdict-format.md`, "\nOne more rule.\n");
+
+    const result = await runCli(["gen", "--root", root]);
+    const after = (await readManifest(root)).resolutions["verdict-format"]
+      .digest;
+    expect(result.stdout).toContain(
+      `adopted: verdict-format ${before} -> ${after}`,
+    );
+  });
+});
+
+test("gen over a tree that already matches its lock reports nothing", async () => {
+  await withGoodTree(async (root) => {
+    // The report names what changed, so a run that changed nothing has nothing
+    // to say. A line written every time would make the one that matters
+    // unreadable in a pull request.
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout).toStrictEqual([]);
+  });
+});
+
+test("gen rewrites the conformance digest of a contract no skill declares", async () => {
+  await withGoodTree(async (root) => {
+    // The lock still records the contract and the tree still holds its text,
+    // but nothing declares it. Verification digests the conformance tests of
+    // every resolution the lock records, so a tree left in this state fails
+    // forever unless gen rewrites resolutions it reaches through the lock
+    // rather than only those a declaration names.
+    // Both skills stop declaring it and take up the other contract instead, so
+    // no declaration list is left empty and changelog-entry is reached only
+    // through the lock.
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - changelog-entry\n",
+        "    - verdict-format\n",
+      ),
+    );
+    const reviewer = `${root}/skills/review-writer/SKILL.md`;
+    await fs.writeFile(
+      reviewer,
+      (await fs.readFile(reviewer, "utf8")).replace(
+        "    - changelog-entry\n",
+        "",
+      ),
+    );
+    const regenerated = await runCli(["gen", "--root", root]);
+    expect(
+      regenerated.code,
+      regenerated.stdout.concat(regenerated.stderr).join("\n"),
+    ).toStrictEqual(0);
+    await append(
+      `${root}/contracts/changelog-entry/conformance/cases/minimal.md`,
+      "\nOne further case.\n",
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(1);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
 
@@ -155,7 +252,7 @@ test("gen removes a vendored copy no declaration accounts for", async () => {
   });
 });
 
-test("adding a dependency on an already resolved contract needs no acceptance", async () => {
+test("adding a dependency on an already recorded contract needs no other change", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;
     await fs.writeFile(
@@ -683,37 +780,59 @@ test("gen refuses a named pipe standing where the run would write", async () => 
   }
 }, 15000);
 
+/** Declares a contract named after an inherited property, and puts its text there. */
+async function declareInheritedProperty(root: string): Promise<void> {
+  await fs.copyFile(
+    `${root}/contracts/verdict-format.md`,
+    `${root}/contracts/constructor.md`,
+  );
+  const skill = `${root}/skills/release-notes/SKILL.md`;
+  await fs.writeFile(
+    skill,
+    (await fs.readFile(skill, "utf8")).replace(
+      "    - changelog-entry\n",
+      "    - changelog-entry\n    - constructor\n",
+    ),
+  );
+}
+
 test("a contract named for an inherited property is reported as unresolved, not as drift against nothing", async () => {
   await withGoodTree(async (root) => {
     // `constructor` is a usable contract id, and looking it up in a plain
-    // object finds Object's own constructor rather than nothing. The run then
-    // reads a resolution that was never recorded, and says the text drifted
-    // from a digest of `undefined` instead of saying it was never accepted.
-    await fs.copyFile(
-      `${root}/contracts/verdict-format.md`,
-      `${root}/contracts/constructor.md`,
-    );
-    const skill = `${root}/skills/release-notes/SKILL.md`;
-    await fs.writeFile(
-      skill,
-      (await fs.readFile(skill, "utf8")).replace(
-        "    - changelog-entry\n",
-        "    - changelog-entry\n    - constructor\n",
-      ),
-    );
+    // object finds Object's own constructor rather than nothing. Verification
+    // then judges the text against a resolution that was never recorded, and
+    // says it drifted from a digest of `undefined` instead of saying the lock
+    // records nothing for it.
+    await declareInheritedProperty(root);
 
-    // Asked of every command that reads the lock. The first finding reported
-    // is the
-    // acceptance one: the acceptance check runs before the file-system checks
-    // in every command, so the run says the contract was never accepted before
-    // it says anything about how the state drifted.
-    for (const command of [["gen"], ["verify"]]) {
-      const result = await runCli([...command, "--root", root]);
-      expect(result.code, command[0]).toStrictEqual(1);
-      expect(kindsOf(result.stdout), command[0]).toContain("unresolved");
-      expect(result.stdout[0], command[0]).toContain("constructor");
-      expect(result.stdout[0].startsWith("unresolved:"), command[0]).toBe(true);
-    }
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(kindsOf(result.stdout)).toContain("unresolved");
+    expect(result.stdout[0]).toContain("constructor");
+    expect(result.stdout[0].startsWith("unresolved:")).toBe(true);
+  });
+});
+
+test("a contract named for an inherited property is recorded under its own key", async () => {
+  await withGoodTree(async (root) => {
+    // The writing side of the same read. Assigned into a plain object the
+    // resolution would set the prototype instead of an entry, so the manifest
+    // would come back without the contract and the next run would report it
+    // unresolved for ever.
+    await declareInheritedProperty(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect(
+      Object.getOwnPropertyDescriptor(
+        (await readManifest(root)).resolutions,
+        "constructor",
+      )?.value.digest,
+    ).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
 
@@ -743,29 +862,39 @@ const EMPTY_LOCK_SHAPES: {
 test("a contract named for an inherited property is unresolved on a tree that has resolved nothing", async () => {
   for (const { what, write } of EMPTY_LOCK_SHAPES) {
     await withGoodTree(async (root) => {
-      await fs.copyFile(
-        `${root}/contracts/verdict-format.md`,
-        `${root}/contracts/constructor.md`,
-      );
-      const skill = `${root}/skills/release-notes/SKILL.md`;
-      await fs.writeFile(
-        skill,
-        (await fs.readFile(skill, "utf8")).replace(
-          "    - changelog-entry\n",
-          "    - changelog-entry\n    - constructor\n",
-        ),
-      );
+      await declareInheritedProperty(root);
       await write(root);
 
-      for (const command of ["gen", "verify"]) {
-        const where = `${what} / ${command}`;
-        const result = await runCli([command, "--root", root]);
-        const line = result.stdout.find((entry) =>
-          entry.includes("constructor"),
-        );
-        expect(line, where).toBeDefined();
-        expect(line?.startsWith("unresolved:"), `${where}: ${line}`).toBe(true);
-      }
+      const result = await runCli(["verify", "--root", root]);
+      const line = result.stdout.find((entry) => entry.includes("constructor"));
+      expect(line, what).toBeDefined();
+      expect(line?.startsWith("unresolved:"), `${what}: ${line}`).toBe(true);
+    });
+  }
+});
+
+test("a contract named for an inherited property is recorded on a tree that has resolved nothing", async () => {
+  for (const { what, write } of EMPTY_LOCK_SHAPES) {
+    await withGoodTree(async (root) => {
+      await declareInheritedProperty(root);
+      await write(root);
+
+      const result = await runCli(["gen", "--root", root]);
+      expect(
+        result.code,
+        `${what}: ${result.stdout.concat(result.stderr).join("\n")}`,
+      ).toStrictEqual(0);
+      expect(
+        Object.getOwnPropertyDescriptor(
+          (await readManifest(root)).resolutions,
+          "constructor",
+        )?.value.digest,
+        what,
+      ).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(
+        (await runCli(["verify", "--root", root])).code,
+        what,
+      ).toStrictEqual(0);
     });
   }
 });

@@ -1,4 +1,4 @@
-// verify.ts — deciding whether the tree is what was accepted.
+// verify.ts — deciding whether the tree agrees with its lock.
 //
 // The four checks below do not depend on one another, and each is written so
 // that it stays meaningful while the others are failing.
@@ -19,8 +19,9 @@ import {
   type Resolutions,
 } from "./manifest.ts";
 import {
-  acceptanceViolations,
+  closureViolations,
   listVendorEntries,
+  lockViolations,
   readContracts,
   readTreeState,
   vendorDirOf,
@@ -97,9 +98,9 @@ async function copyViolations(
  * Compares the manifest against what the declarations and the recorded
  * resolutions render to.
  *
- * The resolutions are carried across unchanged rather than recomputed, so a
- * divergence already reported as unaccepted drift or a conformance mismatch is
- * not reported a second time here as a stale manifest.
+ * The resolutions are carried across as the lock records them rather than
+ * recomputed, so a divergence already reported as a stale lock or a conformance
+ * mismatch is not reported a second time here as a stale manifest.
  */
 async function manifestViolations(
   root: string,
@@ -121,9 +122,9 @@ async function manifestViolations(
 }
 
 /**
- * Compares each contract's conformance tree against the digest that was
- * accepted for it. The wording states the two values and does not claim which
- * of them moved: this tool cannot tell an edited test from a stale lock.
+ * Compares each contract's conformance tree against the digest the lock records
+ * for it. The wording states the two values and does not claim which of them
+ * moved: this tool cannot tell an edited test from a stale lock.
  */
 async function conformanceViolations(
   root: string,
@@ -144,10 +145,10 @@ async function conformanceViolations(
 }
 
 /**
- * Four checks that do not depend on one another: what was accepted against the
- * canonical text, the copies against the pin, the manifest against what the
- * tree renders to, and each conformance tree against the digest accepted for
- * it. Keeping them separate is what lets any one of them stay meaningful while
+ * Four checks that do not depend on one another: the lock against the canonical
+ * text, the copies against the lock, the manifest against what the tree renders
+ * to, and each conformance tree against the digest the lock records for it.
+ * Keeping them separate is what lets any one of them stay meaningful while
  * another is failing.
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
@@ -155,16 +156,19 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   const contracts = await readContracts(root, declaredIds(skills));
 
   // The three file-system checks are independent of one another and of the
-  // acceptance check, so they overlap; their findings are reported in the
-  // same order a serial run would have produced them in, and a refusal names
-  // the first failing check in that fixed order rather than whichever
-  // settled first.
+  // check against the canonical text, so they overlap; their findings are
+  // reported in the same order a serial run would have produced them in, and a
+  // refusal names the first failing check in that fixed order rather than
+  // whichever settled first.
   const settled = await Promise.allSettled([
     copyViolations(root, skills, resolutions),
     manifestViolations(root, skills, resolutions),
     conformanceViolations(root, resolutions),
   ]);
-  const violations = [...acceptanceViolations(skills, contracts, resolutions)];
+  const violations = [
+    ...closureViolations(skills, contracts),
+    ...lockViolations(skills, contracts, resolutions),
+  ];
   for (const result of settled) {
     if (result.status === "fulfilled") {
       violations.push(...result.value);

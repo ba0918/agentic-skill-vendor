@@ -82,6 +82,11 @@ export async function writeFile(
   await fs.writeFile(path, content);
 }
 
+/** Adds `text` to the end of an existing file: an edit the tool must notice. */
+export async function append(path: string, text: string): Promise<void> {
+  await fs.writeFile(path, (await fs.readFile(path, "utf8")) + text);
+}
+
 type ErrorClass<E extends Error> = new (...args: never[]) => E;
 
 /**
