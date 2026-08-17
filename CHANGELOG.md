@@ -140,7 +140,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   called is introduced. A contract id that names an inherited property — `constructor` — is
   affected the same way in reverse: looking one up found `Object`'s own constructor instead
   of nothing, and an unaccepted contract was reported as text drifting from a digest of
-  `undefined` rather than as never accepted.
+  `undefined` rather than as never accepted. That holds on a tree that has resolved nothing
+  yet as well — no manifest at all, or a lock recording no resolutions — which is what a
+  repository adopting this tool starts from.
 - A manifest whose `lock.dependencies` is not an object is refused with exit `2` rather than
   read as though it held nothing, which is how `lock` and `lock.resolutions` were already
   treated. It reached `verify`, which reported such a manifest as a violation at exit `1`,
