@@ -264,7 +264,12 @@ export async function readLock(root: string): Promise<Lock> {
 
 function validateResolutions(lock: Record<string, unknown>): Resolutions {
   const raw = lock["resolutions"];
-  if (raw === undefined) return emptyResolutions();
+  // The same refusal as a lock missing its dependencies, for the other half:
+  // the lock this tool writes always carries both, and reading an absent half
+  // as empty would let the next gen silently drop what it recorded.
+  if (raw === undefined) {
+    throw new ConfigError(`${MANIFEST_FILE}: lock has no resolutions key`);
+  }
   const entries = pickObject(raw, "lock.resolutions");
   const resolutions: Resolutions = emptyResolutions();
   for (const id of Object.keys(entries)) {

@@ -735,8 +735,8 @@ test("a contract named for an inherited property is reported as unresolved, not 
 
 // The same inherited-property read, on the two paths that answer "nothing is
 // resolved yet" rather than reading recorded resolutions: a tree with no
-// manifest at all, and a lock that records dependencies but no resolutions.
-// Both are what a repository adopting this tool starts from.
+// manifest at all, and a lock whose recorded resolutions are empty. Both are
+// what a repository adopting this tool starts from.
 
 const EMPTY_LOCK_SHAPES: {
   what: string;
@@ -751,7 +751,7 @@ const EMPTY_LOCK_SHAPES: {
     write: async (root) =>
       await fs.writeFile(
         `${root}/${MANIFEST}`,
-        '{"lock":{"dependencies":{"release-notes":["changelog-entry","constructor"]}}}\n',
+        '{"lock":{"dependencies":{"release-notes":["changelog-entry","constructor"]},"resolutions":{}}}\n',
       ),
   },
 ];

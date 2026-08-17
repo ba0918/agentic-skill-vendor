@@ -268,6 +268,15 @@ test("a lock missing its dependencies is refused, not read as empty", async () =
   );
 });
 
+test("a lock missing its resolutions is refused, not read as empty", async () => {
+  // The other half of the same corruption: a present lock that dropped its
+  // resolutions, read as "nothing resolved yet", would let the next gen
+  // rewrite the manifest with the memory of every accepted contract dropped.
+  await expect(readWritten(`{"lock":{"dependencies":{}}}`)).rejects.toThrow(
+    ConfigError,
+  );
+});
+
 test("resolutions written as a list are refused", async () => {
   await expect(readWritten(manifestWith(`["verdict-format"]`))).rejects.toThrow(
     ConfigError,
@@ -371,11 +380,12 @@ test("a lock whose dependencies are not an object is refused", async () => {
 });
 
 test("every empty resolutions map is made without a prototype", async () => {
-  // Stated directly because the two paths that produce one are reached before
-  // anything has been recorded, which is exactly when a tree is being adopted.
+  // Stated directly because the two paths that produce one — no manifest yet,
+  // and a lock recording an empty map — are reached before anything has been
+  // resolved, which is exactly when a tree is being adopted.
   const absent = await withEmptyDir(async (root) => await readLock(root));
   expect(Object.getPrototypeOf(absent.resolutions)).toBeNull();
 
-  const withoutKey = await readWritten('{"lock":{"dependencies":{}}}');
-  expect(Object.getPrototypeOf(withoutKey)).toBeNull();
+  const recordedEmpty = await readWritten(manifestWith("{}"));
+  expect(Object.getPrototypeOf(recordedEmpty)).toBeNull();
 });
