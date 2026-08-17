@@ -10,8 +10,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - The vendoring tool: `gen` distributes each contract's current text into every skill that
-  declares it and rewrites the lock to match, reporting each contract whose text it
-  recorded a new digest for; `verify`
+  declares it and rewrites the lock to match, reporting every digest it recorded a new
+  value for — a contract's text and its conformance tests on a line each; `verify`
   checks the tree against the lock with four independent checks; `lint-selfcontain` checks
   that no skill points outside its own directory; and `self-test` checks the tool against
   vectors embedded in it.
