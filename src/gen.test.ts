@@ -278,9 +278,9 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
-    // Named as the file the run was about to read, not as the directory beside
-    // it: the contract's own directory is checked on the same way in, and a
-    // refusal that quoted that instead would name a path the tree need not even
+    // Named as the file the run was about to read, not as the conformance
+    // directory beside it: that path is checked on the same way in, and a
+    // refusal quoting it instead would name a directory the tree need not even
     // hold. Which contract is reached first does not matter, so none is named.
     expect(result.stderr.join("\n")).toMatch(
       /symlink is not allowed inside the tree: contracts\/[^\s]+\.md/,

@@ -107,7 +107,7 @@ test("provenance refuses a contracts directory symlinked outside the tree", asyn
       "symlink is not allowed inside the tree: contracts",
     );
     // Named as the file whose provenance was about to be recorded, not as the
-    // contract's directory, which is checked on the same way in and which the
+    // conformance directory, which is checked on the same way in and which the
     // tree need not even hold. Which contract is reached first does not matter,
     // so none is named.
     expect(result.stderr.join("\n")).toMatch(
