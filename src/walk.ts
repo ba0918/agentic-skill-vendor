@@ -204,8 +204,8 @@ export async function atomicWriteFile(
 ): Promise<void> {
   const path = `${root}/${relative}`;
   const temporary = `${path}.tmp`;
-  await refuseSymlink(temporary, `${relative}.tmp`);
-  await refuseSymlink(path, relative);
+  await assertWritableTarget(temporary, `${relative}.tmp`);
+  await assertWritableTarget(path, relative);
   try {
     await fs.writeFile(temporary, content);
     await fs.rename(temporary, path);
@@ -215,16 +215,30 @@ export async function atomicWriteFile(
   }
 }
 
-async function refuseSymlink(path: string, site: string): Promise<void> {
+/**
+ * Refuses a path the run is about to write at unless writing there is what it
+ * looks like: nothing at all, or a regular file to be replaced.
+ *
+ * A link is refused because writing through one lands outside the tree. Any
+ * other kind is refused because the write would not land anywhere: opening a
+ * named pipe for writing is accepted and then waits for a reader that never
+ * comes, and the run stops answering rather than failing. Both the file and the
+ * temporary beside it are asked, since the bytes go through the temporary
+ * first — a pipe planted there blocked every run that wrote anything at all.
+ */
+async function assertWritableTarget(path: string, site: string): Promise<void> {
+  let info: Stats;
   try {
-    const info = await fs.lstat(path);
-    if (info.isSymbolicLink()) {
-      throw new ConfigError(`refusing to write through a symlink: ${site}`);
-    }
+    info = await fs.lstat(path);
   } catch (cause) {
-    if (cause instanceof ConfigError) throw cause;
     if (isNotFound(cause)) return;
     throw new ConfigError(`cannot inspect ${site}: ${describeCause(cause)}`);
+  }
+  if (info.isSymbolicLink()) {
+    throw new ConfigError(`refusing to write through a symlink: ${site}`);
+  }
+  if (!info.isFile()) {
+    throw new ConfigError(`refusing to write over ${site}: not a regular file`);
   }
 }
 

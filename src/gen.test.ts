@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   escapeThrough,
   PERMISSIONS_APPLY,
@@ -622,3 +624,35 @@ test("every command refuses a declared contract whose canonical text is not a re
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
+
+// Every path the run writes through, blocked by something it must not open.
+// A named pipe passes the check for links — it is not one — and the open then
+// waits for a reader that never comes. The tests carry their own deadline so a
+// regression fails in seconds instead of stopping the suite for good.
+
+const WRITE_TARGETS = [
+  "skills/review-writer/references/vendor/verdict-format.md",
+  "skills/review-writer/references/vendor/verdict-format.md.tmp",
+  `${MANIFEST}.tmp`,
+];
+
+test("gen and accept refuse a named pipe standing where the run would write", async () => {
+  for (const site of WRITE_TARGETS) {
+    for (const command of [["gen"], ["accept", "changelog-entry"]]) {
+      await withGoodTree(async (root) => {
+        await fs.rm(`${root}/${site}`).catch(() => {});
+        await promisify(execFile)("mkfifo", [`${root}/${site}`]);
+
+        const where = `${site} / ${command[0]}`;
+        const result = await runCli([...command, "--root", root]);
+        expect(result.code, where).toStrictEqual(2);
+        expect(result.stderr.join("\n"), where).toContain(site);
+        // Left as it was found: refusing is not a licence to clear the path.
+        expect(
+          (await fs.lstat(`${root}/${site}`)).isFIFO(),
+          where,
+        ).toStrictEqual(true);
+      });
+    }
+  }
+}, 15000);
