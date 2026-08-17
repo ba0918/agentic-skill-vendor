@@ -15,9 +15,9 @@ import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
   CONTRACTS_DIR,
   compareStrings,
-  canonicalBody,
   contractPath,
   digestOfText,
+  normalizeBody,
   splitDocument,
 } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
@@ -132,8 +132,11 @@ export async function readContracts(
       continue;
     }
     const text = await readTextFile(`${root}/${site}`, site);
+    // The document is split once here; the body is normalized from what the
+    // split produced instead of calling canonicalBody, which would split it
+    // again.
     const document = splitDocument(text, site);
-    const body = canonicalBody(text, site);
+    const body = normalizeBody(document.body);
     contracts.set(id, {
       digest: await digestOfText(body),
       body,
