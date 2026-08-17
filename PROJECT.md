@@ -92,6 +92,8 @@ it is never committed.
   A format marker is deliberately absent too; a future breaking release introduces one, and
   the absence of the field is what marks the older form.
 - The canonical text is the authority and the lock is derived from it, so `gen` is the only
-  writer of resolutions and the only command that reports `adopted` / `retired`. What guards
-  a change of contract text is the review of the pull request the rewritten lock lands in —
-  the tool has no approval boundary of its own.
+  writer of resolutions and the only command that reports `adopted` / `retired`. `adopted`
+  names a contract whose text digest changed; a conformance tree that moved on its own is
+  visible in the lock's diff and nowhere in the output. What guards a change of contract text
+  is the review of the pull request the rewritten lock lands in — the tool has no approval
+  boundary of its own.

@@ -64,10 +64,12 @@ The cycle is then:
 Editing a contract is one act: change `contracts/<id>.md` and run `gen`. The canonical text is
 the authority and the lock is the snapshot of it, the relation `package.json` has to a
 lockfile — there is no separate approval command, because the text, the lock and the copies
-are reviewed together in the pull request they land in. `gen` reports what it changed as
-`adopted: <id> <old digest> -> <new digest>` (a first recording names one digest only), which
-is the line to read in a review and the value a consuming repository's regression machinery
-matches its own evidence against.
+are reviewed together in the pull request they land in. `gen` reports each contract whose
+text it recorded a new digest for as `adopted: <id> <old digest> -> <new digest>` (a first
+recording names one digest only), which is the line to read in a review and the value a
+consuming repository's regression machinery matches its own evidence against. A change to a
+conformance tree alone is not reported: its digest moves in the lock's own diff, which is where
+that change is read.
 
 Until `gen` runs, `verify` reports the edit as `stale-lock`; an edited vendored copy, a
 missing or extra file, and a stale manifest fail the same run.
@@ -131,7 +133,8 @@ absent; writes are atomic; identity is verified byte for byte.
 one state `gen` refuses to write over); `unresolved`, `stale-lock`, `drift`, `extra`,
 `manifest` and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
 `symlink-escape` from `lint-selfcontain`; `self-test` from `self-test`. A successful `gen`
-reports what it changed in the same shape: `adopted` and `retired`.
+reports in the same shape: `adopted` for a contract whose text it recorded a new digest for,
+`retired` for a resolution it dropped.
 
 ## Development
 
