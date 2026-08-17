@@ -29,7 +29,7 @@ export function compareStrings(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export interface Document {
+interface Document {
   frontmatter: string[];
   body: string;
 }

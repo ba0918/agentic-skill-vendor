@@ -158,7 +158,7 @@ export async function presentContractIds(
  * pinned and a command that asks which names were skills must not be able to
  * see two different manifests.
  */
-export interface Lock {
+interface Lock {
   /**
    * The skills the manifest records a dependency list for — the tree's own
    * memory of which names under skills/ were skill directories when it was

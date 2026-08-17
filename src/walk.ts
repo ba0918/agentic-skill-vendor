@@ -26,12 +26,12 @@ import { compareStrings } from "./digest.ts";
  * code is what this reads. Every other failure means the tool could not find
  * out what the tree says, which is a refusal rather than an absence.
  */
-export function isNotFound(cause: unknown): boolean {
+function isNotFound(cause: unknown): boolean {
   return (cause as { code?: string } | null)?.code === "ENOENT";
 }
 
 /** One entry of a directory, with its kind resolved without following it. */
-export interface DirectoryEntry {
+interface DirectoryEntry {
   name: string;
   isSymlink: boolean;
   isDirectory: boolean;

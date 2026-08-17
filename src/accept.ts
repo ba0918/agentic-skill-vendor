@@ -16,13 +16,7 @@ import { assertTreeRoot } from "./walk.ts";
 import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { readLock, type Resolution, type Resolutions } from "./manifest.ts";
-import {
-  acceptanceViolations,
-  executePlan,
-  planExpansion,
-  readContracts,
-  retiredReport,
-} from "./gen.ts";
+import { expandTree, readContracts } from "./gen.ts";
 
 interface AcceptanceRecord {
   id: string;
@@ -91,14 +85,8 @@ export async function commandAccept(
     resolutions[id] = resolution;
   }
 
-  const violations = acceptanceViolations(skills, contracts, resolutions);
-  if (violations.length > 0) {
-    for (const violation of violations) out(violation);
-    return 1;
-  }
-  const plan = await planExpansion(root, skills, contracts, resolutions);
-  await executePlan(root, plan);
-  for (const id of plan.retired) out(retiredReport(id));
+  const exit = await expandTree(root, skills, contracts, resolutions, out);
+  if (exit !== 0) return exit;
 
   for (const record of records) {
     const dependents = dependentsOf(skills, record.id);

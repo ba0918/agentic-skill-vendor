@@ -17,7 +17,7 @@ interface IgnoreLevel {
   matcher: Ignore;
 }
 
-export interface IgnoreRules {
+interface IgnoreRules {
   /** True when the rules exclude this tree-relative path. */
   excludes(relative: string): boolean;
 }

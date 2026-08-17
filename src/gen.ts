@@ -146,7 +146,7 @@ export async function readContracts(
   return contracts;
 }
 
-export interface CanonicalContract {
+interface CanonicalContract {
   digest: string;
   body: string;
   version?: string;
@@ -378,6 +378,32 @@ export function acceptanceViolations(
 }
 
 /**
+ * Applies the acceptance gate and, when it passes, writes the expanded tree,
+ * answering with the exit code.
+ *
+ * The same work ends gen and accept: what the run has read and agreed to, this
+ * turns into either a refusal that lists the violations it found or the
+ * written tree its plan spelled out, naming the retirements it performed.
+ */
+export async function expandTree(
+  root: string,
+  skills: SkillDeclaration[],
+  contracts: Map<string, CanonicalContract | null>,
+  resolutions: Resolutions,
+  out: Sink,
+): Promise<number> {
+  const violations = acceptanceViolations(skills, contracts, resolutions);
+  if (violations.length > 0) {
+    for (const violation of violations) out(violation);
+    return 1;
+  }
+  const plan = await planExpansion(root, skills, contracts, resolutions);
+  await executePlan(root, plan);
+  for (const id of plan.retired) out(retiredReport(id));
+  return 0;
+}
+
+/**
  * Compares each vendored copy against the pin, never against the canonical
  * text.
  *
@@ -391,14 +417,5 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const { recordedSkills, resolutions } = await readLock(root);
   const skills = await readSkills(root, recordedSkills);
   const contracts = await readContracts(root, declaredIds(skills));
-
-  const violations = acceptanceViolations(skills, contracts, resolutions);
-  if (violations.length > 0) {
-    for (const violation of violations) out(violation);
-    return 1;
-  }
-  const plan = await planExpansion(root, skills, contracts, resolutions);
-  await executePlan(root, plan);
-  for (const id of plan.retired) out(retiredReport(id));
-  return 0;
+  return expandTree(root, skills, contracts, resolutions, out);
 }
