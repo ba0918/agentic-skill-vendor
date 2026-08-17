@@ -238,7 +238,7 @@ test("removing the whole conformance directory is reported as a conformance mism
   });
 });
 
-test("a contract gaining conformance tests nobody accepted is reported", async () => {
+test("a contract gaining conformance tests the lock records none for is reported", async () => {
   await withGoodTree(async (root) => {
     await writeFile(
       `${root}/contracts/verdict-format/conformance/cases/first.md`,

@@ -302,8 +302,8 @@ test("gen refuses a skill whose declaration cannot be read and keeps its vendore
 
 test("a dependent skill name with control bytes is quoted in the closure finding", async () => {
   await withGoodTree(async (root) => {
-    // The acceptance violation names the skills that declare the contract; a
-    // skill name holding an ANSI escape would paint the terminal on the line.
+    // The closure finding names the skills that declare the contract; a skill
+    // name holding an ANSI escape would paint the terminal on the line.
     const name = "esc\u001b[31m";
     await writeFile(
       `${root}/skills/${name}/SKILL.md`,
@@ -397,12 +397,10 @@ test("a run interrupted by an unwritable copy leaves every other file in place",
 test("gen refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     const outside = await escapeThrough(root, "contracts");
-    // The moved text is edited before the run, so that following the link and
-    // refusing it are two different answers: read through the link, the edit is
-    // unaccepted drift reported on standard output with exit 1. Left byte
-    // identical it would instead reach exit 2 by another route — the same
-    // refusal raised while the manifest's provenance is built — and this case
-    // would go on passing with the refusal it names taken out.
+    // The moved text is edited before the run, so that a run which followed the
+    // link would leave a trace: the copies it wrote would carry the outside
+    // text, which the tree snapshot below catches. Left byte identical,
+    // following the link and refusing it would leave the same tree behind.
     const escaped = `${outside}/contracts/verdict-format.md`;
     await fs.writeFile(
       escaped,
@@ -462,15 +460,13 @@ test("gen and verify both refuse a contract's own directory symlinked outside th
   });
 });
 
-test("a contract's own directory symlinked outside the tree is refused before what the lock lacks is reported", async () => {
+test("a contract's own directory symlinked outside the tree is refused before the lock is rewritten", async () => {
   await withGoodTree(async (root) => {
-    // The link stands where a violation would otherwise be reported: with the
-    // resolution dropped, the contract reads as unresolved, which is a fact
-    // about the tree stated on standard output with exit 1. A planted link is
-    // not that. The run could not find out what the tree says, so it stops
-    // before it has anything to report — and it stops here, on the way to the
-    // canonical text, rather than later while provenance is built, which is
-    // never reached once a violation has been found.
+    // The link stands at a contract whose resolution was dropped, which on its
+    // own is a state the run simply rewrites the lock over. Following the link
+    // would therefore record outside text as what the tree holds. The run could
+    // not find out what the tree says, so it stops on the way to the canonical
+    // text, before anything is derived from it.
     const manifest = await readManifest(root);
     delete manifest.resolutions["changelog-entry"];
     await writeManifest(root, manifest);

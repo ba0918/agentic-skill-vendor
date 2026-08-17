@@ -1,4 +1,5 @@
-// gen.ts — writing the accepted contracts into the skills that declare them.
+// gen.ts — writing the canonical contracts into the skills that declare them,
+// and the lock that records what was written.
 //
 // The distribution half of the tool. It reads the canonical contracts, decides
 // whether the tree is in a state worth writing, and expands it — building every
