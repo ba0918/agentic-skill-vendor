@@ -73,8 +73,8 @@ text — is the same act at the other end: the next `gen` or `accept` retires it
 from the lock and reports it as `retired: <id>`, so the removal never happens silently.
 
 `--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
-nothing to report, `1` violations (one per line on standard output), `2` configuration or
-usage error (standard error). A run that fails part-way never leaves a tree that looks
+nothing to report, `1` violations (one per line on standard output), `2` a refusal or an
+internal error (standard error). A run that fails part-way never leaves a tree that looks
 finished: whatever it leaves behind is a state `verify` reports as a violation.
 
 ### Where to run `verify`

@@ -8,7 +8,7 @@
 
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { ConfigError, type Sink } from "./errors.ts";
+import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import { commandGen } from "./gen.ts";
 import { commandVerify } from "./verify.ts";
 import { commandAccept } from "./accept.ts";
@@ -29,7 +29,7 @@ const USAGE = [
   "  --root <path>            the tree to work on (default: .)",
   "",
   "exit codes: 0 nothing to report, 1 violations listed on stdout,",
-  "            2 a configuration or usage error described on stderr",
+  "            2 a refusal or an internal error described on stderr",
 ].join("\n");
 
 interface Invocation {
@@ -130,7 +130,13 @@ export async function run(
       err(`error: ${error.message}`);
       return 2;
     }
-    throw error;
+    // A non-ConfigError is a bug in the tool, not a state of the tree. Left
+    // uncaught, the runtime prints the stack trace — absolute machine paths
+    // included — and exits 1, which is defined as "violations listed", so CI
+    // would misread a crash as findings. One line, on the same exit code as
+    // the other refusals.
+    err(`internal error: ${describeCause(error)}`);
+    return 2;
   }
 }
 
