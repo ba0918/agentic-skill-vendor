@@ -1,0 +1,35 @@
+# Keep the command set in sync with .github/workflows/ci.yml: pre-push runs
+# exactly what CI runs, so a push that would fail CI fails here first.
+# pre-commit runs only the static checks, to stay fast on every commit.
+
+pre-commit:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run typecheck
+    lint:
+      run: bun run lint
+    fmt:
+      run: bun run fmt:check
+    # `lefthook install` renames a hook it finds already installed to
+    # pre-commit.old and never calls it. On machines whose git template ships a
+    # hook (here: a secretlint scan of staged files), that scan is delegated to
+    # from here; machines that never had one skip this silently.
+    displaced-hook:
+      run: '[ ! -x .git/hooks/pre-commit.old ] || .git/hooks/pre-commit.old'
+
+pre-push:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run typecheck
+    lint:
+      run: bun run lint
+    fmt:
+      run: bun run fmt:check
+    test:
+      run: bun test
+    fixture-verify:
+      run: bun run src/cli.ts verify --root fixtures/contracts-basic/good
+    fixture-selfcontain:
+      run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-basic/good
