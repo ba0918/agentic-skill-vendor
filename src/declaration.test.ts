@@ -1,5 +1,14 @@
-import { thrownBy } from "./testing.ts";
+import {
+  replaceWithSymlink,
+  runCli,
+  snapshotTree,
+  thrownBy,
+  withGoodTree,
+} from "./testing.ts";
 import { expect, test } from "bun:test";
+import * as fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { parseContractDeclarations } from "./declaration.ts";
 
@@ -372,4 +381,70 @@ test("a delimiter behind a character that draws as blank is a configuration erro
       "skills/sample/SKILL.md",
     ),
   ).toThrow(ConfigError);
+});
+
+// The file-type half of the silent-unpin family. Every earlier shape was about
+// what a SKILL.md holds; this one is about what stands at its path. Read as
+// "this skill has no SKILL.md", anything that is not a file retires every
+// contract the skill declares without a word — gen deletes the vendored copies
+// as unaccounted for and finishes at 0, and verify then calls that clean.
+//
+// A skill genuinely holding no SKILL.md keeps declaring nothing, and its
+// directory keeps being scanned for copies no declaration accounts for.
+
+const SKILL_FILE = "skills/review-writer/SKILL.md";
+
+test("every command refuses a SKILL.md that is there but is not a regular file", async () => {
+  await withGoodTree(async (root) => {
+    await fs.rm(`${root}/${SKILL_FILE}`);
+    await fs.mkdir(`${root}/${SKILL_FILE}`);
+    const before = await snapshotTree(root);
+
+    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        `${SKILL_FILE}: not a regular file`,
+      );
+    }
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("a SKILL.md that is a named pipe is refused rather than read as absent", async () => {
+  await withGoodTree(async (root) => {
+    // The shape that shows the refusal is about the kind of file rather than
+    // about directories. Nothing here reads it, and nothing may: opening a pipe
+    // to read blocks until something on the other side writes — which is why
+    // this case states the exit and the message and never snapshots the tree.
+    await fs.rm(`${root}/${SKILL_FILE}`);
+    await promisify(execFile)("mkfifo", [`${root}/${SKILL_FILE}`]);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(
+      `${SKILL_FILE}: not a regular file`,
+    );
+  });
+});
+
+test("a SKILL.md replaced by a symlink is refused as a link, not as a kind", async () => {
+  await withGoodTree(async (root) => {
+    // Both refusals fit this shape, and which one speaks decides what the
+    // reader goes looking for: a link planted inside the tree, or a file of the
+    // wrong kind standing where the declaration belongs. The link is the more
+    // specific fact, so it is the one named.
+    await replaceWithSymlink(
+      `${root}/${SKILL_FILE}`,
+      `${root}/skills/release-notes/SKILL.md`,
+    );
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(
+      `symlink is not allowed inside the tree: ${SKILL_FILE}`,
+    );
+  });
 });

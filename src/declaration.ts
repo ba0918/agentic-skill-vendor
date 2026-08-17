@@ -13,6 +13,7 @@ import {
   splitDocument,
 } from "./digest.ts";
 import {
+  assertAbsent,
   isDirectory,
   isRegularFile,
   readEntries,
@@ -210,19 +211,38 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
 
   const skills: SkillDeclaration[] = [];
   for (const name of names) {
-    const site = skillFileOf(name);
-    // A directory with no SKILL.md declares nothing, but it is still listed:
-    // otherwise a vendored copy left under it would be invisible to both the
-    // check for unaccounted copies and the removal that clears them.
-    const contracts = (await isRegularFile(root, site))
-      ? parseContractDeclarations(
-          await readTextFile(`${root}/${site}`, site),
-          site,
-        )
-      : [];
-    skills.push({ name, contracts });
+    skills.push({ name, contracts: await declaredContracts(root, name) });
   }
   return skills;
+}
+
+/**
+ * The contracts a skill declares, or none where it holds no SKILL.md at all.
+ *
+ * A directory with no SKILL.md declares nothing, but it is still listed:
+ * otherwise a vendored copy left under it would be invisible to both the check
+ * for unaccounted copies and the removal that clears them.
+ *
+ * That is the only way reading may find no declaration. Anything else standing
+ * at the path stops the run instead, because taken for "no SKILL.md" it retires
+ * every contract the skill declares without a word — and gen then deletes the
+ * vendored copies those declarations accounted for, and finishes reporting
+ * nothing. The link is refused before the kind is: a planted link is the more
+ * specific fact, and the one worth naming.
+ */
+async function declaredContracts(
+  root: string,
+  name: string,
+): Promise<string[]> {
+  const site = skillFileOf(name);
+  if (await isRegularFile(root, site)) {
+    return parseContractDeclarations(
+      await readTextFile(`${root}/${site}`, site),
+      site,
+    );
+  }
+  await assertAbsent(root, site);
+  return [];
 }
 
 /** The declared contract ids across all skills, without duplicates. */

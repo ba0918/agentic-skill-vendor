@@ -276,6 +276,35 @@ export async function isRegularFile(
   return info.isFile();
 }
 
+/**
+ * Refuses a path that has something standing at it.
+ *
+ * Asked where a regular file was expected and not found, because the two ways
+ * `isRegularFile` answers false say entirely different things and only one of
+ * them is an answer about the tree. Nothing being there is a fact a caller can
+ * act on: a skill directory holding no SKILL.md declares nothing. Something
+ * being there that the run cannot read as a file — a directory, a named pipe, a
+ * socket, a device — is not that fact at all, and taken for it, a skill that
+ * declares contracts silently becomes one that declares nothing.
+ *
+ * Nothing here opens the path. A named pipe would block the run until something
+ * on the other side wrote, so the kind is read from the entry itself.
+ */
+export async function assertAbsent(
+  root: string,
+  relative: string,
+): Promise<void> {
+  try {
+    await fs.lstat(`${root}/${relative}`);
+  } catch (cause) {
+    if (isNotFound(cause)) return;
+    throw new ConfigError(
+      `cannot inspect ${relative}: ${describeCause(cause)}`,
+    );
+  }
+  throw new ConfigError(`${relative}: not a regular file`);
+}
+
 /** The directory the path sits in; the current directory when it names none. */
 export function dirNameOf(path: string): string {
   const cut = path.lastIndexOf("/");
