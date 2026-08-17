@@ -126,6 +126,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the document's content was wrong, which is what every earlier guard of this family looked
   at. A skill directory genuinely holding no `SKILL.md` still declares nothing, and is still
   scanned for copies no declaration accounts for.
+- A contract's canonical file that is there but is not a regular file stops the run with
+  exit `2` naming it, on every command that reads `contracts/`. It is the same conflation one
+  document over: a contract no skill declares any more, one the lock alone still names,
+  dropped out of the provenance record without a word while `gen` finished at `0` and
+  `verify` called the tree clean. A canonical file genuinely absent is still what it was —
+  reported as a closure gap for a contract a skill declares, and left out of provenance for
+  one nothing declares — and that report now names a file that really is not there.
 - An argument a command has no use for is a usage error naming it, rather than a word quietly
   dropped. `verify some-tree` — a `--root` forgotten — ran against the current directory and
   reported `0` for a tree nobody asked about. The contract ids `accept` is given are what it
