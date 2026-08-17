@@ -39,11 +39,17 @@ const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
  * that had never happened. A JSON import is what carries this identically on
  * every runtime — the bundler inlines it, so the published artifact holds the
  * value rather than a read that would have to find the file again.
+ *
+ * The source is derived from package.json's repository URL by the same
+ * argument: kept as a second literal it kept naming the repository's old name
+ * after a rename, while the package pointed at the new one.
  */
 export const GENERATOR = {
   name: "agentic-skill-vendor",
   version: packageManifest.version,
-  source: "https://github.com/ba0918/agentic-skill-shared-reference-vendoring",
+  source: packageManifest.repository.url
+    .replace(/^git\+/, "")
+    .replace(/\.git$/, ""),
 } as const;
 
 export interface Resolution {
