@@ -551,15 +551,17 @@ test("a skill whose name is a prototype key survives the whole round trip", asyn
     const raw = await fs.readFile(`${root}/vendor-manifest.json`, "utf8");
     const dependencies = JSON.parse(raw).lock.dependencies;
     expect(raw).toContain('"__proto__"');
-    expect(
-      Object.prototype.hasOwnProperty.call(dependencies, "__proto__"),
-    ).toStrictEqual(true);
+    expect(Object.hasOwn(dependencies, "__proto__")).toStrictEqual(true);
     expect(Object.keys(dependencies)).toStrictEqual([
       "__proto__",
       "release-notes",
       "review-writer",
     ]);
-    expect(dependencies["__proto__"]).toStrictEqual(["verdict-format"]);
+    // Read through the descriptor: the accessor of that name would answer with
+    // the prototype rather than the key the manifest actually carries.
+    expect(
+      Object.getOwnPropertyDescriptor(dependencies, "__proto__")?.value,
+    ).toStrictEqual(["verdict-format"]);
 
     const verified = await runCli(["verify", "--root", root]);
     expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);

@@ -288,9 +288,12 @@ test("the canonical rendering keeps a key that names a prototype", async () => {
   );
   const rendered = canonicalJson(parsed);
   expect(rendered).toContain('"__proto__"');
-  expect(JSON.parse(rendered).lock.dependencies["__proto__"]).toStrictEqual([
-    "a",
-  ]);
+  expect(
+    Object.getOwnPropertyDescriptor(
+      JSON.parse(rendered).lock.dependencies,
+      "__proto__",
+    )?.value,
+  ).toStrictEqual(["a"]);
 });
 
 test("a lock recording a skill named for a prototype key reads it back", async () => {
