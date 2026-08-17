@@ -63,7 +63,7 @@ const VENDOR_SUBPATH = "references/vendor";
  * manifest, where no check consumed them and the version made a release of the
  * tool fail every consuming repository's verify.
  */
-export const GENERATOR_NAME = "agentic-skill-vendor";
+const GENERATOR_NAME = "agentic-skill-vendor";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
@@ -309,6 +309,12 @@ export function closureViolations(
  * A contract whose canonical text is absent is passed over rather than reported
  * twice: it is already named as a closure gap, and the lock cannot be judged
  * against text the tree does not hold.
+ *
+ * Stated here rather than in verify.ts, its one caller, because it and the
+ * closure check are two halves of one answer — whether the lock agrees with the
+ * canonical text — and the halves have to move together. Split across modules,
+ * a change to which contracts one of them walks would land in one half and not
+ * the other, and the gap would read as a clean tree.
  */
 export function lockViolations(
   skills: SkillDeclaration[],
