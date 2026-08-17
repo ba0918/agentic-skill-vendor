@@ -64,17 +64,28 @@ function indentOf(line: string): number {
  * quoted scalar a hash is part of the text (`"a # b"` means the author wrote
  * the hash), so the cut must happen only when the line is not inside a quote:
  * a comment is ` #` seen from a spot no quote opened. Quotes entered and left
- * are single or double, and a backslash-quote inside a double-quoted scalar
- * is escaped, not closing.
+ * are single or double, and inside a double-quoted scalar a backslash escapes
+ * the character after it. Escaping is carried as scan state rather than read
+ * back off the previous character: the character before a closing quote may
+ * itself be an escaped backslash (`"a\\"`), which a one-character look-back
+ * would misread as escaping the quote.
  */
 function withoutComment(text: string): string {
   if (text.trimStart().startsWith("#")) return "";
   let inDouble = false;
   let inSingle = false;
+  let escaped = false;
   for (let index = 0; index < text.length; index++) {
     const char = text[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inDouble && char === "\\") {
+      escaped = true;
+      continue;
+    }
     if (char === '"' && !inSingle) {
-      if (inDouble && text[index - 1] === "\\") continue;
       inDouble = !inDouble;
       continue;
     }

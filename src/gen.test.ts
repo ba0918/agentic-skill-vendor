@@ -829,6 +829,22 @@ test("a version written bare with a comment is read without the comment", async 
   });
 });
 
+test("a version ending in an escaped backslash is read without the comment", async () => {
+  await withGoodTree(async (root) => {
+    // In a double-quoted scalar `\\` is an escaped backslash, so the quote
+    // after it closes the value and the ` #` beyond it starts a comment.
+    // Judging the quote by the one character before it reads that quote as
+    // escaped, leaves the scan inside the value, and swallows the comment
+    // into it.
+    await fs.writeFile(
+      `${root}/contracts/verdict-format.md`,
+      '---\nversion: "a\\\\" # note\n---\n\nBody\n',
+    );
+    const contracts = await readContracts(root, ["verdict-format"]);
+    expect(contracts.get("verdict-format")?.version).toStrictEqual("a\\\\");
+  });
+});
+
 test("a version written without a space after the colon is read", async () => {
   await withGoodTree(async (root) => {
     // `version:1.2.0` is valid YAML and reads the same as `version: 1.2.0`;
