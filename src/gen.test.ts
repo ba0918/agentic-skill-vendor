@@ -312,6 +312,10 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
     const result = await runCli(["gen", "--root", root]);
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
+    // Named as the directory itself: readContracts asks what stands at
+    // contracts/ once, before any contract below it is looked up, so the
+    // refusal quotes the link the run was pointed at rather than whichever
+    // file happened to be reached through it.
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
@@ -332,10 +336,6 @@ test("accept refuses a contracts directory symlinked outside the tree", async ()
     const result = await runCli(["accept", "verdict-format", "--root", root]);
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
-    // Named as the directory itself: readContracts asks what stands at
-    // contracts/ once, before any contract below it is looked up, so the
-    // refusal quotes the link the run was pointed at rather than whichever
-    // file happened to be reached through it.
     expect(result.stderr.join("\n")).toContain(
       "symlink is not allowed inside the tree: contracts",
     );
