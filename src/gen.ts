@@ -240,7 +240,20 @@ export async function planExpansion(
     const expected = new Set<string>();
     for (const id of skill.contracts) {
       const contract = contracts.get(id);
-      if (contract === null || contract === undefined) continue;
+      // gen and accept refuse a missing canonical text before planning, so
+      // neither spelling is reachable from them; a future caller that forgets
+      // the acceptance check is refused here instead of writing a manifest
+      // that silently dropped the contract.
+      if (contract === undefined) {
+        throw new ConfigError(
+          `cannot plan ${id}: its canonical text was never read`,
+        );
+      }
+      if (contract === null) {
+        throw new ConfigError(
+          `cannot plan ${id}: ${contractPath(id)} does not exist`,
+        );
+      }
       expected.add(`${id}.md`);
       files.push({
         site: `${vendorDirOf(skill.name)}/${id}.md`,

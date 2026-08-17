@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { ConfigError } from "./errors.ts";
+import { planExpansion } from "./gen.ts";
 import {
   escapeThrough,
   PERMISSIONS_APPLY,
@@ -33,6 +35,22 @@ async function writeManifest(root: string, manifest: Json): Promise<void> {
 function kindsOf(lines: string[]): string[] {
   return lines.map((line) => line.slice(0, line.indexOf(":")));
 }
+
+test("planning over a declared contract whose text is missing refuses instead of skipping", async () => {
+  await withGoodTree(async (root) => {
+    // gen and accept refuse this shape before planning; the refusal here is
+    // for a future caller that forgets the acceptance check — a plan that
+    // silently dropped the contract would write a manifest nobody declared.
+    await expect(
+      planExpansion(
+        root,
+        [{ name: "release-notes", contracts: ["changelog-entry"] }],
+        new Map([["changelog-entry", null]]),
+        {},
+      ),
+    ).rejects.toThrow(ConfigError);
+  });
+});
 
 test("a contracts path that is not a directory is refused with the fact named", async () => {
   await withGoodTree(async (root) => {
