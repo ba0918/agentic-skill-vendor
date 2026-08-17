@@ -28,7 +28,8 @@ import type { Stats } from "node:fs";
 import { ConfigError, describeCause } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
 
-/** True when the reason a file system call failed is that nothing is there.
+/**
+ * True when the reason a file system call failed is that nothing is there.
  *
  * The runtimes agree on the errno and disagree on everything around it, so the
  * code is what this reads. Every other failure means the tool could not find

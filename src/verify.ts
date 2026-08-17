@@ -27,9 +27,11 @@ import {
   vendorHeader,
 } from "./gen.ts";
 
-/** True when `bytes` opens with `prefix`. Local to this one comparison: the only
- * raw byte-prefix match the tool makes, so it is kept beside its sole caller
- * rather than lifted to walk.ts beside the other byte primitives. */
+/**
+ * True when `bytes` opens with `prefix`. Local to this one comparison: the
+ * only raw byte-prefix match the tool makes, so it is kept beside its sole
+ * caller rather than lifted to walk.ts beside the other byte primitives.
+ */
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (bytes.length < prefix.length) return false;
   for (let index = 0; index < prefix.length; index++) {

@@ -195,7 +195,8 @@ export async function replaceWithSymlink(
   await fs.symlink(target, path);
 }
 
-/** Maps every entry under `root` to a description of its content: the SHA-256
+/**
+ * Maps every entry under `root` to a description of its content: the SHA-256
  * of a file's bytes, or `symlink:<target>` for a link. Comparing two snapshots
  * is how a test states "this run changed nothing", and links are described
  * rather than followed so that a link swapped for a file still shows up as a
