@@ -125,15 +125,18 @@ async function resolveLink(path: string, site: string): Promise<string> {
   // Resolving as far up as anything exists brings both spellings to one; the
   // components that do not exist are kept, so the resolved text still names
   // the same target the link names.
-  const { prefix, suffix } = await deepestExistingPrefix(dirNameOf(normalized));
-  if (prefix === null) return normalized;
-  const tail = [suffix, baseNameOf(normalized)].filter((part) => part !== "");
-  return [prefix, ...tail].join("/");
+  const ancestor = await deepestExistingPrefix(dirNameOf(normalized));
+  if (ancestor === null) return normalized;
+  const tail = [ancestor.suffix, baseNameOf(normalized)].filter(
+    (part) => part !== "",
+  );
+  return [ancestor.prefix, ...tail].join("/");
 }
 
 /**
  * The realpath of `path` or of its nearest existing ancestor, with the
- * components that do not exist kept beside it.
+ * components that do not exist kept beside it — or null when no ancestor
+ * resolves at all, leaving the caller its unresolved spelling.
  *
  * `realpath` answers nothing for a path that does not exist. Asked for the
  * deepest ancestor that does exist instead, a dangling target still gets its
@@ -142,7 +145,7 @@ async function resolveLink(path: string, site: string): Promise<string> {
  */
 async function deepestExistingPrefix(
   path: string,
-): Promise<{ prefix: string | null; suffix: string }> {
+): Promise<{ prefix: string; suffix: string } | null> {
   let candidate = path;
   const missing: string[] = [];
   while (true) {
@@ -152,9 +155,7 @@ async function deepestExistingPrefix(
     // spells a hostile dangling target inside the skill exactly when lint
     // runs from there. "." itself stays walkable: it is the legitimate end of
     // a relative chain, whose base the working directory genuinely is.
-    if (candidate === "") {
-      return { prefix: null, suffix: missing.join("/") };
-    }
+    if (candidate === "") return null;
     const real = await realPathOrNull(candidate);
     if (real !== null) {
       return {
@@ -163,9 +164,7 @@ async function deepestExistingPrefix(
       };
     }
     const parent = dirNameOf(candidate);
-    if (parent === candidate) {
-      return { prefix: null, suffix: missing.join("/") };
-    }
+    if (parent === candidate) return null;
     missing.push(baseNameOf(candidate));
     candidate = parent;
   }
