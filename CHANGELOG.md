@@ -130,6 +130,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing are unchanged in every case — a tree with no `skills/` still adopts cleanly, a
   contract with no conformance tests still pins none, a missing canonical file is still a
   closure gap, and a missing copy is still drift.
+- A skill whose directory is named `__proto__` is recorded like any other. Skill names are
+  directory names and nothing validates them, but assigning one into an ordinary object
+  writes that object's prototype instead of adding a key, so the skill vanished from the
+  lock: `gen` wrote a manifest without it at exit `0`, and `verify`, building its expectation
+  the same way, called that clean. The same rebuilding happens when a manifest is rendered
+  again, so a lock already holding such a key lost it on the next write. The maps keyed by
+  names the tree supplies are made without a prototype now; no rule about what a skill may be
+  called is introduced. A contract id that names an inherited property — `constructor` — is
+  affected the same way in reverse: looking one up found `Object`'s own constructor instead
+  of nothing, and an unaccepted contract was reported as text drifting from a digest of
+  `undefined` rather than as never accepted.
+- A manifest whose `lock.dependencies` is not an object is refused with exit `2` rather than
+  read as though it held nothing, which is how `lock` and `lock.resolutions` were already
+  treated. It reached `verify`, which reported such a manifest as a violation at exit `1`,
+  and `gen`, which rewrote it at exit `0`.
 - A path the run would write at is refused unless it is a regular file to be replaced or
   nothing at all, and the temporary file beside it is held to the same rule. Writing goes
   through that temporary, so a named pipe standing at either one was opened for writing and
