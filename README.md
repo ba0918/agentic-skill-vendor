@@ -118,6 +118,12 @@ id — pins live in the lock, never in a skill.
 different kind of file system entity than expected stops the run instead of reading as
 absent; writes are atomic; identity is verified byte for byte.
 
+**Violation kinds** — every reported line opens with a stable kind prefix: `closure`,
+`unresolved` and `unaccepted-drift` from the acceptance check (run by `gen`, `verify` and
+`accept` alike); `drift`, `extra`, `manifest` and `conformance-mismatch` from `verify`;
+`parent-escape`, `absolute-path` and `symlink-escape` from `lint-selfcontain`; `self-test`
+from `self-test`.
+
 ## Development
 
 The development toolchain is Bun, with Biome for lint and format; `PROJECT.md` records the
