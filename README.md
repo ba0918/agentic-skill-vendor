@@ -1,4 +1,4 @@
-# agentic-skill-shared-reference-vendoring
+# agentic-skill-vendor
 
 A general-purpose tool that vendors shared reference documents into the skills of a skill
 repository: it distributes each document deterministically and guarantees that every

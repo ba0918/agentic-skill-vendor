@@ -17,7 +17,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ba0918/agentic-skill-shared-reference-vendoring.git"
+    "url": "git+https://github.com/ba0918/agentic-skill-vendor.git"
   },
   "scripts": {
     "test": "bun test",
