@@ -9,6 +9,16 @@ on:
   push:
     branches: [main]
 
+# One release at a time, and never cancelled. Two pushes landing close together
+# would otherwise both read the same version before either had tagged it, and
+# the later run would tag and publish from its own commit — so what reached npm
+# would not be the tree the version bump named. Cancelling instead of queueing
+# would trade that for a run stopped between the tag and the publish, which is
+# the half-finished release this design exists to prevent.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 # Read by default. The two jobs that need more say so themselves, and neither
 # holds a long-lived secret: the tag is pushed with the run's own token and the
 # publish is authorized by this run's OIDC identity.
@@ -45,11 +55,24 @@ jobs:
           if [ -n "$(git ls-remote --tags origin "refs/tags/v$version")" ]; then
             tagged=yes
           fi
-          # A version that was never published makes `npm view` exit non-zero.
-          # That is the answer to the question, not a failure of the run.
+          # A version that was never published makes `npm view` answer E404, and
+          # that is an answer rather than a failure. Any other non-zero exit —
+          # the registry unreachable, something in the way — is not an answer,
+          # and reading it as "not published" would tag a version whose publish
+          # then collides with the one already there. That leaves a tag with
+          # nothing published: the half-finished release this workflow exists to
+          # prevent, arrived at by the workflow itself.
           published=no
-          if npm view "$name@$version" version >/dev/null 2>&1; then
+          if answer="$(npm view "$name@$version" version 2>&1)"; then
             published=yes
+          else
+            case "$answer" in
+              *E404*) published=no ;;
+              *)
+                echo "::error::npm view could not answer whether $name@$version is published: $answer"
+                exit 1
+                ;;
+            esac
           fi
           echo "version $version — tagged: $tagged, published: $published"
 
