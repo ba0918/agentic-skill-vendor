@@ -1,7 +1,14 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
   "files": {
-    "includes": ["**", "!node_modules", "!dist", "!fixtures", "!**/*.md"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!dist",
+      "!fixtures",
+      "!.agents",
+      "!**/*.md"
+    ]
   },
   "formatter": {
     "enabled": true,

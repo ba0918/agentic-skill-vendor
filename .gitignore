@@ -9,6 +9,16 @@
 /node_modules/
 /dist/
 
+# Credential-shaped files. None exist today and the tool reads no environment,
+# so this is template hygiene: the day one is dropped beside the repo, it is a
+# mistake until the ignore rule says otherwise.
+.env
+.env.*
+*.pem
+*.key
+credentials.*
+secrets.*
+
 # Written by Deno as a side effect of running the tool with `deno run`. The
 # tool runs on that runtime but is not developed against it, so the lock is a
 # local artifact rather than part of the project.
