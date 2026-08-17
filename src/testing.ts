@@ -135,6 +135,23 @@ export async function withUnreadable<T>(
   }
 }
 
+/**
+ * Moves what sits at `relative` out of the tree and leaves a link to it behind.
+ * Answers with the directory that now holds the moved content, so a case can
+ * state that nothing outside the tree was read through or written to.
+ */
+export async function escapeThrough(
+  root: string,
+  relative: string,
+): Promise<string> {
+  const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+  await fs.mkdir(outside, { recursive: true });
+  const target = `${outside}/${relative.replaceAll("/", "-")}`;
+  await fs.rename(`${root}/${relative}`, target);
+  await fs.symlink(target, `${root}/${relative}`);
+  return outside;
+}
+
 /** Replaces `path` with a symlink to `target`. */
 export async function replaceWithSymlink(
   path: string,

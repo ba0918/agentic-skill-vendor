@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
+  escapeThrough,
   replaceWithSymlink,
   runCli,
   snapshotTree,
@@ -288,20 +289,6 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
     expect(await snapshotTree(root)).toStrictEqual(treeBefore);
   });
 });
-
-/**
- * Moves what sits at `relative` out of the tree and leaves a link to it behind.
- * Answers with the directory that now holds the moved content, so a case can
- * state that nothing outside the tree was read through or written to.
- */
-async function escapeThrough(root: string, relative: string): Promise<string> {
-  const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
-  await fs.mkdir(outside, { recursive: true });
-  const target = `${outside}/${relative.replaceAll("/", "-")}`;
-  await fs.rename(`${root}/${relative}`, target);
-  await fs.symlink(target, `${root}/${relative}`);
-  return outside;
-}
 
 test("accept refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {

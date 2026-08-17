@@ -4,8 +4,16 @@ import {
   collectConformanceEntries,
   conformanceDigest,
   conformanceDigestOfEntries,
+  conformanceDirectory,
 } from "./conformance.ts";
-import { replaceWithSymlink, withGoodTree, writeFile } from "./testing.ts";
+import {
+  escapeThrough,
+  rejectedBy,
+  replaceWithSymlink,
+  snapshotTree,
+  withGoodTree,
+  writeFile,
+} from "./testing.ts";
 
 const encoder = new TextEncoder();
 
@@ -155,5 +163,36 @@ test("a conformance directory left empty by the exclusion counts as absent", asy
 test("a contract with no conformance directory has no conformance digest", async () => {
   await withGoodTree(async (root) => {
     expect(await conformanceDigest(root, "verdict-format")).toStrictEqual(null);
+  });
+});
+
+// Collecting a conformance tree keeps its own boundary, not the boundary of
+// whichever command called it. Every command's way into a contract now refuses
+// a planted link before reaching here, so this states the property that survives
+// that: called on its own, this function still refuses rather than reading
+// through. Left to the callers, the guarantee would hold only for as long as
+// every one of them happens to look first.
+
+test("a conformance tree reached through a symlinked parent is refused, never digested", async () => {
+  await withGoodTree(async (root) => {
+    // The link is one level above the conformance directory, so the directory
+    // itself reads as an ordinary directory: what is refused has to be the way
+    // down to it. Following it would hand back the bytes of a tree sitting
+    // outside the boundary, as though this tree held them.
+    const outside = await escapeThrough(root, "contracts/changelog-entry");
+    const outsideBefore = await snapshotTree(outside);
+
+    const error = await rejectedBy(
+      () =>
+        collectConformanceEntries(
+          root,
+          conformanceDirectory("changelog-entry"),
+        ),
+      ConfigError,
+    );
+    expect(error.message).toContain(
+      "symlink is not allowed inside the tree: contracts/changelog-entry/conformance",
+    );
+    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
   });
 });
