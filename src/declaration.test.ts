@@ -528,3 +528,45 @@ test("a skill directory removed altogether is still a removal", async () => {
     expect(Object.keys(lock.dependencies)).toStrictEqual(["release-notes"]);
   });
 });
+
+test("a skill whose name is a prototype key survives the whole round trip", async () => {
+  await withGoodTree(async (root) => {
+    // `__proto__` is an ordinary directory name on disk, and skill names are
+    // directory names — nothing validates them, and nothing should: a naming
+    // rule invented here would constrain a layout the specification never
+    // constrained. Assigned into a plain object, though, that one name writes
+    // the object's prototype instead of a key, and the skill disappears from
+    // both Object.keys and JSON: the lock was written without it at exit 0 and
+    // verify, building its expectation the same way, called that clean.
+    await fs.cp(`${root}/skills/review-writer`, `${root}/skills/__proto__`, {
+      recursive: true,
+    });
+    await fs.writeFile(
+      `${root}/skills/__proto__/SKILL.md`,
+      "---\nname: proto\ndescription: d\nmetadata:\n  contracts:\n    - verdict-format\n---\n\n# P\n",
+    );
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+
+    const raw = await fs.readFile(`${root}/vendor-manifest.json`, "utf8");
+    const dependencies = JSON.parse(raw).lock.dependencies;
+    expect(raw).toContain('"__proto__"');
+    expect(
+      Object.prototype.hasOwnProperty.call(dependencies, "__proto__"),
+    ).toStrictEqual(true);
+    expect(Object.keys(dependencies)).toStrictEqual([
+      "__proto__",
+      "release-notes",
+      "review-writer",
+    ]);
+    expect(dependencies["__proto__"]).toStrictEqual(["verdict-format"]);
+
+    const verified = await runCli(["verify", "--root", root]);
+    expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect(
+      await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
+    ).toStrictEqual(raw);
+  });
+});

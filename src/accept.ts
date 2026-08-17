@@ -63,7 +63,10 @@ export async function commandAccept(
   );
   const contracts = await readContracts(root, wanted);
 
-  const resolutions: Resolutions = { ...previous };
+  // Keyed by names the tree supplies, so the map is made without a prototype:
+  // assigned into an ordinary object, the name `__proto__` writes the object's
+  // prototype instead of a key and the entry is gone from every later reading.
+  const resolutions: Resolutions = Object.assign(Object.create(null), previous);
   const records: AcceptanceRecord[] = [];
   for (const id of ids) {
     const contract = contracts.get(id) ?? null;

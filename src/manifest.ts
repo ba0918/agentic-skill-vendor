@@ -69,7 +69,10 @@ function withSortedKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withSortedKeys);
   if (value === null || typeof value !== "object") return value;
   const source = value as Record<string, unknown>;
-  const sorted: Record<string, unknown> = {};
+  // Keyed by names the tree supplies, so the map is made without a prototype:
+  // assigned into an ordinary object, the name `__proto__` writes the object's
+  // prototype instead of a key and the entry is gone from every later reading.
+  const sorted: Record<string, unknown> = Object.create(null);
   for (const key of Object.keys(source).sort(compareStrings)) {
     sorted[key] = withSortedKeys(source[key]);
   }
@@ -90,7 +93,7 @@ export function buildManifest(
   resolutions: Resolutions,
   present: string[],
 ): unknown {
-  const contracts: Record<string, { source: string }> = {};
+  const contracts: Record<string, { source: string }> = Object.create(null);
   for (const id of [...present].sort(compareStrings)) {
     contracts[id] = { source: contractPath(id) };
   }
@@ -193,7 +196,7 @@ function validateResolutions(lock: Record<string, unknown>): Resolutions {
   const raw = lock["resolutions"];
   if (raw === undefined) return {};
   const entries = pickObject(raw, "lock.resolutions");
-  const resolutions: Resolutions = {};
+  const resolutions: Resolutions = Object.create(null);
   for (const id of Object.keys(entries)) {
     assertValidContractId(id, `${MANIFEST_FILE}: lock.resolutions`);
     const entry = pickObject(entries[id], `lock.resolutions.${id}`);

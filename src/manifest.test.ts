@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
-import { readLock, type Resolutions } from "./manifest.ts";
+import { canonicalJson, readLock, type Resolutions } from "./manifest.ts";
 import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const MANIFEST = "vendor-manifest.json";
@@ -276,5 +276,31 @@ test("a manifest that is a named pipe is refused rather than opened", async () =
         `${MANIFEST}: not a regular file`,
       );
     }
+  });
+});
+
+test("the canonical rendering keeps a key that names a prototype", async () => {
+  // Sorting rebuilds every object it renders, and rebuilding is where the key
+  // is lost: assigned into a plain object it writes the prototype instead. A
+  // manifest read back and rendered again would silently shed the entry.
+  const parsed = JSON.parse(
+    '{"lock":{"dependencies":{"__proto__":["a"],"z":["b"]}}}',
+  );
+  const rendered = canonicalJson(parsed);
+  expect(rendered).toContain('"__proto__"');
+  expect(JSON.parse(rendered).lock.dependencies["__proto__"]).toStrictEqual([
+    "a",
+  ]);
+});
+
+test("a lock recording a skill named for a prototype key reads it back", async () => {
+  await withEmptyDir(async (root) => {
+    await fs.writeFile(
+      `${root}/${MANIFEST}`,
+      '{"lock":{"dependencies":{"__proto__":["verdict-format"]},"resolutions":{}}}',
+    );
+    expect([...(await readLock(root)).recordedSkills]).toStrictEqual([
+      "__proto__",
+    ]);
   });
 });

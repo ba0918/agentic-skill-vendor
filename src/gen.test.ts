@@ -656,3 +656,37 @@ test("gen and accept refuse a named pipe standing where the run would write", as
     }
   }
 }, 15000);
+
+test("a contract named for an inherited property is reported as unresolved, not as drift against nothing", async () => {
+  await withGoodTree(async (root) => {
+    // `constructor` is a usable contract id, and looking it up in a plain
+    // object finds Object's own constructor rather than nothing. The run then
+    // reads a resolution that was never recorded, and says the text drifted
+    // from a digest of `undefined` instead of saying it was never accepted.
+    await fs.copyFile(
+      `${root}/contracts/verdict-format.md`,
+      `${root}/contracts/constructor.md`,
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - changelog-entry\n",
+        "    - changelog-entry\n    - constructor\n",
+      ),
+    );
+
+    // Asked of every command that reads the lock, including the one that
+    // works from its own copy of it.
+    for (const command of [
+      ["gen"],
+      ["verify"],
+      ["accept", "changelog-entry"],
+    ]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(1);
+      expect(kindsOf(result.stdout)[0], command[0]).toStrictEqual("unresolved");
+      expect(result.stdout[0], command[0]).toContain("constructor");
+    }
+  });
+});
