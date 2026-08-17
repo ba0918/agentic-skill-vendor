@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { dirNameOf } from "./walk.ts";
 import {
   replaceWithSymlink,
@@ -251,4 +253,19 @@ test("the directory of a path naming no directory is the current one", () => {
     "skills/release-notes",
   );
   expect(dirNameOf("notes.md")).toStrictEqual(".");
+});
+
+test("a named pipe inside a skill is refused rather than scanned", async () => {
+  await withGoodTree(async (root) => {
+    // The linter reads every byte of every file it finds. A pipe read as one
+    // blocks until a writer appears, so the run never comes back — measured
+    // before this was closed.
+    const site = "skills/release-notes/pipe.md";
+    await promisify(execFile)("mkfifo", [`${root}/${site}`]);
+
+    const result = await runCli(["lint-selfcontain", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(`${site}: not a regular file`);
+  });
 });

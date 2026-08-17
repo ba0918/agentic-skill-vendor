@@ -35,6 +35,7 @@ export interface DirectoryEntry {
   name: string;
   isSymlink: boolean;
   isDirectory: boolean;
+  isRegularFile: boolean;
 }
 
 /**
@@ -82,6 +83,7 @@ export async function readEntries(
       name,
       isSymlink: info.isSymbolicLink(),
       isDirectory: info.isDirectory(),
+      isRegularFile: info.isFile(),
     });
   }
   return entries;
@@ -173,8 +175,18 @@ async function walkInto(
         `symlink is not allowed inside a scanned tree: ${named}`,
       );
     }
-    if (entry.isDirectory) await walkInto(path, named, relative, into);
-    else into.push(relative);
+    if (entry.isDirectory) {
+      await walkInto(path, named, relative, into);
+      continue;
+    }
+    // Collected to be read in full, so an entry that cannot be read as a file
+    // is refused here rather than carried out of the walk. A named pipe taken
+    // for an ordinary file does not fail on the read — it blocks the run until
+    // something on the other side writes, which never comes.
+    if (!entry.isRegularFile) {
+      throw new ConfigError(`${named}: not a regular file`);
+    }
+    into.push(relative);
   }
 }
 

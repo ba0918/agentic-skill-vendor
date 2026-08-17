@@ -154,6 +154,11 @@ async function lintInto(
     }
     if (entry.isDirectory) {
       await lintInto(root, path, site, violations);
+    } else if (!entry.isRegularFile) {
+      // Scanned by reading every byte, so an entry that is not a file the run
+      // can read is refused rather than scanned. Reading a named pipe blocks
+      // until a writer appears, and the linter would never come back.
+      throw new ConfigError(`${site}: not a regular file`);
     } else {
       violations.push(
         ...lintLines(site, decodeForScan(await readBytes(path, site))),

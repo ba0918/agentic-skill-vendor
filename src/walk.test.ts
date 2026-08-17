@@ -468,3 +468,19 @@ test("a tree holding none of the optional paths is a tree, not a refusal", async
     ).toStrictEqual({ dependencies: {}, resolutions: {} });
   });
 });
+
+test("a named pipe inside a scanned tree is refused rather than read", async () => {
+  await withGoodTree(async (root) => {
+    // Not a wrong answer but no answer at all: read as an ordinary file, a pipe
+    // does not fail — it blocks until something on the other side writes, and
+    // nothing ever does. Measured before this was closed, `verify` on this tree
+    // never returned.
+    const site = "contracts/changelog-entry/conformance/cases/pipe.md";
+    await promisify(execFile)("mkfifo", [`${root}/${site}`]);
+
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.stderr.join("\n")).toContain(`${site}: not a regular file`);
+  });
+});
