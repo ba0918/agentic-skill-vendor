@@ -307,3 +307,9 @@ test("a lock recording a skill named for a prototype key reads it back", async (
     ]);
   });
 });
+
+test("a lock whose dependencies are not an object is refused", async () => {
+  await expect(readWritten('{"lock":{"dependencies":123}}')).rejects.toThrow(
+    ConfigError,
+  );
+});
