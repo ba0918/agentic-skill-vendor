@@ -130,6 +130,22 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing are unchanged in every case — a tree with no `skills/` still adopts cleanly, a
   contract with no conformance tests still pins none, a missing canonical file is still a
   closure gap, and a missing copy is still drift.
+- A path the run would write at is refused unless it is a regular file to be replaced or
+  nothing at all, and the temporary file beside it is held to the same rule. Writing goes
+  through that temporary, so a named pipe standing at either one was opened for writing and
+  waited for a reader that never came: `gen` and `accept` stopped answering, and where the
+  pipe stood at the manifest's temporary path `verify` called the tree clean while they did.
+  A pipe standing where a vendored copy belongs was not a hang but a silent replacement —
+  the copy was renamed over it at exit `0` while `verify` refused the same tree. Nothing at
+  such a path is removed by the refusal; the run declines to write, and says where.
+- A name recorded in the lock as a skill is refused when something other than a directory
+  stands at it, naming the path. Replacing `skills/<name>/` with a file of the same name read
+  as "no such skill": the lock was rewritten without it at exit `0` and the vendored copies
+  it accounted for were deleted, so a whole skill retired because a file appeared over its
+  directory. Only names the lock already records are held to this — a stray file beside the
+  skills, a `README.md` and the like, is ignored exactly as before, and no rule about what
+  may sit under `skills/` is introduced. A skill directory removed outright is still a
+  removal, and the lock still follows it.
 - A path the run would read is refused unless it is a regular file, rather than opened and
   read. A named pipe read as an ordinary file does not fail: it blocks until something on the
   other side writes, so one placed in a conformance tree left `verify` running forever, one
