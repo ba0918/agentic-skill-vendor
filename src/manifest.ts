@@ -135,14 +135,34 @@ export async function presentContractIds(
   return present;
 }
 
-/** The resolutions currently recorded, or none when there is no manifest yet. */
-export async function readResolutions(root: string): Promise<Resolutions> {
+/**
+ * What the manifest records about the tree it was written from.
+ *
+ * Read as one document because it is one: a command that asks what text was
+ * pinned and a command that asks which names were skills must not be able to
+ * see two different manifests.
+ */
+export interface Lock {
+  /**
+   * The skills the manifest records a dependency list for — the tree's own
+   * memory of which names under skills/ were skill directories when it was
+   * last written. It is what tells a name that has stopped being a directory
+   * apart from a file that was never a skill at all.
+   */
+  recordedSkills: ReadonlySet<string>;
+  resolutions: Resolutions;
+}
+
+/** The lock currently recorded, or an empty one when there is no manifest yet. */
+export async function readLock(root: string): Promise<Lock> {
   await assertPlainChain(root, MANIFEST_FILE);
   // Asked before the file is opened, and this is the read that makes it matter:
   // every command reads the lock before it does anything else, so a named pipe
   // standing here blocked all of them where nothing else in the run had yet
   // looked at the path. A tree with no manifest still has no resolutions.
-  if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) return {};
+  if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) {
+    return { recordedSkills: new Set(), resolutions: {} };
+  }
   let bytes: Uint8Array;
   try {
     bytes = await fs.readFile(`${root}/${MANIFEST_FILE}`);
@@ -160,11 +180,16 @@ export async function readResolutions(root: string): Promise<Resolutions> {
       `${MANIFEST_FILE}: not readable JSON: ${describeCause(cause)}`,
     );
   }
-  return validateResolutions(parsed);
+  const lock = pickObject(pickObject(parsed, "")["lock"], "lock");
+  return {
+    recordedSkills: new Set(
+      Object.keys(pickObject(lock["dependencies"], "lock.dependencies")),
+    ),
+    resolutions: validateResolutions(lock),
+  };
 }
 
-function validateResolutions(parsed: unknown): Resolutions {
-  const lock = pickObject(pickObject(parsed, "")["lock"], "lock");
+function validateResolutions(lock: Record<string, unknown>): Resolutions {
   const raw = lock["resolutions"];
   if (raw === undefined) return {};
   const entries = pickObject(raw, "lock.resolutions");

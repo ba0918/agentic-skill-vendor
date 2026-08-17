@@ -448,3 +448,83 @@ test("a SKILL.md replaced by a symlink is refused as a link, not as a kind", asy
     );
   });
 });
+
+// A skill directory replaced by something that is not a directory. Skipped as
+// "not a skill", the declarations it held stop being seen, so the lock is
+// rewritten without it and its vendored copies go with it — a whole skill
+// retired by a file appearing over it.
+//
+// What separates that from a stray file someone dropped under skills/ is the
+// lock: it records the skills the tree had. A name it names must be a
+// directory; a name it has never heard of is not this tool's business.
+
+const CLOBBERED = "skills/review-writer";
+
+test("a name the lock records must be a directory, whatever now stands there", async () => {
+  for (const plant of ["file", "pipe"] as const) {
+    await withGoodTree(async (root) => {
+      await fs.rm(`${root}/${CLOBBERED}`, { recursive: true });
+      if (plant === "file") {
+        await fs.writeFile(`${root}/${CLOBBERED}`, "not a directory\n");
+      } else {
+        await promisify(execFile)("mkfifo", [`${root}/${CLOBBERED}`]);
+      }
+      const manifestBefore = await fs.readFile(
+        `${root}/vendor-manifest.json`,
+        "utf8",
+      );
+
+      for (const command of [
+        ["gen"],
+        ["verify"],
+        ["accept", "changelog-entry"],
+      ]) {
+        const where = `${plant} / ${command[0]}`;
+        const result = await runCli([...command, "--root", root]);
+        expect(result.code, where).toStrictEqual(2);
+        expect(result.stdout, where).toStrictEqual([]);
+        expect(result.stderr.join("\n"), where).toContain(
+          `${CLOBBERED} is recorded in the lock but is not a directory`,
+        );
+      }
+      expect(
+        await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
+      ).toStrictEqual(manifestBefore);
+    });
+  }
+});
+
+test("a stray file under skills that the lock never named is left alone", async () => {
+  await withGoodTree(async (root) => {
+    // A consuming repository may keep anything it likes beside its skills. No
+    // layout rule is being declared here — only that a skill the lock knows
+    // about cannot quietly stop being one.
+    await fs.writeFile(`${root}/skills/README.md`, "# skills\n");
+    const before = await snapshotTree(root);
+
+    for (const command of [
+      ["gen"],
+      ["verify"],
+      ["accept", "changelog-entry"],
+    ]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(0);
+    }
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("a skill directory removed altogether is still a removal", async () => {
+  await withGoodTree(async (root) => {
+    // The legitimate counterpart, and the reason the guard asks what stands
+    // there rather than whether the name is still present: a skill that was
+    // deleted is a change to the tree the lock is meant to follow.
+    await fs.rm(`${root}/${CLOBBERED}`, { recursive: true });
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const lock = JSON.parse(
+      await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
+    ).lock;
+    expect(Object.keys(lock.dependencies)).toStrictEqual(["release-notes"]);
+  });
+});

@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
-import { readResolutions, type Resolutions } from "./manifest.ts";
+import { readLock, type Resolutions } from "./manifest.ts";
 import { runCli, snapshotTree, withEmptyDir, withGoodTree } from "./testing.ts";
 
 const MANIFEST = "vendor-manifest.json";
@@ -162,7 +162,7 @@ test("provenance refuses a contract's own directory symlinked outside the tree",
 async function readWritten(manifest: string): Promise<Resolutions> {
   return await withEmptyDir(async (root) => {
     await fs.writeFile(`${root}/${MANIFEST}`, manifest);
-    return await readResolutions(root);
+    return (await readLock(root)).resolutions;
   });
 }
 
@@ -173,7 +173,9 @@ function manifestWith(resolutions: string): string {
 const DIGEST = `sha256:${"0".repeat(64)}`;
 
 test("a tree with no manifest has no resolutions", async () => {
-  expect(await withEmptyDir((root) => readResolutions(root))).toStrictEqual({});
+  expect(
+    await withEmptyDir(async (root) => (await readLock(root)).resolutions),
+  ).toStrictEqual({});
 });
 
 test("a recorded resolution is read back whole", async () => {

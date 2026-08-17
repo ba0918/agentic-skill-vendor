@@ -23,7 +23,7 @@ import {
   canonicalJson,
   MANIFEST_FILE,
   presentContractIds,
-  readResolutions,
+  readLock,
   type Resolutions,
 } from "./manifest.ts";
 import {
@@ -156,8 +156,8 @@ async function conformanceViolations(
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   await assertTreeRoot(root);
-  const skills = await readSkills(root);
-  const resolutions = await readResolutions(root);
+  const { recordedSkills, resolutions } = await readLock(root);
+  const skills = await readSkills(root, recordedSkills);
   const contracts = await readContracts(root, declaredIds(skills));
 
   const violations = [

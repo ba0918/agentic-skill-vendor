@@ -43,7 +43,7 @@ import {
   GENERATOR,
   MANIFEST_FILE,
   presentContractIds,
-  readResolutions,
+  readLock,
   type Resolutions,
 } from "./manifest.ts";
 
@@ -344,8 +344,8 @@ export function acceptanceViolations(
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
   await assertTreeRoot(root);
-  const skills = await readSkills(root);
-  const resolutions = await readResolutions(root);
+  const { recordedSkills, resolutions } = await readLock(root);
+  const skills = await readSkills(root, recordedSkills);
   const contracts = await readContracts(root, declaredIds(skills));
 
   const violations = acceptanceViolations(skills, contracts, resolutions);

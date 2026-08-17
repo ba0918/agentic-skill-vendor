@@ -14,11 +14,7 @@ import {
 import { conformanceDigest } from "./conformance.ts";
 import { assertTreeRoot } from "./walk.ts";
 import { declaredIds, dependentsOf, readSkills } from "./declaration.ts";
-import {
-  readResolutions,
-  type Resolution,
-  type Resolutions,
-} from "./manifest.ts";
+import { readLock, type Resolution, type Resolutions } from "./manifest.ts";
 import {
   acceptanceViolations,
   executePlan,
@@ -60,8 +56,8 @@ export async function commandAccept(
   }
 
   await assertTreeRoot(root);
-  const skills = await readSkills(root);
-  const previous = await readResolutions(root);
+  const { recordedSkills, resolutions: previous } = await readLock(root);
+  const skills = await readSkills(root, recordedSkills);
   const wanted = [...new Set([...ids, ...declaredIds(skills)])].sort(
     compareStrings,
   );

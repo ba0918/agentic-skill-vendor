@@ -194,8 +194,24 @@ export interface SkillDeclaration {
   contracts: string[];
 }
 
-/** Every skill directly under skills/, with the contracts it declares. */
-export async function readSkills(root: string): Promise<SkillDeclaration[]> {
+/**
+ * Every skill directly under skills/, with the contracts it declares.
+ *
+ * `recorded` names the skills the lock remembers. A name it holds must still
+ * be a directory: anything else standing there — a file, a pipe — is read as
+ * "no such skill", and the run then rewrites the lock without it and clears
+ * the vendored copies it accounted for, retiring a whole skill because
+ * something appeared over its directory.
+ *
+ * A name the lock has never held is left alone. A consuming repository may
+ * keep a README or anything else beside its skills, and no rule about what
+ * may sit under skills/ is being declared here — only that a skill the tree
+ * already knew about cannot quietly stop being one.
+ */
+export async function readSkills(
+  root: string,
+  recorded: ReadonlySet<string>,
+): Promise<SkillDeclaration[]> {
   if (!(await isDirectoryOrAbsent(root, SKILLS_DIR))) return [];
   const skillsDir = `${root}/${SKILLS_DIR}`;
   const names: string[] = [];
@@ -205,7 +221,15 @@ export async function readSkills(root: string): Promise<SkillDeclaration[]> {
         `symlink is not allowed inside the tree: ${SKILLS_DIR}/${entry.name}`,
       );
     }
-    if (entry.isDirectory) names.push(entry.name);
+    if (entry.isDirectory) {
+      names.push(entry.name);
+      continue;
+    }
+    if (recorded.has(entry.name)) {
+      throw new ConfigError(
+        `${SKILLS_DIR}/${entry.name} is recorded in the lock but is not a directory`,
+      );
+    }
   }
 
   const skills: SkillDeclaration[] = [];
