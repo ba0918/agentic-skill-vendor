@@ -420,19 +420,65 @@ async function deriveResolutions(
 function rewriteReport(recorded: Resolutions, derived: Resolutions): string[] {
   const lines: string[] = [];
   for (const id of Object.keys(derived).sort(compareStrings)) {
-    const previous = recorded[id]?.digest;
-    if (previous === derived[id].digest) continue;
-    lines.push(
-      previous === undefined
-        ? `adopted: ${id} ${derived[id].digest} (initial adoption)`
-        : `adopted: ${id} ${previous} -> ${derived[id].digest}`,
-    );
+    lines.push(...rewrittenValues(id, recorded[id], derived[id]));
   }
+  // The resolutions the rewritten lock drops whole. Their conformance digest
+  // went with them, and is not reported a second time: one removal, one line.
   for (const id of Object.keys(recorded).sort(compareStrings)) {
     if (id in derived) continue;
     lines.push(
       `retired: ${id} (no canonical text; resolution removed from the lock)`,
     );
+  }
+  return lines;
+}
+
+/**
+ * What one contract's resolution changed, one line per value that moved.
+ *
+ * Two values can move independently, so they are reported independently rather
+ * than folded into one line: folded, a reader would have to parse the line to
+ * learn which digest moved, and the text form a consuming repository matches its
+ * evidence against would change shape whenever the conformance tree happened to
+ * move in the same run.
+ *
+ * The conformance digest earns a line of its own for the reason the text digest
+ * does. It is the compatibility evidence the specification asks to be bound at
+ * the moment of adoption, so a run that swapped which evidence the lock names
+ * cannot be indistinguishable from a run that changed nothing. Losing the tests
+ * is reported as a retirement rather than an adoption: a value left the lock and
+ * nothing was taken up in its place, which is what `retired` already says.
+ *
+ * The text digest has no removal form, and the two shapes are not unified for
+ * that reason: a resolution always carries a text digest, so "the text digest
+ * left the lock" is not a state this can reach — only the whole resolution can
+ * go, which the caller reports.
+ */
+function rewrittenValues(
+  id: string,
+  recorded: Resolution | undefined,
+  derived: Resolution,
+): string[] {
+  const lines: string[] = [];
+  if (recorded?.digest !== derived.digest) {
+    lines.push(
+      recorded === undefined
+        ? `adopted: ${id} ${derived.digest} (initial adoption)`
+        : `adopted: ${id} ${recorded.digest} -> ${derived.digest}`,
+    );
+  }
+  const before = recorded?.conformance;
+  const after = derived.conformance;
+  if (before === after) return lines;
+  if (after === undefined) {
+    lines.push(
+      `retired: ${id} conformance ${before} ` +
+        `(no conformance tests; digest removed from the lock)`,
+    );
+  } else if (before === undefined) {
+    lines.push(`adopted: ${id} conformance ${after} (initial adoption)`);
+  } else {
+    lines.push(`adopted: ${id} conformance ${before} -> ${after}`);
   }
   return lines;
 }

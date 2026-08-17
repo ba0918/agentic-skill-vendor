@@ -258,6 +258,132 @@ test("gen drops the conformance digest of a declared contract that loses its tes
   });
 });
 
+test("gen reports a conformance digest it recorded in place of another", async () => {
+  await withGoodTree(async (root) => {
+    // The contract's own text is untouched, so the text line says nothing. The
+    // conformance tree is the compatibility evidence a consuming repository
+    // matches its own results against, and a run that swapped which evidence
+    // the lock names has to say so — silence here reads as a run that changed
+    // nothing at all.
+    const before = (await readManifest(root)).resolutions["changelog-entry"]
+      .conformance;
+    await append(
+      `${root}/contracts/changelog-entry/conformance/cases/minimal.md`,
+      "\nOne further case.\n",
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    const after = (await readManifest(root)).resolutions["changelog-entry"]
+      .conformance;
+    expect(result.stdout).toStrictEqual([
+      `adopted: changelog-entry conformance ${before} -> ${after}`,
+    ]);
+  });
+});
+
+test("gen reports a conformance digest it recorded for the first time", async () => {
+  await withGoodTree(async (root) => {
+    // verdict-format ships no conformance tests, so the lock records none for
+    // it. Gaining them binds evidence the lock never named before, which is the
+    // same event as a first adoption of text and is reported the same way.
+    await writeFile(
+      `${root}/contracts/verdict-format/conformance/cases/first.md`,
+      "a new case\n",
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    const digest = (await readManifest(root)).resolutions["verdict-format"]
+      .conformance;
+    expect(result.stdout).toStrictEqual([
+      `adopted: verdict-format conformance ${digest} (initial adoption)`,
+    ]);
+  });
+});
+
+test("gen reports the conformance digest it dropped when a contract loses its tests", async () => {
+  await withGoodTree(async (root) => {
+    // Reported as a retirement rather than an adoption: what happened is that a
+    // value left the lock, which is what `retired` already means for a whole
+    // resolution. Nothing was taken up in its place.
+    const before = (await readManifest(root)).resolutions["changelog-entry"]
+      .conformance;
+    await fs.rm(`${root}/contracts/changelog-entry`, { recursive: true });
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect(result.stdout).toStrictEqual([
+      `retired: changelog-entry conformance ${before} ` +
+        `(no conformance tests; digest removed from the lock)`,
+    ]);
+  });
+});
+
+test("gen reports a text change and a conformance change of one contract on separate lines", async () => {
+  await withGoodTree(async (root) => {
+    // Two facts, two lines. Folded into one, a reader would have to parse the
+    // line to find out which of the two digests moved, and the text form the
+    // consuming regression machinery already matches against would change shape
+    // whenever the conformance tree happened to move in the same run.
+    const before = (await readManifest(root)).resolutions["changelog-entry"];
+    await append(
+      `${root}/contracts/changelog-entry.md`,
+      "\n- One more rule.\n",
+    );
+    await append(
+      `${root}/contracts/changelog-entry/conformance/cases/minimal.md`,
+      "\nOne further case.\n",
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    const after = (await readManifest(root)).resolutions["changelog-entry"];
+    expect(result.stdout).toStrictEqual([
+      `adopted: changelog-entry ${before.digest} -> ${after.digest}`,
+      `adopted: changelog-entry conformance ${before.conformance} -> ${after.conformance}`,
+    ]);
+  });
+});
+
+test("a retired resolution is reported once, not again for the conformance digest it held", async () => {
+  await withGoodTree(async (root) => {
+    // The whole resolution left the lock, and its conformance digest left with
+    // it. A second line about the digest would report the same removal twice.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    await fs.rm(`${root}/contracts/changelog-entry.md`);
+    await fs.rm(`${root}/contracts/changelog-entry`, { recursive: true });
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect(
+      result.stdout.filter((line) => line.includes("changelog-entry")),
+    ).toStrictEqual([
+      "retired: changelog-entry (no canonical text; resolution removed from the lock)",
+    ]);
+  });
+});
+
 test("gen rewrites the conformance digest of a contract no skill declares", async () => {
   await withGoodTree(async (root) => {
     // The lock still records the contract and the tree still holds its text,
