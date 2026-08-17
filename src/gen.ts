@@ -13,6 +13,7 @@
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import {
+  compareStrings,
   canonicalBody,
   contractPath,
   digestOfText,
@@ -196,6 +197,22 @@ interface WritePlan {
   files: { site: string; content: Uint8Array }[];
   manifest: { site: string; content: Uint8Array };
   removals: string[];
+  /**
+   * The contract ids whose resolutions the rewritten manifest drops, because
+   * their canonical text is gone. Reported by the commands that execute the
+   * plan, so a retirement is never silent.
+   */
+  retired: string[];
+}
+
+/**
+ * The line a command reports for a resolution the rewritten manifest drops.
+ *
+ * Shared by gen and accept, so the read of a retirement reads the same both
+ * ways.
+ */
+export function retiredReport(id: string): string {
+  return `retired: ${id} (no canonical text; resolution removed from the lock)`;
 }
 
 /**
@@ -231,21 +248,25 @@ export async function planExpansion(
       }
     }
   }
+  const present = await presentContractIds(root, resolutions);
+  // The resolutions the rewritten manifest drops: the lock's own memory of a
+  // contract that no longer has canonical text. The plan reports them so the
+  // run that performs the retirement names it instead of staying silent.
+  const retired = Object.keys(resolutions)
+    .filter((id) => !present.includes(id))
+    .sort(compareStrings);
   return {
     files,
     manifest: {
       site: MANIFEST_FILE,
       content: encoder.encode(
         canonicalJson(
-          buildManifest(
-            dependenciesOf(skills),
-            resolutions,
-            await presentContractIds(root, resolutions),
-          ),
+          buildManifest(dependenciesOf(skills), resolutions, present),
         ),
       ),
     },
     removals,
+    retired,
   };
 }
 
@@ -353,9 +374,8 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     for (const violation of violations) out(violation);
     return 1;
   }
-  await executePlan(
-    root,
-    await planExpansion(root, skills, contracts, resolutions),
-  );
+  const plan = await planExpansion(root, skills, contracts, resolutions);
+  await executePlan(root, plan);
+  for (const id of plan.retired) out(retiredReport(id));
   return 0;
 }

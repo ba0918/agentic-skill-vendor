@@ -82,9 +82,14 @@ function withSortedKeys(value: unknown): unknown {
  * render to it.
  *
  * `present` names the contracts whose canonical file the tree actually holds,
- * and provenance is limited to those. A source path recorded for a contract
- * that has been withdrawn would name a file no reader can open, and provenance
- * exists to say where text came from — not where it used to.
+ * and it limits both halves of the record. A source path recorded for a
+ * contract that has been withdrawn would name a file no reader can open, and
+ * provenance exists to say where text came from — not where it used to. A
+ * resolution kept for such a contract answers no question either: nothing can
+ * accept it (the text is not there) and nothing can verify it, while a
+ * conformance digest recorded for it fails every run that checks conformance.
+ * Pruning resolutions to the present contracts is what lets one `gen` recover
+ * a tree whose contract was withdrawn.
  */
 export function buildManifest(
   dependencies: Dependencies,
@@ -95,12 +100,16 @@ export function buildManifest(
   for (const id of [...present].sort(compareStrings)) {
     contracts[id] = { source: contractPath(id) };
   }
+  const resolved: Resolutions = emptyRecord();
+  for (const id of [...present].sort(compareStrings)) {
+    resolved[id] = resolutions[id];
+  }
   // No wall-clock value is recorded anywhere in here. Reproducibility is the
   // reason this file exists, and a timestamp would make every regeneration a
   // change.
   return {
-    lock: { dependencies, resolutions },
-    provenance: { contracts, generator: { ...GENERATOR } },
+    lock: { dependencies, resolutions: resolved },
+    provenance: { contracts, generator: GENERATOR },
   };
 }
 

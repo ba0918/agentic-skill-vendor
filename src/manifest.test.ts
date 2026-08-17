@@ -59,11 +59,44 @@ test("the manifest names where the tool and each contract came from", async () =
   });
 });
 
+test("a withdrawn contract's resolution is pruned when gen rewrites the lock", async () => {
+  await withGoodTree(async (root) => {
+    // changelog-entry ships conformance tests, so a full withdrawal — no skill
+    // declaring it, its canonical file gone — leaves a resolution whose
+    // conformance check no run can ever satisfy. Left in the lock, verify
+    // fails on it forever and nothing accepts it (the text is not there);
+    // gen must prune the resolution whose canonical file is gone.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    await fs.rm(`${root}/contracts/changelog-entry.md`);
+    await fs.rm(`${root}/contracts/changelog-entry`, { recursive: true });
+
+    const verifyBefore = await runCli(["verify", "--root", root]);
+    expect(verifyBefore.code).toStrictEqual(1);
+    expect(verifyBefore.stdout.join("\n")).toContain("conformance-mismatch");
+
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code, gen.stdout.concat(gen.stderr).join("\n")).toStrictEqual(0);
+    // The retirement is reported, not done silently: gen's output names the
+    // resolution it removed along with the copy removal.
+    expect(gen.stdout.join("\n")).toContain("retired: changelog-entry");
+    expect(
+      "changelog-entry" in (await readManifest(root)).lock.resolutions,
+    ).toStrictEqual(false);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
 test("provenance names only the contracts whose canonical text is present", async () => {
   await withGoodTree(async (root) => {
     // The contract is withdrawn: no skill declares it any more and the
-    // canonical file is gone. The resolution it was accepted under stays in the
-    // lock, because accept is the only thing that writes resolutions.
+    // canonical file is gone. gen prunes the resolution it was accepted
+    // under, so neither the lock nor provenance keeps naming the missing
+    // text.
     const skill = `${root}/skills/review-writer/SKILL.md`;
     await fs.writeFile(
       skill,

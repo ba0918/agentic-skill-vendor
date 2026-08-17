@@ -68,6 +68,10 @@ copy, a missing or extra file, and a stale lock fail the same run. There is no a
 approval means naming what is approved — and `accept` reports the old digest, the new digest
 and the dependent skills, which is what a reviewer needs.
 
+Withdrawing a contract — removing it from the skills' declarations and deleting its canonical
+text — is the same act at the other end: the next `gen` or `accept` retires its resolution
+from the lock and reports it as `retired: <id>`, so the removal never happens silently.
+
 `--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
 nothing to report, `1` violations (one per line on standard output), `2` configuration or
 usage error (standard error). A run that fails part-way never leaves a tree that looks

@@ -743,3 +743,19 @@ test("a contract named for an inherited property is unresolved on a tree that ha
     });
   }
 });
+
+test("a removed canonical text with its declaration left behind keeps its resolution", async () => {
+  await withGoodTree(async (root) => {
+    // The skill still declares the contract, so gen stops on the closure gap
+    // and never reaches the plan that would prune the resolution: only a
+    // withdrawal — declaration removed too — retires it.
+    await fs.rm(`${root}/contracts/verdict-format.md`);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(result.stdout.join("\n")).toContain("closure");
+    expect(
+      "verdict-format" in (await readManifest(root)).lock.resolutions,
+    ).toStrictEqual(true);
+  });
+});

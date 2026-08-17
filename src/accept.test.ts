@@ -274,3 +274,31 @@ test("accepting refuses a skill reaching its opening delimiter only after a blan
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
+
+test("accepting reports a resolution retired by a withdrawn contract", async () => {
+  await withGoodTree(async (root) => {
+    // changelog-entry is withdrawn — no skill declares it and its canonical
+    // text is gone — while its resolution still sits in the lock. A later
+    // accept rewrites the manifest and must name the retirement, not drop it
+    // silently.
+    for (const name of ["release-notes", "review-writer"]) {
+      await fs.writeFile(
+        `${root}/skills/${name}/SKILL.md`,
+        `---\nname: ${name}\n---\n\n# ${name}\n`,
+      );
+    }
+    await fs.rm(`${root}/contracts/changelog-entry.md`);
+    await fs.rm(`${root}/contracts/changelog-entry`, { recursive: true });
+
+    const result = await runCli(["accept", "verdict-format", "--root", root]);
+    expect(
+      result.code,
+      result.stdout.concat(result.stderr).join("\n"),
+    ).toStrictEqual(0);
+    expect(result.stdout.join("\n")).toContain("retired: changelog-entry");
+    expect(
+      "changelog-entry" in (await readManifest(root)).lock.resolutions,
+    ).toStrictEqual(false);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});

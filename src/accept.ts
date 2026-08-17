@@ -21,6 +21,7 @@ import {
   executePlan,
   planExpansion,
   readContracts,
+  retiredReport,
 } from "./gen.ts";
 
 interface AcceptanceRecord {
@@ -95,10 +96,9 @@ export async function commandAccept(
     for (const violation of violations) out(violation);
     return 1;
   }
-  await executePlan(
-    root,
-    await planExpansion(root, skills, contracts, resolutions),
-  );
+  const plan = await planExpansion(root, skills, contracts, resolutions);
+  await executePlan(root, plan);
+  for (const id of plan.retired) out(retiredReport(id));
 
   for (const record of records) {
     const dependents = dependentsOf(skills, record.id);
