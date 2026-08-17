@@ -400,7 +400,7 @@ test("every command refuses a SKILL.md that is there but is not a regular file",
     await fs.mkdir(`${root}/${SKILL_FILE}`);
     const before = await snapshotTree(root);
 
-    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
@@ -474,11 +474,7 @@ test("a name the lock records must be a directory, whatever now stands there", a
         "utf8",
       );
 
-      for (const command of [
-        ["gen"],
-        ["verify"],
-        ["accept", "changelog-entry"],
-      ]) {
+      for (const command of [["gen"], ["verify"]]) {
         const where = `${plant} / ${command[0]}`;
         const result = await runCli([...command, "--root", root]);
         expect(result.code, where).toStrictEqual(2);
@@ -502,11 +498,7 @@ test("a stray file under skills that the lock never named is left alone", async 
     await fs.writeFile(`${root}/skills/README.md`, "# skills\n");
     const before = await snapshotTree(root);
 
-    for (const command of [
-      ["gen"],
-      ["verify"],
-      ["accept", "changelog-entry"],
-    ]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(0);
     }

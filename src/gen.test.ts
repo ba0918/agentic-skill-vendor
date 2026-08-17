@@ -23,8 +23,8 @@ const MANIFEST = "vendor-manifest.json";
 
 test("planning over a declared contract whose text is missing refuses instead of skipping", async () => {
   await withGoodTree(async (root) => {
-    // gen and accept refuse this shape before planning; the refusal here is
-    // for a future caller that forgets the acceptance check — a plan that
+    // gen refuses this shape before planning; the refusal here is for a
+    // future caller that forgets the closure check — a plan that
     // silently dropped the contract would write a manifest nobody declared.
     await expect(
       planExpansion(
@@ -332,23 +332,6 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
   });
 });
 
-test("accept refuses a contracts directory symlinked outside the tree", async () => {
-  await withGoodTree(async (root) => {
-    const outside = await escapeThrough(root, "contracts");
-    const outsideBefore = await snapshotTree(outside);
-    const treeBefore = await snapshotTree(root);
-
-    const result = await runCli(["accept", "verdict-format", "--root", root]);
-    expect(result.code).toStrictEqual(2);
-    expect(result.stdout).toStrictEqual([]);
-    expect(result.stderr.join("\n")).toContain(
-      "symlink is not allowed inside the tree: contracts",
-    );
-    expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
-    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
-  });
-});
-
 test("verify refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     await escapeThrough(root, "contracts");
@@ -409,24 +392,33 @@ test("a contract's own directory symlinked outside the tree is refused before wh
   });
 });
 
-test("accept refuses a contract file symlinked outside the tree", async () => {
+test("every command reading contracts refuses a contract file symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
+    // The canonical text itself, rather than a directory on the way to it: a
+    // link here resolves outside the tree, and a run that read through it
+    // would digest outside text and write it into every vendored copy.
     const outside = await escapeThrough(root, "contracts/verdict-format.md");
     const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
 
-    const result = await runCli(["accept", "verdict-format", "--root", root]);
-    expect(result.code).toStrictEqual(2);
-    expect(result.stdout).toStrictEqual([]);
+    for (const command of ["gen", "verify"]) {
+      const result = await runCli([command, "--root", root]);
+      expect(result.code, command).toStrictEqual(2);
+      expect(result.stdout, command).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command).toContain(
+        "symlink is not allowed inside the tree: contracts/verdict-format.md",
+      );
+    }
     expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
   });
 });
 
 test("every command reading contracts refuses a conformance directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
-    // The deepest of the directory shapes, and the one that used to answer
-    // three ways: verify digests the tests below it and stopped, accepting
-    // this contract stopped, and gen — which never reads them — expanded the
-    // tree, as did accepting any other contract.
+    // The deepest of the directory shapes, and the one that used to answer two
+    // ways: verify digests the tests below it and stopped, while gen — which
+    // never reads them — expanded the tree.
     const outside = await escapeThrough(
       root,
       "contracts/changelog-entry/conformance",
@@ -434,7 +426,7 @@ test("every command reading contracts refuses a conformance directory symlinked 
     const outsideBefore = await snapshotTree(outside);
     const treeBefore = await snapshotTree(root);
 
-    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
@@ -647,11 +639,7 @@ test("every command refuses a declared contract whose canonical text is not a re
     await fs.mkdir(`${root}/contracts/verdict-format.md`);
     const before = await snapshotTree(root);
 
-    for (const command of [
-      ["gen"],
-      ["verify"],
-      ["accept", "changelog-entry"],
-    ]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
@@ -674,9 +662,9 @@ const WRITE_TARGETS = [
   `${MANIFEST}.tmp`,
 ];
 
-test("gen and accept refuse a named pipe standing where the run would write", async () => {
+test("gen refuses a named pipe standing where the run would write", async () => {
   for (const site of WRITE_TARGETS) {
-    for (const command of [["gen"], ["accept", "changelog-entry"]]) {
+    for (const command of [["gen"]]) {
       await withGoodTree(async (root) => {
         await fs.rm(`${root}/${site}`).catch(() => {});
         await promisify(execFile)("mkfifo", [`${root}/${site}`]);
@@ -714,16 +702,12 @@ test("a contract named for an inherited property is reported as unresolved, not 
       ),
     );
 
-    // Asked of every command that reads the lock, including the one that
-    // works from its own copy of it. The first finding reported is the
+    // Asked of every command that reads the lock. The first finding reported
+    // is the
     // acceptance one: the acceptance check runs before the file-system checks
     // in every command, so the run says the contract was never accepted before
     // it says anything about how the state drifted.
-    for (const command of [
-      ["gen"],
-      ["verify"],
-      ["accept", "changelog-entry"],
-    ]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(1);
       expect(kindsOf(result.stdout), command[0]).toContain("unresolved");

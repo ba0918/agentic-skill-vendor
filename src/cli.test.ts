@@ -33,15 +33,14 @@ test("asking for help prints the commands and exits cleanly", async () => {
   const result = await runCli(["--help"]);
   expect(result.code).toStrictEqual(0);
   const text = result.stdout.join("\n");
-  for (const command of [
-    "gen",
-    "verify",
-    "accept",
-    "lint-selfcontain",
-    "self-test",
-  ]) {
+  for (const command of ["gen", "verify", "lint-selfcontain", "self-test"]) {
     expect(text).toContain(command);
   }
+  // The tool has no approval boundary any more, so the help must not go on
+  // naming one. The word is absent from the command list and from the wording
+  // of what gen does alike: "write the accepted contracts" describes a step
+  // the reader would then look for a command to perform.
+  expect(text).not.toContain("accept");
 });
 
 test("every command the entry point names is answered by a module of its own", () => {
@@ -50,9 +49,22 @@ test("every command the entry point names is answered by a module of its own", (
       (match) => match[1],
     ),
   );
+  // The statements a case runs before it delegates — the refusal of an
+  // argument the command has no use for — sit between the label and the call.
+  // Matched without them, this read only the one case that delegated on the
+  // line after its label, so the whole routing table went unchecked but one
+  // entry.
   const routed = [
-    ...SOURCE.matchAll(/case "([\w-]+)":\n\s+return await (\w+)\(/g),
+    ...SOURCE.matchAll(
+      /case "([\w-]+)":\n(?:\s+\w+\(.*\);\n)*\s+return await (\w+)\(/g,
+    ),
   ];
+  expect(routed.map(([, command]) => command)).toStrictEqual([
+    "gen",
+    "verify",
+    "lint-selfcontain",
+    "self-test",
+  ]);
   expect(routed.length > 0, "the entry point routes no command").toStrictEqual(
     true,
   );
@@ -121,14 +133,6 @@ test("every command that reads a tree refuses a root that is not there", async (
       "no such tree: /no/such/tree",
     );
   }
-  const accepted = await runCli([
-    "accept",
-    "verdict-format",
-    "--root",
-    "/no/such/tree",
-  ]);
-  expect(accepted.code).toStrictEqual(2);
-  expect(accepted.stderr.join("\n")).toContain("no such tree: /no/such/tree");
 });
 
 test("--root given an empty path is a usage error", async () => {
@@ -178,20 +182,15 @@ test("an unknown command is named as such even when arguments follow it", async 
   expect(result.stderr.join("\n")).toContain("unknown command: frobnicate");
 });
 
-test("accept still takes the contract ids it is given", async () => {
-  await withGoodTree(async (root) => {
-    const result = await runCli([
-      "accept",
-      "verdict-format",
-      "changelog-entry",
-      "--root",
-      root,
-    ]);
-    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    expect(
-      result.stdout.filter((line) => line.startsWith("accepted:")),
-    ).toStrictEqual(["accepted: verdict-format", "accepted: changelog-entry"]);
-  });
+test("adopting contract text is not a command of its own", async () => {
+  // The canonical text is the authority and gen rewrites the lock to match it,
+  // so there is nothing left for a separate approval command to do. A run
+  // still spelling the old two-step act is refused by name rather than
+  // quietly doing nothing.
+  const result = await runCli(["accept", "verdict-format"]);
+  expect(result.code).toStrictEqual(2);
+  expect(result.stdout).toStrictEqual([]);
+  expect(result.stderr.join("\n")).toContain("unknown command: accept");
 });
 
 test("the entry-point probe answers false when no program is started", () => {

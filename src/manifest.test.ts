@@ -164,7 +164,7 @@ test("rendering the manifest refuses a contract's own directory symlinked outsid
     );
     const outsideBefore = await snapshotTree(outside);
 
-    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
@@ -278,11 +278,7 @@ test("rendering the manifest refuses a contract file that is there but is not a 
     await fs.mkdir(`${root}/contracts/verdict-format.md`);
     const before = await snapshotTree(root);
 
-    for (const command of [
-      ["gen"],
-      ["verify"],
-      ["accept", "changelog-entry"],
-    ]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
@@ -303,11 +299,7 @@ test("a manifest that is a named pipe is refused rather than opened", async () =
     await fs.rm(`${root}/${MANIFEST}`);
     await promisify(execFile)("mkfifo", [`${root}/${MANIFEST}`]);
 
-    for (const command of [
-      ["gen"],
-      ["verify"],
-      ["accept", "changelog-entry"],
-    ]) {
+    for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);

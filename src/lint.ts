@@ -2,7 +2,7 @@
 //
 // Portability, not identity: a skill directory has to be movable on its own, so
 // nothing inside it may point above itself. This is the third thing the tool
-// does, kept apart from gen and accept (which change the distributed state) and
+// does, kept apart from gen (which changes the distributed state) and
 // from verify (which decides identity).
 
 import * as fs from "node:fs/promises";

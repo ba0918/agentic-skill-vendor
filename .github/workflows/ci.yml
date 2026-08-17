@@ -9,7 +9,7 @@ on:
 
 # Nothing in this workflow writes to the repository, so the token is held to
 # read access instead of the repository default. In particular, CI never runs
-# the tool's accept operation: CI only detects unapproved drift and fails.
+# the tool's gen: CI only detects a tree that disagrees with its lock and fails.
 permissions:
   contents: read
 
@@ -48,10 +48,10 @@ jobs:
         run: bun test
 
       # The tool is then run against the fixture tree, which is committed in a
-      # state that verifies clean. An unapproved change to a contract, a copy,
-      # or the lock makes this step fail. accept — the one operation that
-      # changes what is accepted — is deliberately absent from here: this
-      # workflow detects unapproved drift and never approves it.
+      # state that verifies clean. A change to a contract, a copy or the lock
+      # that was not regenerated makes this step fail. gen — the one operation
+      # that changes the distributed state — is deliberately absent from here:
+      # this workflow detects a disagreement and never resolves it.
       - name: Verify the fixture tree against its lock
         run: bun run src/cli.ts verify --root fixtures/contracts-basic/good
 

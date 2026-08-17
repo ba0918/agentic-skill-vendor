@@ -11,7 +11,6 @@ import { pathToFileURL } from "node:url";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import { commandGen } from "./gen.ts";
 import { commandVerify } from "./verify.ts";
-import { commandAccept } from "./accept.ts";
 import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 
@@ -19,9 +18,8 @@ const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
   "",
   "commands:",
-  "  gen                      write the accepted contracts into every skill",
+  "  gen                      write the current contract text into every skill",
   "  verify                   check the tree against the lock",
-  "  accept <contract-id>...  adopt the current text of the named contracts",
   "  lint-selfcontain         check that no skill points outside itself",
   "  self-test                check the tool against its embedded vectors",
   "",
@@ -112,8 +110,6 @@ export async function run(
       case "verify":
         refuseOperands(invocation.operands);
         return await commandVerify(invocation.root, out);
-      case "accept":
-        return await commandAccept(invocation.root, invocation.operands, out);
       case "lint-selfcontain":
         refuseOperands(invocation.operands);
         return await commandLint(invocation.root, out);

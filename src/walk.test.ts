@@ -446,7 +446,7 @@ const WRONG_KIND_SITES: {
   },
 ];
 
-const READING_COMMANDS = [["gen"], ["verify"], ["accept", "changelog-entry"]];
+const READING_COMMANDS = [["gen"], ["verify"]];
 
 test("a path holding the wrong kind of thing is refused by every command", async () => {
   for (const { site, expected, refusal } of WRONG_KIND_SITES) {

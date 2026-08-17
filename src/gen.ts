@@ -5,10 +5,9 @@
 // byte before writing any of them, so a tree is never half-updated over
 // something the run could have known in advance.
 //
-// verify.ts and accept.ts build on this module rather than beside it: verify
-// checks what this module would write, and accept adopts new text and then asks
-// this module to write it. Both therefore share this module's answer to "may
-// this tree be expanded at all" instead of restating it.
+// verify.ts builds on this module rather than beside it: it checks what this
+// module would write, so both share one answer to "may this tree be expanded at
+// all" instead of restating it.
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
@@ -172,12 +171,7 @@ interface WritePlan {
   retired: string[];
 }
 
-/**
- * The line a command reports for a resolution the rewritten manifest drops.
- *
- * Shared by gen and accept, so the read of a retirement reads the same both
- * ways.
- */
+/** The line reported for a resolution the rewritten manifest drops. */
 export function retiredReport(id: string): string {
   return `retired: ${id} (no canonical text; resolution removed from the lock)`;
 }
@@ -200,10 +194,10 @@ export async function planExpansion(
     const expected = new Set<string>();
     for (const id of skill.contracts) {
       const contract = contracts.get(id);
-      // gen and accept refuse a missing canonical text before planning, so
-      // neither spelling is reachable from them; a future caller that forgets
-      // the acceptance check is refused here instead of writing a manifest
-      // that silently dropped the contract.
+      // gen refuses a missing canonical text before planning, so neither
+      // spelling is reachable from it; a future caller that forgets the
+      // closure check is refused here instead of writing a manifest that
+      // silently dropped the contract.
       if (contract === undefined) {
         throw new ConfigError(
           `cannot plan ${id}: its canonical text was never read`,
@@ -338,11 +332,9 @@ export function acceptanceViolations(
  * The tree read every command starts with: the root checked, the lock read,
  * the skills read from the names the lock remembers.
  *
- * gen, verify and accept read the exact same preamble before they part ways —
- * gen and verify over the declared ids, accept over the ids asked for. One
- * place for the preamble is what makes a change to how tree state is read land
- * everywhere at once instead of in whichever commands the author happened to
- * touch.
+ * gen and verify read the exact same preamble before they part ways. One place
+ * for the preamble is what makes a change to how tree state is read land in
+ * both at once instead of in whichever command the author happened to touch.
  */
 export interface TreeState {
   resolutions: Resolutions;
@@ -360,9 +352,9 @@ export async function readTreeState(root: string): Promise<TreeState> {
  * Applies the acceptance gate and, when it passes, writes the expanded tree,
  * answering with the exit code.
  *
- * The same work ends gen and accept: what the run has read and agreed to, this
- * turns into either a refusal that lists the violations it found or the
- * written tree its plan spelled out, naming the retirements it performed.
+ * What the run has read, this turns into either a refusal that lists the
+ * violations it found or the written tree its plan spelled out, naming the
+ * retirements it performed.
  */
 export async function expandTree(
   root: string,
