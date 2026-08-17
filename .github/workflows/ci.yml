@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by the release workflow, so a release runs exactly the checks every
+  # push and pull request runs. Called rather than restated there: two copies of
+  # the check list could drift, and the release would then publish a tree the
+  # other copy would have failed.
+  workflow_call:
 
 # Nothing in this workflow writes to the repository, so the token is held to
 # read access instead of the repository default. In particular, CI never runs
