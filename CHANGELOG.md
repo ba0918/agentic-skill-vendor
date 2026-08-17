@@ -130,10 +130,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   nothing are unchanged in every case — a tree with no `skills/` still adopts cleanly, a
   contract with no conformance tests still pins none, a missing canonical file is still a
   closure gap, and a missing copy is still drift.
-- An entry inside a scanned tree that is neither a directory nor a regular file is refused
-  instead of read. A named pipe read as an ordinary file does not fail: it blocks until
-  something on the other side writes, so one placed in a conformance tree left `verify`
-  running forever, and one inside a skill did the same to `lint-selfcontain`.
+- A path the run would read is refused unless it is a regular file, rather than opened and
+  read. A named pipe read as an ordinary file does not fail: it blocks until something on the
+  other side writes, so one placed in a conformance tree left `verify` running forever, one
+  inside a skill did the same to `lint-selfcontain`, and one standing at the manifest — read
+  by every command before it does anything else — did it to `gen`, `verify` and `accept`
+  alike.
 - A `SKILL.md` that is there but is not a regular file — a directory, a named pipe, a socket
   — stops the run with exit `2` naming it. It answered exactly as no `SKILL.md` at all does,
   so the skill read as declaring nothing: `gen` deleted the vendored copies its declarations
