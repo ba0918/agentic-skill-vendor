@@ -15,10 +15,10 @@ import { ConfigError, type Sink } from "./errors.ts";
 import {
   canonicalBody,
   contractPath,
-  CONTRACTS_DIR,
   digestOfText,
   splitDocument,
 } from "./digest.ts";
+import { assertPlainContractPaths } from "./conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
@@ -91,11 +91,6 @@ function frontmatterScalar(
   return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
 }
 
-/** The directory a contract's own material — today its conformance tests. */
-function contractDirectory(id: string): string {
-  return `${CONTRACTS_DIR}/${id}`;
-}
-
 /**
  * Reads each contract's canonical text, or null where the file is absent.
  *
@@ -104,11 +99,10 @@ function contractDirectory(id: string): string {
  * and the run would then digest outside text, pin it, and write it into every
  * vendored copy while reporting nothing — the escape this tool exists to close.
  *
- * The contract's own directory is checked as well, although nothing read here
- * lies below it. Left to the one command that does read through it — verify,
- * digesting the conformance tests — a link planted there stopped verify while
- * gen expanded the tree without a word. Whether a link is refused is a fact
- * about the tree, so it cannot depend on which command is looking.
+ * The conformance tests beside the text are covered by the same check, although
+ * nothing read here lies below their directory. That is the whole point of
+ * asking it here: left to the commands that do read them, a link planted there
+ * stopped verify while gen expanded the tree without a word.
  */
 export async function readContracts(
   root: string,
@@ -117,8 +111,7 @@ export async function readContracts(
   const contracts = new Map<string, CanonicalContract | null>();
   for (const id of ids) {
     const site = contractPath(id);
-    await assertPlainChain(root, site);
-    await assertPlainChain(root, contractDirectory(id));
+    await assertPlainContractPaths(root, id);
     if (!(await isRegularFile(root, site))) {
       contracts.set(id, null);
       continue;

@@ -9,6 +9,7 @@
 import {
   compareStrings,
   concatBytes,
+  contractPath,
   CONTRACTS_DIR,
   digestOfBytes,
 } from "./digest.ts";
@@ -24,6 +25,34 @@ import {
 export interface ConformanceEntry {
   path: string;
   content: Uint8Array;
+}
+
+/** The directory a contract's conformance tests sit in. */
+export function conformanceDirectory(id: string): string {
+  return `${CONTRACTS_DIR}/${id}/conformance`;
+}
+
+/**
+ * Refuses a link anywhere on the way into a contract's material — the canonical
+ * text, and the conformance tests in the directory beside it.
+ *
+ * Stated once and called from every command's way in. Whether a link is refused
+ * is a fact about the tree, so it cannot depend on which command is looking:
+ * left to the commands that read the tests, a link at `contracts/<id>/` or at
+ * the conformance directory itself stopped `verify` while `gen`, which never
+ * reads them, expanded the tree and said nothing.
+ *
+ * The two paths are checked in the order a run reaches them, and the first to
+ * refuse is the one a refusal names. Checking the text first is what makes a
+ * link at `contracts/` name the file the run was about to read rather than a
+ * directory the tree need not even hold.
+ */
+export async function assertPlainContractPaths(
+  root: string,
+  id: string,
+): Promise<void> {
+  await assertPlainChain(root, contractPath(id));
+  await assertPlainChain(root, conformanceDirectory(id));
 }
 
 /**
@@ -111,7 +140,7 @@ export async function conformanceDigest(
 ): Promise<string | null> {
   const entries = await collectConformanceEntries(
     root,
-    `${CONTRACTS_DIR}/${id}/conformance`,
+    conformanceDirectory(id),
   );
   if (entries.length === 0) return null;
   return await conformanceDigestOfEntries(entries);

@@ -254,20 +254,6 @@ test("a run interrupted by an unwritable copy leaves every other file in place",
 // the boundary the run was pointed at, so the run reads outside text, pins its
 // digest, and writes it into the tree while reporting nothing.
 
-/**
- * Moves what sits at `relative` out of the tree and leaves a link to it behind.
- * Answers with the directory that now holds the moved content, so a case can
- * state that nothing outside the tree was read through or written to.
- */
-async function escapeThrough(root: string, relative: string): Promise<string> {
-  const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
-  await fs.mkdir(outside, { recursive: true });
-  const target = `${outside}/${relative.replaceAll("/", "-")}`;
-  await fs.rename(`${root}/${relative}`, target);
-  await fs.symlink(target, `${root}/${relative}`);
-  return outside;
-}
-
 test("gen refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     const outside = await escapeThrough(root, "contracts");
@@ -302,6 +288,20 @@ test("gen refuses a contracts directory symlinked outside the tree", async () =>
     expect(await snapshotTree(root)).toStrictEqual(treeBefore);
   });
 });
+
+/**
+ * Moves what sits at `relative` out of the tree and leaves a link to it behind.
+ * Answers with the directory that now holds the moved content, so a case can
+ * state that nothing outside the tree was read through or written to.
+ */
+async function escapeThrough(root: string, relative: string): Promise<string> {
+  const outside = `${root.slice(0, root.lastIndexOf("/"))}/outside`;
+  await fs.mkdir(outside, { recursive: true });
+  const target = `${outside}/${relative.replaceAll("/", "-")}`;
+  await fs.rename(`${root}/${relative}`, target);
+  await fs.symlink(target, `${root}/${relative}`);
+  return outside;
+}
 
 test("accept refuses a contracts directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
@@ -392,18 +392,29 @@ test("accept refuses a contract file symlinked outside the tree", async () => {
   });
 });
 
-test("verify refuses a conformance directory symlinked outside the tree", async () => {
+test("every command reading contracts refuses a conformance directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
+    // The deepest of the directory shapes, and the one that used to answer
+    // three ways: verify digests the tests below it and stopped, accepting
+    // this contract stopped, and gen — which never reads them — expanded the
+    // tree, as did accepting any other contract.
     const outside = await escapeThrough(
       root,
       "contracts/changelog-entry/conformance",
     );
     const outsideBefore = await snapshotTree(outside);
+    const treeBefore = await snapshotTree(root);
 
-    const result = await runCli(["verify", "--root", root]);
-    expect(result.code).toStrictEqual(2);
-    expect(result.stdout).toStrictEqual([]);
+    for (const command of [["gen"], ["verify"], ["accept", "verdict-format"]]) {
+      const result = await runCli([...command, "--root", root]);
+      expect(result.code, command[0]).toStrictEqual(2);
+      expect(result.stdout, command[0]).toStrictEqual([]);
+      expect(result.stderr.join("\n"), command[0]).toContain(
+        "symlink is not allowed inside the tree: contracts/changelog-entry/conformance",
+      );
+    }
     expect(await snapshotTree(outside)).toStrictEqual(outsideBefore);
+    expect(await snapshotTree(root)).toStrictEqual(treeBefore);
   });
 });
 
