@@ -43,6 +43,7 @@ it is never committed.
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
 | `biome.json` | Lint and format, and the rules this codebase turns off |
 | `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over the fixture |
+| `.github/workflows/release.yml` | The release: a push to main that carries a version bump is tagged and published to npm, with the checks above called rather than restated |
 
 ## Commands
 
