@@ -116,7 +116,11 @@ export async function commandUpdate(
   );
   const files = await collectSources(client, declaration, resolved, null);
   await placeInCache(root, files);
-  await writeLockSources(root, state, resolved);
+  // Rendered from the table this run leaves behind, never the one it read: the
+  // mapping written a moment ago decides which contracts the lock accounts
+  // for, and rendering against the older table would leave a file verify
+  // reports as differing from what the tree renders to.
+  await writeLockSources(root, { ...state, declaration }, resolved);
   await pruneCache(root, resolved);
   return 0;
 }
@@ -160,6 +164,15 @@ async function mapDeclaredContracts(
   }
   let text = await readDeclarationText(root);
   for (const id of unmapped) {
+    // A canonical text in this repository settles the question before any
+    // source is looked at, which is the order the derivation is defined in.
+    // Searched first, registering a source that happens to carry the same id
+    // would move the authority over an existing contract to another
+    // repository, with no line anywhere saying it happened — and it would not
+    // even be caught by the refusal below, since one holder is not ambiguous.
+    // The line itself is written by gen, offline, where the file either is
+    // there or is not.
+    if (await isRegularFileOrAbsent(root, contractPath(id))) continue;
     const holders = [...listings]
       .filter(([, paths]) => paths.includes(contractPath(id)))
       .map(([name]) => name);

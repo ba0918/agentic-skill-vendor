@@ -524,3 +524,55 @@ test("fetch refuses to write through a link planted in the cache", async () => {
     expect(await snapshotTree(outside)).toStrictEqual(before);
   });
 });
+
+test("a contract this repository holds itself is never captured by a source that also holds it", async () => {
+  await withGoodTree(async (root) => {
+    // The derivation is ordered: a canonical text in this repository settles
+    // the question before any source is looked at. Searched first, registering
+    // a source that happens to carry the same id would quietly move the
+    // authority over an existing contract to another repository — a capture
+    // with no line anywhere saying it happened.
+    // Two sources carry it as well, so this also states the order: the local
+    // text settles the question before the refusal over several holders is
+    // even reached.
+    await writeTwoSourceTable(root);
+    const lines: string[] = [];
+    const elsewhere = {
+      "contracts/changelog-entry.md": "# Changelog Entry\n\nAnother copy.\n",
+    };
+    const github = fakeGitHub({
+      ...workflow(elsewhere),
+      [OTHER]: {
+        defaultBranch: "main",
+        refs: { main: REVISION },
+        files: { [REVISION]: elsewhere },
+      },
+    });
+
+    const code = await commandUpdate(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(lines.join("\n")).not.toContain("mapped: changelog-entry");
+    expect(
+      "changelog-entry" in
+        parseDeclaration(
+          await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+        ).contracts,
+    ).toStrictEqual(false);
+    // gen writes the line it belongs to, and the copies keep coming from the
+    // text this repository is authority over.
+    expect((await runCli(["gen", "--root", root])).stdout).toContain(
+      "mapped: changelog-entry <- local",
+    );
+    expect(
+      await fs.readFile(
+        `${root}/skills/release-notes/references/vendor/changelog-entry.md`,
+        "utf8",
+      ),
+    ).toContain("An entry names the change first");
+  });
+});
