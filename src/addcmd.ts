@@ -50,8 +50,15 @@ export async function commandAdd(
   assertSourceName(name);
   const declaration = await readDeclaration(root);
   if (name in declaration.sources) {
+    // The refusal carries the way on rather than the fact alone. Registering
+    // is the first half of this command, so a run that stopped in the second
+    // leaves the source registered with no commit pinned for it — a tree gen
+    // and verify both call clean, which is why the person reaches for add a
+    // second time. Named nowhere, the one command that completes it has to be
+    // guessed at from a message about a table.
     throw new ConfigError(
-      `${DECLARATION_FILE} already registers a source called ${name}`,
+      `${DECLARATION_FILE} already registers a source called ${name}; run ` +
+        `update to resolve its pin and take up what it holds`,
     );
   }
   const ref = await client.defaultBranchOf(repository);

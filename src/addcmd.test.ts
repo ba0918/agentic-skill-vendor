@@ -283,3 +283,44 @@ test("add leaves a table it could not revise readably exactly as it was", async 
     ).toStrictEqual(table);
   });
 });
+
+test("add refused over a source already registered names the command that finishes taking it up", async () => {
+  await withGoodTree(async (root) => {
+    // The source is registered first and the fetching half runs afterwards, so
+    // a run whose second half could not reach the repository leaves the source
+    // registered with no commit pinned for it. Nothing about that tree is
+    // broken — gen and verify stay clean and update completes it — but the
+    // move a person makes is to run add again, and this refusal is the only
+    // place that can say where to go from there.
+    const unreachable = fakeGitHub({
+      [REPOSITORY]: { ...workflow()[REPOSITORY], refs: {} },
+    });
+    await rejectedBy(
+      () =>
+        commandAdd(
+          root,
+          () => {},
+          gitHubOver(unreachable.fetch),
+          REPOSITORY,
+          undefined,
+        ),
+      ConfigError,
+    );
+    expect("sources" in (await readLockFile(root))).toStrictEqual(false);
+
+    const github = fakeGitHub(workflow());
+    const error = await rejectedBy(
+      () =>
+        commandAdd(
+          root,
+          () => {},
+          gitHubOver(github.fetch),
+          REPOSITORY,
+          undefined,
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("run update");
+  });
+});
