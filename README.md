@@ -66,9 +66,10 @@ the authority and the lock is the snapshot of it, the relation `package.json` ha
 lockfile — there is no separate approval command, because the text, the lock and the copies
 are reviewed together in the pull request they land in. `gen` reports every digest it recorded
 a new value for as `adopted: <id> <old digest> -> <new digest>` (a first recording names one
-digest only), which is the line to read in a review and the value a consuming repository's
-regression machinery matches its own evidence against. A contract's conformance tests get a
-line of their own, `adopted: <id> conformance <old> -> <new>`, because the two move
+digest only, annotated `(initial adoption)`), which is the line to read in a review and the
+value a consuming repository's regression machinery matches its own evidence against. A
+contract's conformance tests get a line of their own, `adopted: <id> conformance <old> -> <new>`
+(first recordings take the same one-value form), because the two move
 independently; losing the tests is reported as `retired: <id> conformance <old>`, since a value
 left the lock and nothing was taken up in its place.
 

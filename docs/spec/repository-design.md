@@ -59,6 +59,10 @@ lock の git 履歴がその最低線である。
 保全される。つまり resolution が失われるのは宣言の削除を伴う意図的な撤退に
 限られる。
 
+宣言が消えても正本が残っている契約の resolution は lock に残り、gen が本文 digest と
+conformance digest を更新し続ける。lock は正本から書き直す導出物であり、正本がある
+限りその契約を記録する経路は gen だからである。
+
 manifest は lock のみを持つ。ツールの版・出所・正本パスといったメタデータは
 記録しない。検証のどの判断にも使われない値であり、特にツール自身の版をバイト比較
 対象に含めると、ツールの版更新だけで全消費リポジトリの verify が落ちる。将来
@@ -74,8 +78,14 @@ manifest の形式や digest 規則を覆す変更が必要になったときは
 同じ変更者による二重署名にしかならず、儀式化の温床になる。門番は PR レビューである。
 
 - gen は契約の中身を切り替えたとき `adopted: <契約id> <旧digest> -> <新digest>` を
-  出力に報告する(retired と同じ流儀)。門番ではなく PR に貼れる変更サマリーであり、
-  消費側の regression 機構が旧・新 digest に証跡を突き合わせる結合点でもある
+  出力に報告する(retired と同じ流儀)。lock に無かった契約の初回記録は
+  `adopted: <契約id> <digest> (initial adoption)` として新しい値だけを名指す。門番では
+  なく PR に貼れる変更サマリーであり、消費側の regression 機構が旧・新 digest に証跡を
+  突き合わせる結合点でもある
+- conformance ツリーの digest も同じ流儀で、本文 digest とは独立した 1 行として報告する
+  (`adopted: <契約id> conformance <旧> -> <新>`、初回は (initial adoption)、テストが
+  失われた場合は `retired: <契約id> conformance <旧>`)。本文と conformance は独立に
+  動くため 1 行にまとめない
 - CI は gen を実行しない。CI の役割は「ツリーが lock と食い違っている」ことの
   検出と fail のみ
 
@@ -83,12 +93,15 @@ manifest の形式や digest 規則を覆す変更が必要になったときは
 
 verify は次の独立した照合を行う。どれか一つが失敗しても他の照合は意味を保つ。
 
-- **正本 対 lock**: contracts/ の各文書の digest が lock に控えた digest と
-  一致するか。正本を変えたのに gen を実行し忘れたツリーはここで落ちる
+- **正本 対 lock**: 宣言または lock が名指す各契約について、正本の digest が lock に
+  控えた digest と一致するか(gen が lock を書き直す範囲と同一)。正本を変えたのに gen を
+  実行し忘れたツリーはここで落ちる。宣言だけが残って正本が消えた契約は closure として
+  報告し、宣言にも lock にも現れない contracts/ 配下の文書は照合の対象外とする
 - **配布コピー 対 lock**: 各スキル配下のコピーが、lock の digest から再構築した
   期待バイト列と一致するか。コピーの手編集・欠落・余剰はここで落ちる
-- **manifest の正規形**: vendor-manifest.json が、宣言と lock から機械的に
-  書き直した場合の内容とバイト一致するか
+- **manifest の正規形**: vendor-manifest.json が、宣言・lock・正本の在否から機械的に
+  書き直した場合の内容とバイト一致するか。正本が消えた契約の resolution は書き直しで
+  落ちるため、その状態もここで落ちる
 - **conformance 対 lock**: 契約に付属する conformance ツリーが、採用時に控えた
   digest と一致するか
 
@@ -169,6 +182,7 @@ verify がバイト同一比較である以上、次はすべて外部互換性�
 - conformance ツリーの framing 規則
 - vendor ヘッダのバイト形式
 - violation kind
+- gen の報告行(adopted / retired)の形式
 
 Python API / TypeScript API の公開は、要求が観測されるまで行わない。
 

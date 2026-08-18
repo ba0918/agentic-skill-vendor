@@ -72,7 +72,7 @@ it is never committed.
   reimplementing, and a hand-written parser for either has one failure mode this tool cannot
   afford — answering "I cannot read this" with silence. `js-yaml` is also the one of the two
   candidates that reads no environment variable, which is what lets a Deno run stay on read
-  and write alone. Biome, TypeScript and `@types/bun` are development-only and never ship.
+  and write alone. Biome, TypeScript, `@types/bun` and lefthook are development-only and never ship.
 - `bun test` strips types rather than checking them, so `bun run typecheck` is a step of its
   own in CI. Without it the settings in `tsconfig.json` would constrain nothing.
 - The published artifact keeps those two external rather than bundling them, so a consuming
