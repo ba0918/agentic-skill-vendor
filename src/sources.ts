@@ -254,7 +254,7 @@ function readContractOrigins(
  * The name is a path segment under the cache and a key in the lock, so it is
  * held to the shape a contract id is held to and for the same reason.
  */
-function assertSourceName(name: string): void {
+export function assertSourceName(name: string): void {
   if (
     name.length > NAME_LIMIT ||
     name.includes("..") ||
@@ -264,6 +264,16 @@ function assertSourceName(name: string): void {
       `${DECLARATION_FILE}: not a usable source name: ${JSON.stringify(name)}`,
     );
   }
+}
+
+/** Refuses a repository written as anything but an owner/repo pair. */
+export function assertRepository(repository: string): void {
+  requireForm(
+    repository,
+    REPOSITORY_FORM,
+    "the repository to add",
+    "an owner/repo pair",
+  );
 }
 
 /**

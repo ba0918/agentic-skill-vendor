@@ -15,13 +15,38 @@
 
 import { cacheIsIgnored, cacheSiteOf, CACHE_DIR, pruneCache } from "./cache.ts";
 import { conformanceDigestOfEntries } from "./conformance.ts";
-import { canonicalBody, compareStrings, digestOfText } from "./digest.ts";
+import {
+  canonicalBody,
+  compareStrings,
+  contractPath,
+  digestOfText,
+} from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import type { GitHubClient } from "./github.ts";
-import type { LockSource, LockSources, Resolutions } from "./manifest.ts";
-import { type Declaration, DECLARATION_FILE, originPathOf } from "./sources.ts";
-import { atomicWriteFile, decodeUtf8, dirNameOf } from "./walk.ts";
-import { readTreeState } from "./gen.ts";
+import {
+  LOCK_FILE,
+  type LockSource,
+  type LockSources,
+  renderExpectedLock,
+  type Resolutions,
+} from "./manifest.ts";
+import { emptyRecord } from "./records.ts";
+import {
+  type Declaration,
+  DECLARATION_FILE,
+  originPathOf,
+  parseDeclaration,
+  withContractMapping,
+} from "./sources.ts";
+import {
+  atomicWriteFile,
+  decodeUtf8,
+  dirNameOf,
+  isRegularFileOrAbsent,
+  readTextFile,
+} from "./walk.ts";
+import { locateTreeContracts, readTreeState, type TreeState } from "./gen.ts";
+import { declaredIds } from "./declaration.ts";
 
 /** One file on its way into the cache: where it goes, and what it holds. */
 interface CachedFile {
@@ -56,6 +81,168 @@ export async function commandFetch(
 }
 
 /**
+ * Moves each source's pin to the commit its ref names now, and reports the
+ * move.
+ *
+ * The one command that decides which version a tree adopts. Everything else is
+ * downstream of the line it writes into the lock: the fetch that fills the
+ * cache reproduces it, and the gen that records digests reads what it left
+ * behind.
+ */
+export async function commandUpdate(
+  root: string,
+  out: Sink,
+  client: GitHubClient,
+): Promise<number> {
+  const state = await readTreeState(root);
+  await warnUnlessIgnored(root, out);
+  const resolved = await resolveSources(
+    client,
+    state.declaration,
+    state.sources,
+    out,
+  );
+  // Nothing is compared against the lock here. Moving the pin is what this
+  // command does, so text differing from what the lock records is the ordinary
+  // case — the very change being adopted — and refusing over it would make
+  // every genuine upstream edit a failure. What the new text is gets recorded
+  // by the gen that follows, as an adoption a reviewer reads in the diff.
+  const declaration = await mapDeclaredContracts(
+    root,
+    client,
+    state,
+    resolved,
+    out,
+  );
+  const files = await collectSources(client, declaration, resolved, null);
+  await placeInCache(root, files);
+  await writeLockSources(root, state, resolved);
+  await pruneCache(root, resolved);
+  return 0;
+}
+
+/**
+ * Writes a mapping for every declared contract exactly one registered source
+ * holds at the conventional position, and reports each line it wrote.
+ *
+ * The one thing a person writes is the id in a skill. Which source holds it is
+ * a question that can be answered by looking, so it is answered by looking —
+ * and the answer is written into the table as a line a reviewer reads in the
+ * diff, rather than resolved again on every run from whatever the network says
+ * that day.
+ *
+ * Only the conventional position is searched. A canonical text kept anywhere
+ * else is a decision nothing here can infer, so those lines stay the person's
+ * to write, and a line already written is never second-guessed: an explicit
+ * mapping is itself the adjudication this search would otherwise have to make.
+ */
+async function mapDeclaredContracts(
+  root: string,
+  client: GitHubClient,
+  state: TreeState,
+  sources: LockSources,
+  out: Sink,
+): Promise<Declaration> {
+  const unmapped = declaredIds(state.skills).filter(
+    (id) => state.declaration.contracts[id] === undefined,
+  );
+  if (unmapped.length === 0) return state.declaration;
+  const listings = new Map<string, string[]>();
+  for (const name of Object.keys(state.declaration.sources).sort(
+    compareStrings,
+  )) {
+    const pinned = sources[name];
+    if (pinned === undefined) continue;
+    listings.set(
+      name,
+      await client.pathsAt(pinned.repository, pinned.revision),
+    );
+  }
+  let text = await readDeclarationText(root);
+  for (const id of unmapped) {
+    const holders = [...listings]
+      .filter(([, paths]) => paths.includes(contractPath(id)))
+      .map(([name]) => name);
+    if (holders.length === 0) continue;
+    // Letting one of them win quietly is how a document ends up maintained in
+    // two places with nothing recording which copy the tree distributes. The
+    // refusal is the moment that duplication becomes visible, and writing the
+    // line by hand is the decision it asks for.
+    if (holders.length > 1) {
+      throw new ConfigError(
+        `${holders.join(" and ")} both hold ${contractPath(id)}; write the ` +
+          `contracts.${id} line in ${DECLARATION_FILE} to say which one ` +
+          `${id} comes from`,
+      );
+    }
+    text = withContractMapping(text, id, holders[0]);
+    out(`mapped: ${id} <- ${holders[0]}`);
+  }
+  await atomicWriteFile(root, DECLARATION_FILE, new TextEncoder().encode(text));
+  return parseDeclaration(text);
+}
+
+/** The declaration as it stands, or an empty document where there is none. */
+async function readDeclarationText(root: string): Promise<string> {
+  if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) return "";
+  return await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE);
+}
+
+/**
+ * Each registered source's ref, resolved to the commit it names right now.
+ *
+ * Reported one line per source, in the shape the lock's own diff carries: a
+ * reviewer reads which version moved from where to where without having to
+ * open the file, and a first resolution says so rather than showing an empty
+ * left-hand side.
+ */
+async function resolveSources(
+  client: GitHubClient,
+  declaration: Declaration,
+  recorded: LockSources,
+  out: Sink,
+): Promise<LockSources> {
+  const resolved: LockSources = emptyRecord();
+  for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
+    const source = declaration.sources[name];
+    const revision = await client.commitOf(source.repository, source.ref);
+    const before = recorded[name]?.revision;
+    if (before !== revision) {
+      out(
+        before === undefined
+          ? `resolved: ${name} ${revision} (initial resolution)`
+          : `resolved: ${name} ${before} -> ${revision}`,
+      );
+    }
+    resolved[name] = { repository: source.repository, revision };
+  }
+  return resolved;
+}
+
+/**
+ * Writes the lock with the pins this run resolved, through the same rendering
+ * gen and verify compare against.
+ *
+ * Rendered any other way, the file this leaves behind would be reported as
+ * differing from what the tree renders to — a violation raised by the command
+ * that had just put the tree right.
+ */
+async function writeLockSources(
+  root: string,
+  state: TreeState,
+  sources: LockSources,
+): Promise<void> {
+  const rendered = await renderExpectedLock(
+    root,
+    state.skills,
+    state.resolutions,
+    sources,
+    locateTreeContracts(state),
+  );
+  await atomicWriteFile(root, LOCK_FILE, new TextEncoder().encode(rendered));
+}
+
+/**
  * Every file the declaration's remote contracts need, fetched and checked
  * before any of it is written.
  *
@@ -70,7 +257,7 @@ async function collectSources(
   client: GitHubClient,
   declaration: Declaration,
   sources: LockSources,
-  resolutions: Resolutions,
+  resolutions: Resolutions | null,
 ): Promise<CachedFile[]> {
   const files: CachedFile[] = [];
   for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
@@ -130,7 +317,7 @@ async function collectContract(
   listing: string[],
   id: string,
   path: string,
-  resolutions: Resolutions,
+  resolutions: Resolutions | null,
 ): Promise<CachedFile[]> {
   const named = `${pinned.repository}@${pinned.revision.slice(0, 12)}:${path}`;
   if (!listing.includes(path)) {
@@ -143,7 +330,7 @@ async function collectContract(
   const digest = await digestOfText(
     canonicalBody(decodeUtf8(bytes, named), named),
   );
-  const recorded = resolutions[id];
+  const recorded = resolutions?.[id];
   if (recorded !== undefined && recorded.digest !== digest) {
     throw new ConfigError(
       `${named} digests to ${digest}, the lock pins ${recorded.digest}; ` +
