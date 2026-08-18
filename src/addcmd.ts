@@ -14,6 +14,7 @@ import {
   assertRepository,
   assertSourceName,
   DECLARATION_FILE,
+  parseDeclaration,
   readDeclaration,
   withSourceRegistration,
 } from "./sources.ts";
@@ -58,6 +59,15 @@ export async function commandAdd(
     repository,
     ref,
   });
+  // The revised text is read back before it lands, the way gen and update read
+  // theirs back. The scribe edits lines rather than rendering the document, so
+  // the entry it writes carries this tool's own indentation into a table a
+  // person may have written with some other — and a table that stopped being
+  // readable YAML is not a run that failed but a file left behind: every later
+  // verify, gen, update, fetch and add stops on it, with hand editing the only
+  // way out. Refusing here costs the registration this run was asked for and
+  // nothing else.
+  parseDeclaration(text);
   await atomicWriteFile(root, DECLARATION_FILE, new TextEncoder().encode(text));
   return await commandUpdate(root, out, client);
 }

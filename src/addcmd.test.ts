@@ -246,3 +246,40 @@ test("the name reserved for this repository is refused before the table is writt
     );
   });
 });
+
+test("add leaves a table it could not revise readably exactly as it was", async () => {
+  await withGoodTree(async (root) => {
+    // The scribe writes lines rather than rendering the document, so it can
+    // only guess at the shape a person wrote: an entry indented four spaces
+    // takes a two-space one beside it and the file stops being readable YAML.
+    // Written first and read back afterwards, that file is on disk and every
+    // command — verify, gen, update, fetch, add — stops on it, with hand
+    // editing the only way out.
+    const table = [
+      "sources:",
+      "    meta:",
+      "        repository: ba0918/agentic-meta",
+      "        ref: main",
+      "",
+    ].join("\n");
+    await writeFile(`${root}/vendor-manifest.yaml`, table);
+    const github = fakeGitHub(workflow());
+
+    const error = await rejectedBy(
+      () =>
+        commandAdd(
+          root,
+          () => {},
+          gitHubOver(github.fetch),
+          REPOSITORY,
+          undefined,
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("vendor-manifest.yaml");
+    expect(
+      await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+    ).toStrictEqual(table);
+  });
+});
