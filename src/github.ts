@@ -5,6 +5,8 @@
 // resolves a ref to a commit and lists what a commit holds, and the raw content
 // host that serves one file at a commit. A declaration that could name a host
 // would turn a contract mapping into a way of pointing this tool at any server.
+// No redirect is followed either — a chain that was allowed to continue would
+// leave the fixed hosts true of its first request only.
 //
 // Nothing here opens a connection by itself. The transport is handed in as a
 // function, so every test drives the real request-building and the real
@@ -291,9 +293,24 @@ async function request(
 ): Promise<Uint8Array> {
   let response: Response;
   try {
-    response = await transport(url);
+    // The redirect is asked for rather than left to the default, and that is
+    // the half that closes the hole: followed, the chain would be walked by
+    // the runtime and only its last answer would ever reach the check below.
+    response = await transport(url, { redirect: "manual" });
   } catch (cause) {
     throw new ConfigError(`cannot reach ${url}: ${describeCause(cause)}`);
+  }
+  // A redirect is refused rather than followed. The two hosts are fixed here,
+  // and following one would make that a statement about the first request of a
+  // chain alone: a Location naming any third-party host would be asked next
+  // and whatever it answered would be read as the source's own bytes.
+  if (response.status >= 300 && response.status < 400) {
+    throw new ConfigError(
+      `${url}: answered ${response.status}, redirecting to ` +
+        `${JSON.stringify(response.headers.get("location"))}; this tool ` +
+        `talks to two fixed hosts and follows no redirect, and these ` +
+        `endpoints do not normally answer with one`,
+    );
   }
   if (!response.ok) {
     // The rate limit is named where it applies. Every request this tool makes

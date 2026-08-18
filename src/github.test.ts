@@ -253,3 +253,41 @@ test("a listing naming anything but an ordinary file is refused", async () => {
     expect(error.message, mode).toContain(mode);
   }
 });
+
+test("an answer that redirects is refused rather than followed", async () => {
+  // The hosts this tool talks to are fixed, and following a redirect would
+  // make that true of the first request of a chain only: a Location naming any
+  // third-party host would be asked next and its answer taken. These endpoints
+  // do not normally redirect, so one that does is an anomaly.
+  const transport = (async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://elsewhere.invalid/repos" },
+    })) as unknown as typeof fetch;
+  const error = await rejectedBy(
+    () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+    ConfigError,
+  );
+  expect(error.message).toContain("redirect");
+});
+
+test("every request tells the transport not to follow a redirect itself", async () => {
+  // Refusing a 3xx answer only closes the hole if a 3xx answer is what arrives.
+  // Left to its default, fetch follows the chain and hands back the last
+  // answer, so the refusal above would never see the redirect at all.
+  const asked: (RequestInit | undefined)[] = [];
+  const transport = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    asked.push(init);
+    return new Response(JSON.stringify({ sha: REVISION }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
+
+  await gitHubOver(transport).commitOf(REPOSITORY, "main");
+
+  expect(asked.map((init) => init?.redirect)).toStrictEqual(["manual"]);
+});
