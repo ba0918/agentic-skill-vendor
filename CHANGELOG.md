@@ -20,7 +20,7 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The lock file records the dependency lists and the resolved digests, and nothing else. No
   tool version, repository URL or derivable path is written into it, so releasing a new
   version of the tool never invalidates a consuming repository's tree.
-- Distribution through npm as `@ba0918/agentic-skill-vendor`, run with `bunx`, `npx`,
+- Distribution through npm as `@ba0918-dev/agentic-skill-vendor`, run with `bunx`, `npx`,
   `pnpm dlx`, `yarn dlx` or Deno's `npm:` specifier. The tool is written against
   Node-compatible builtins and web standard APIs only, so the same source runs on Node,
   Bun and Deno, and nothing is copied into the consuming repository.

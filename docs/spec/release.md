@@ -1,6 +1,6 @@
 # リリースの仕組み
 
-このツールを npm パッケージ `@ba0918/agentic-skill-vendor` として公開する手順と、
+このツールを npm パッケージ `@ba0918-dev/agentic-skill-vendor` として公開する手順と、
 その自動化の設計を記す。
 
 ## 方針

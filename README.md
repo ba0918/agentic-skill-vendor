@@ -15,7 +15,7 @@ Add it as a dev dependency of the consuming repository. The install links the
 `agentic-skill-vendor` command into `node_modules/.bin`, and the lockfile pins the version:
 
 ```
-bun add --dev @ba0918/agentic-skill-vendor
+bun add --dev @ba0918-dev/agentic-skill-vendor
 bunx agentic-skill-vendor <command> [--root <path>]
 ```
 
@@ -24,8 +24,8 @@ pnpm, yarn). It can also run with nothing installed, through a one-shot runner â
 version in the invocation then, since a bare name resolves the newest release each time:
 
 ```
-bunx @ba0918/agentic-skill-vendor@<version> <command> [--root <path>]
-deno run --allow-read --allow-write npm:@ba0918/agentic-skill-vendor@<version> <command> [--root <path>]
+bunx @ba0918-dev/agentic-skill-vendor@<version> <command> [--root <path>]
+deno run --allow-read --allow-write npm:@ba0918-dev/agentic-skill-vendor@<version> <command> [--root <path>]
 ```
 
 The tool runs on Node (>= 20), Bun and Deno from the same source, and reaches nothing but
