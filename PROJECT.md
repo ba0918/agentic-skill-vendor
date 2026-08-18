@@ -57,6 +57,7 @@ it is never committed.
 | Format check | `bun run fmt:check` |
 | Build the publishable artifact | `bun run build` |
 | Run the tool from source | `bun run src/cli.ts <command> [--root <path>]` |
+| Enable pre-push hooks (once per clone) | `bunx lefthook install` |
 
 ## Conventions specific to this project
 

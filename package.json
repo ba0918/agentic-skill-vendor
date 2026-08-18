@@ -26,8 +26,7 @@
     "fmt": "biome format --write .",
     "fmt:check": "biome format .",
     "build": "bun build src/cli.ts --target node --packages external --outdir dist",
-    "prepack": "bun run build",
-    "prepare": "lefthook install"
+    "prepack": "bun run build"
   },
   "dependencies": {
     "ignore": "7.0.6",

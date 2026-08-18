@@ -7,6 +7,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- The package manifest no longer carries a `prepare` script running `lefthook install`.
+  The script never ran on registry installs, but it shipped to every consumer and did run
+  during pack and git-dependency installs — a development-only concern leaking into the
+  published artifact. Pre-push hooks are now activated once per clone with
+  `bunx lefthook install`, documented in `PROJECT.md`.
+
 ## [0.1.0] - 2026-08-18
 
 ### Added
