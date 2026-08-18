@@ -436,7 +436,7 @@ export function withSourceRegistration(
  */
 export function withoutContractMapping(text: string, id: string): string {
   const lines = text.replace(/\n$/, "").split("\n");
-  const opening = lines.findIndex((line) => isBlockOpening(line, "contracts"));
+  const opening = blockOpeningOf(lines, "contracts");
   if (opening === -1) return text;
   // The search stops where the block does. A source may be named after the
   // contract it holds, and a search that ran on would take that registration
@@ -471,7 +471,7 @@ function withEntry(
 ): string {
   const lines = text === "" ? [] : text.replace(/\n$/, "").split("\n");
   const entry = [`${BLOCK_INDENT}${name}:`, ...body];
-  const opening = lines.findIndex((line) => isBlockOpening(line, block));
+  const opening = blockOpeningOf(lines, block);
   if (opening === -1) {
     // A blank line before a block the document did not have yet, unless the
     // document is empty or already ends in one: the file is read by people,
@@ -491,6 +491,37 @@ function withEntry(
 /** True for the line that opens a top-level block of this name. */
 function isBlockOpening(line: string, block: string): boolean {
   return new RegExp(`^${block}:\\s*(#.*)?$`).test(line);
+}
+
+/** True for a top-level line that opens a key of this name, in any shape. */
+function isBlockKey(line: string, block: string): boolean {
+  return new RegExp(`^${block}:(\\s|$)`).test(line);
+}
+
+/**
+ * Where the named block opens, -1 where the document holds no such key, and a
+ * refusal where it holds one this scribe cannot edit.
+ *
+ * `contracts: {}` is a legal way to write the block, and a scribe that inserts
+ * lines has nowhere to put one beneath it. Read as "the document has no such
+ * block", the run opens a second one and leaves a document carrying the key
+ * twice — which is exactly what this module's own reader refuses, so the file
+ * a run had just written would stop every run after it.
+ *
+ * Rewriting the line into block form is the other way out, and it is refused
+ * for what it costs: the flow form is a person's line, and a non-empty one
+ * cannot be turned into a block without re-rendering the entries it holds —
+ * the whole-document rewrite this half of the module exists to avoid.
+ */
+function blockOpeningOf(lines: string[], block: string): number {
+  const opening = lines.findIndex((line) => isBlockOpening(line, block));
+  if (opening !== -1) return opening;
+  if (!lines.some((line) => isBlockKey(line, block))) return -1;
+  throw new ConfigError(
+    `${DECLARATION_FILE}: the ${block} block is written on one line, which ` +
+      `leaves nowhere to add an entry under it; write ${block}: on a line of ` +
+      `its own with each entry indented beneath it`,
+  );
 }
 
 /** The line the block ends before: the next top-level line, or the end. */

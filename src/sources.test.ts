@@ -358,3 +358,33 @@ test("pruning a mapping never reaches an entry of the same name in another block
     ref: "main",
   });
 });
+
+test("a block written in a form the scribe cannot edit is refused rather than doubled", () => {
+  // `contracts: {}` is a legal way to write an empty table, and a scribe that
+  // works line by line has nowhere to insert under it. Read as "no block of
+  // that name", the run appends a second one — a document carrying the key
+  // twice, which this tool's own reader then refuses. The refusal has to come
+  // before the write, because after it the file is unreadable to every command.
+  const flow = ["sources: {}", "", "contracts: {}", ""].join("\n");
+
+  expect(
+    thrownBy(
+      () => withContractMapping(flow, "tdd-contract", "local"),
+      ConfigError,
+    ).message,
+  ).toContain("contracts");
+  expect(
+    thrownBy(
+      () =>
+        withSourceRegistration(flow, "workflow", {
+          repository: "ba0918/agentic-workflow",
+          ref: "main",
+        }),
+      ConfigError,
+    ).message,
+  ).toContain("sources");
+  expect(
+    thrownBy(() => withoutContractMapping(flow, "tdd-contract"), ConfigError)
+      .message,
+  ).toContain("contracts");
+});
