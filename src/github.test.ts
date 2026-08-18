@@ -232,26 +232,57 @@ test("the listing carries the object id the commit gives each file", async () =>
   );
 });
 
-test("a listing naming anything but an ordinary file is refused", async () => {
-  // A symlink arriving from upstream would be fetched as an ordinary file
-  // whose content is the path it points at, and a submodule is not a file at
-  // all. Left out of the listing instead, either would be indistinguishable
-  // from "the source does not hold that file" — which pins a conformance tree
-  // as absent while upstream has one.
-  for (const mode of ["120000", "160000"]) {
-    const github = fakeGitHub({
-      [REPOSITORY]: {
-        ...workflowRepository()[REPOSITORY],
-        modes: { "contracts/tdd-contract/conformance/cases/first.md": mode },
+test("the listing carries the mode a commit gives each entry rather than judging it", async () => {
+  // A listing covers a whole repository, so a mode judged here decides for
+  // files the run will never open: one link or one vendored subproject
+  // standing anywhere in a source put every contract that source holds out of
+  // reach. The mode travels to whoever is about to take the file, and the
+  // directories a repository is shaped by are dropped — a directory is not a
+  // file this tool takes.
+  const github = fakeGitHub({
+    [REPOSITORY]: {
+      ...workflowRepository()[REPOSITORY],
+      modes: {
+        "README.md": "160000",
+        "contracts/tdd-contract/conformance/cases/first.md": "120000",
       },
-    });
-    const error = await rejectedBy(
-      () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
-      ConfigError,
-    );
-    expect(error.message, mode).toContain("first.md");
-    expect(error.message, mode).toContain(mode);
-  }
+    },
+  });
+
+  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+
+  expect(
+    new Map(listed.map((entry) => [entry.path, entry.mode])),
+  ).toStrictEqual(
+    new Map([
+      ["README.md", "160000"],
+      ["contracts/tdd-contract.md", "100644"],
+      ["contracts/tdd-contract/conformance/cases/first.md", "120000"],
+    ]),
+  );
+});
+
+test("a listing giving an entry no mode at all is refused", async () => {
+  // The answer failing to be a tree listing, the way a missing path is. Read
+  // as some mode this tool declines to take, the entry would describe itself
+  // as something no caller can judge.
+  const transport = (async () =>
+    new Response(
+      JSON.stringify({
+        sha: REVISION,
+        tree: [{ path: "contracts/tdd-contract.md", sha: "a".repeat(40) }],
+        truncated: false,
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )) as unknown as typeof fetch;
+
+  const error = await rejectedBy(
+    () => gitHubOver(transport).blobsAt(REPOSITORY, REVISION),
+    ConfigError,
+  );
+
+  expect(error.message).toContain("contracts/tdd-contract.md");
+  expect(error.message).toContain("no mode");
 });
 
 test("an answer that redirects is refused rather than followed", async () => {

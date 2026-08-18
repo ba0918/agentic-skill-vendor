@@ -28,7 +28,11 @@ import {
 } from "./cache.ts";
 import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
-import type { GitHubClient, TreeBlob } from "./github.ts";
+import {
+  type GitHubClient,
+  requireOrdinaryFile,
+  type TreeBlob,
+} from "./github.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -215,6 +219,13 @@ async function mapDeclaredContracts(
     // The line itself is written by gen, offline, where the file either is
     // there or is not.
     if (await isRegularFileOrAbsent(root, contractPath(id))) continue;
+    // Which source holds the contract is answered by what stands at the
+    // conventional position, whatever mode it stands there in. A link counted
+    // here becomes a mapping whose fetch then refuses it — in this same run,
+    // before the table is written, naming the path and the mode. Left out
+    // instead, a source that does hold the file at that path would read
+    // exactly like one holding nothing there, and the run would end on "no
+    // source holds this contract" about a source that does.
     const holders = [...listings]
       .filter(([, paths]) => paths.includes(contractPath(id)))
       .map(([name]) => name);
@@ -372,6 +383,12 @@ function contractsOf(declaration: Declaration, source: string): string[] {
  * answer that also carries their object ids, so what lands in the cache is
  * what the pinned commit holds — a fact established without the lock, which
  * records adoption rather than what a transfer is allowed to be.
+ *
+ * That selection is also the whole range an entry's mode is judged over.
+ * Everything else a listing names is passed over whatever its mode: a file no
+ * run opens cannot be dropped and read back afterwards as one upstream does
+ * not hold, and judging the listing as a whole put every contract a source
+ * holds out of reach over one link standing anywhere in it.
  */
 async function collectContract(
   client: GitHubClient,
@@ -397,6 +414,15 @@ async function collectContract(
   // rules exclude the whole cache on purpose, and applying them here would
   // fetch no conformance tree at all.
   const conformance = `${dirNameOf(path)}/${id}/conformance`;
+  // An entry standing at the conformance directory itself is judged too,
+  // though nothing is ever taken from it. A directory never reaches this
+  // listing, so a path listed here is the tests mounted through a link or a
+  // subproject — and passed over, that reads as a contract carrying no tests
+  // at all, which is the state the whole check exists to keep out of a pin.
+  const mounted = listing.find((entry) => entry.path === conformance);
+  if (mounted !== undefined) {
+    requireOrdinaryFile(mounted, atCommit(pinned, conformance));
+  }
   for (const entry of listing
     .filter((candidate) => candidate.path.startsWith(`${conformance}/`))
     .sort((a, b) => compareStrings(a.path, b.path))) {
@@ -408,9 +434,19 @@ async function collectContract(
   return files;
 }
 
+/** One file of one commit, named the way a refusal about it reads. */
+function atCommit(pinned: LockSource, path: string): string {
+  return `${pinned.repository}@${pinned.revision.slice(0, 12)}:${path}`;
+}
+
 /**
- * One file's bytes, refused unless they hash to the object id the commit's own
- * listing gives for that file.
+ * One file's bytes, refused unless the commit lists it as an ordinary file and
+ * they hash to the object id that same listing gives for it.
+ *
+ * The mode is judged here rather than where the listing arrives, and that is
+ * what keeps the judgment over the files this run takes and no others: every
+ * file that reaches the cache comes through this function, while a listing
+ * covers a whole repository.
  *
  * The acceptance test is the source commit, never the lock. A commit is
  * immutable and names what each of its files hashes to, so "the cache holds
@@ -428,6 +464,8 @@ async function fetchChecked(
   pinned: LockSource,
   blob: TreeBlob,
 ): Promise<Uint8Array> {
+  const named = atCommit(pinned, blob.path);
+  requireOrdinaryFile(blob, named);
   const bytes = await client.fileAt(
     pinned.repository,
     pinned.revision,
@@ -435,9 +473,6 @@ async function fetchChecked(
   );
   const arrived = await gitObjectIdOf(bytes);
   if (arrived !== blob.objectId) {
-    const named = `${pinned.repository}@${pinned.revision.slice(0, 12)}:${
-      blob.path
-    }`;
     throw new ConfigError(
       `${named}: the bytes that arrived carry the object id ${arrived}, ` +
         `while the commit lists ${blob.objectId} for that file; nothing was ` +

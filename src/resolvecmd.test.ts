@@ -795,3 +795,181 @@ test("a fetch that cannot place a revision whole leaves no revision directory be
     ).toStrictEqual(false);
   });
 });
+
+/**
+ * The source repository above, plus `extra` files, each listed at the mode
+ * `modes` gives it: what a repository holding a link or a subproject of its
+ * own looks like from here.
+ */
+function workflowListing(
+  extra: Record<string, string>,
+  modes: Record<string, string>,
+): Record<string, FakeRepository> {
+  const source = workflow()[REPOSITORY];
+  return {
+    [REPOSITORY]: {
+      ...source,
+      files: { [REVISION]: { ...source.files[REVISION], ...extra } },
+      modes,
+    },
+  };
+}
+
+test("a link standing where no contract is taken from does not stop the fetch", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The refusal exists so that a file this run was going to take cannot be
+    // dropped and read back afterwards as one upstream does not hold. A link
+    // the run never reads cannot do that — and refusing over it made a single
+    // documentation shortcut or vendored subproject, anywhere in a repository,
+    // enough to put every contract that repository holds out of reach.
+    const github = fakeGitHub(
+      workflowListing(
+        { "docs/latest.md": "../README.md" },
+        { "docs/latest.md": "120000" },
+      ),
+    );
+
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md")}`,
+        "utf8",
+      ),
+    ).toStrictEqual(CONTRACT);
+  });
+});
+
+test("a link standing at the contract's own path is refused, named with its mode", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // What arrives over the wire for a link is the path it points at, so a
+    // fetch that took it would cache that path as the canonical text and the
+    // tree would distribute a line of text nobody wrote. The mode is named
+    // because the file is there and readable — only not as something this
+    // tool can take — and a message saying only "refused" sends a reader
+    // looking for a file that is missing.
+    const github = fakeGitHub(
+      workflowListing({}, { "contracts/tdd-contract.md": "120000" }),
+    );
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("contracts/tdd-contract.md");
+    expect(error.message).toContain("120000");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("a link inside the conformance tree is refused rather than left out of the fetch", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The tests beside a contract are taken as the fetch finds them, so an
+    // entry dropped here is one the pin then records as absent. That is the
+    // failure worth stopping over: upstream holds the case, the tree says it
+    // does not, and every later verify agrees with the tree.
+    const linked = "contracts/tdd-contract/conformance/cases/first.md";
+    const github = fakeGitHub(workflowListing({}, { [linked]: "120000" }));
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain(linked);
+    expect(error.message).toContain("120000");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("a subproject standing where the conformance tree does is refused rather than read as no tests at all", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A source that mounts the tests through a link or a subproject lists one
+    // entry at that path and nothing beneath it. Read as a tree that carries
+    // no file, the pin records "this contract has no tests" about a contract
+    // that has them — the one state this refusal exists to keep out.
+    const mounted = "contracts/tdd-contract/conformance";
+    const github = fakeGitHub({
+      [REPOSITORY]: {
+        ...workflow({
+          "contracts/tdd-contract.md": CONTRACT,
+          [mounted]: "the commit a subproject is pinned at\n",
+        })[REPOSITORY],
+        modes: { [mounted]: "160000" },
+      },
+    });
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain(mounted);
+    expect(error.message).toContain("160000");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("a source holding the contract path as a link is still counted as holding it, and the run stops before the mapping is written", async () => {
+  await withGoodTree(async (root) => {
+    // The two halves have to answer the same question the same way. The
+    // search asks who holds the file at the conventional position, and a link
+    // standing there is held: passed over instead, the source would be
+    // indistinguishable from one that has nothing at that path, and the run
+    // would end on "no source holds this contract" about a source that does.
+    // Counting it writes a mapping whose fetch then refuses — in this same
+    // run, before the table is written, naming the path and the mode — so the
+    // tree is never left carrying a line the tool cannot act on.
+    await declareInSkill(root, "tdd-contract");
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  workflow:",
+        `    repository: ${REPOSITORY}`,
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    const github = fakeGitHub(
+      workflowListing({}, { "contracts/tdd-contract.md": "120000" }),
+    );
+    const before = await snapshotTree(root);
+    const lines: string[] = [];
+
+    const error = await rejectedBy(
+      () =>
+        commandUpdate(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("contracts/tdd-contract.md");
+    expect(error.message).toContain("120000");
+    expect(await snapshotTree(root), lines.join("\n")).toStrictEqual(before);
+  });
+});

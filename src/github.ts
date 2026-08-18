@@ -72,15 +72,20 @@ export function rawUrl(
 }
 
 /**
- * One ordinary file a commit holds: where it sits, and the object id the
- * commit's own listing gives for its bytes.
+ * One entry a commit holds: where it sits, the mode the commit lists it at,
+ * and the object id the commit's own listing gives for its bytes.
  *
  * The id travels with the path because the two are one answer. Asked for
  * separately, the pair could describe two different commits, and the check a
  * download is judged against would be judging it against the wrong one.
+ *
+ * The mode travels with them so that whoever is about to take a file judges
+ * it, rather than this listing. The listing covers a whole repository, and
+ * which of it this tool consumes is decided far from here.
  */
 export interface TreeBlob {
   path: string;
+  mode: string;
   objectId: string;
 }
 
@@ -97,7 +102,10 @@ export interface GitHubClient {
   defaultBranchOf(repository: string): Promise<string>;
   /** The commit a ref names right now, as a 40-digit SHA. */
   commitOf(repository: string, ref: string): Promise<string>;
-  /** Every file one commit holds, each with the id the commit gives it. */
+  /**
+   * Everything one commit holds but its directories, each with the mode and
+   * the id the commit gives it.
+   */
   blobsAt(repository: string, revision: string): Promise<TreeBlob[]>;
   /** One file's bytes at one commit. */
   fileAt(
@@ -115,7 +123,7 @@ export interface GitHubClient {
 const OBJECT_ID_FORM = /^[0-9a-f]{40}$/;
 
 /**
- * The modes a listing may name, and the one it names a directory with.
+ * The modes this tool takes a file at, and the one a directory is listed with.
  *
  * An ordinary file is all this tool fetches. A symlink arriving from upstream
  * would be written into the cache as an ordinary file whose content is the
@@ -128,6 +136,31 @@ const OBJECT_ID_FORM = /^[0-9a-f]{40}$/;
  */
 const FILE_MODES = ["100644", "100755"];
 const DIRECTORY_MODE = "040000";
+
+/**
+ * Refuses an entry a run is about to take unless it is an ordinary file,
+ * named by the caller as the file it was going to take.
+ *
+ * Refused rather than passed over. Leaving the entry out reads exactly like a
+ * source that does not hold the file, and a conformance test dropped that way
+ * is pinned as absent while upstream has it — which the tree then verifies
+ * clean against.
+ *
+ * Asked of one file at a time rather than of a whole listing, because a
+ * listing covers a whole repository. A link the run never reads cannot be
+ * mistaken for an absent file, while refusing over one made a documentation
+ * shortcut or a vendored subproject anywhere in a source enough to put every
+ * contract that source holds out of reach.
+ */
+export function requireOrdinaryFile(blob: TreeBlob, named: string): void {
+  if (FILE_MODES.includes(blob.mode)) return;
+  throw new ConfigError(
+    `${named}: listed as ${JSON.stringify(blob.mode)}, and only an ordinary ` +
+      `file (${FILE_MODES.join(" or ")}) is taken; a link or a subproject ` +
+      `standing where this tool reads a file is refused rather than left out, ` +
+      `since a file left out reads as one the source does not hold`,
+  );
+}
 
 /**
  * How much of an answer this tool is willing to read.
@@ -227,16 +260,22 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
               `inside the repository it lists`,
           );
         }
-        // Refused rather than passed over. Leaving the entry out would read
-        // exactly like a source that does not hold the file — and a
-        // conformance test dropped that way is pinned as absent while upstream
-        // has it, which the tree then verifies clean against.
-        if (typeof mode !== "string" || !FILE_MODES.includes(mode)) {
+        // The mode is reported, not judged. This listing covers the whole
+        // repository, so a mode refused here made one link or one vendored
+        // subproject — anywhere in the source, however far from any contract —
+        // enough to put every contract that source holds out of reach. What
+        // the run is actually about to take is known where it is taken, and
+        // that is where the refusal belongs.
+        //
+        // A mode that is not a string at all is refused all the same, the way
+        // a missing path and an object id that is not one are. That is the
+        // answer failing to be a tree listing rather than a mode this tool
+        // declines to take, and carried on it would leave an entry describing
+        // itself as something no caller can judge.
+        if (typeof mode !== "string") {
           throw new ConfigError(
-            `${url}: listed ${JSON.stringify(path)} as ${JSON.stringify(
-              mode,
-            )}, and only an ordinary file (${FILE_MODES.join(" or ")}) is ` +
-              `fetched`,
+            `${url}: listed ${JSON.stringify(path)} with no mode, found ` +
+              `${JSON.stringify(mode)}`,
           );
         }
         const objectId = listed["sha"];
@@ -252,7 +291,7 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
               `found ${JSON.stringify(objectId)}`,
           );
         }
-        blobs.push({ path, objectId });
+        blobs.push({ path, mode, objectId });
       }
       return blobs;
     },
