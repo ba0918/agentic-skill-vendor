@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-18
+
 ### Added
 
 - The vendoring tool: `gen` distributes each contract's current text into every skill that
@@ -27,3 +29,6 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of reading as absent, writes are atomic, and identity is verified byte for byte.
 - A fixture tree under `fixtures/contracts-basic/good/` that verifies clean, which CI runs
   `verify` and `lint-selfcontain` against so that an unapproved change fails the build.
+
+[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ba0918/agentic-skill-vendor/releases/tag/v0.1.0
