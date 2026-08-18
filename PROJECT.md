@@ -30,9 +30,9 @@ it is never committed.
 | `src/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
 | `src/conformance.ts` | The conformance framing rules and tree collection |
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
-| `src/manifest.ts` | The lock, in one canonical rendering |
+| `src/manifest.ts` | The lock, in one canonical rendering, and what that rendering takes from the table of origins rather than from the lock |
 | `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
-| `src/cache.ts` | Where fetched text is kept, how it is cleared, and whether the repository ignores it |
+| `src/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
 | `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
 | `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
 | `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
@@ -98,13 +98,19 @@ it is never committed.
   is a property of the code rather than a guarantee of the runtime. `add`, `update` and
   `fetch` add HTTPS to `api.github.com` and `raw.githubusercontent.com`, through a transport
   injected at the command boundary, and read no environment variable and start no subprocess
-  either.
+  either. No redirect is followed: the fixed pair of hosts would otherwise hold for the first
+  request of a run only, so a `3xx` answer stops the run with nothing written.
 - The lock records what was resolved and nothing else — no tool version, no repository URL, no
   derivable path. Every one of those was a value no check consumed, and the tool's own
   version put a byte nobody verified into a byte-for-byte comparison: releasing a new
   version made every consuming repository's `verify` fail until each tree was regenerated.
   The one thing it gained is the `sources` section, which records the commit each source is
-  pinned at — a value the fetching commands write and every offline command reads.
+  pinned at — a value the fetching commands write and every offline command reads. The
+  repository recorded beside it is the one `vendor-manifest.yaml` registers: the rendering
+  takes that field from the table instead of carrying the lock's own value, so a lock naming
+  another repository is reported (`source-mismatch`) rather than compared with itself, and
+  `gen` and `fetch` stop for that source while `update` — which reads the repository and the
+  ref from the table alone — is the way back.
   A format marker is deliberately absent too; a future breaking release introduces one, and
   the absence of the field is what marks the older form.
 - The canonical text is the authority and the lock is derived from it, so `gen` is the only

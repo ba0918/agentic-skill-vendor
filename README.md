@@ -135,11 +135,26 @@ run:
 ```
 
 Deleting the whole directory costs one `fetch`. The lock records the commit each source is
-pinned at, so `fetch` restores exactly the bytes the tree adopted and refuses anything else.
+pinned at, and `fetch` judges every downloaded file against the object id that commit's own
+listing gives it — the lock takes no part in the check, which is what lets the cache be rebuilt
+from whatever state the tree is in. A revision's directory is placed in a single move once every
+file of it has arrived, so a directory standing at its place means that revision was fetched
+whole and a fetch stopped part way leaves no revision behind at all. Three answers stop a
+fetching run with nothing written: a listing naming anything but an ordinary file (a symlink, a
+submodule), a redirect, and a value that would not read back as itself — the default branch
+`add` records is checked exactly as a ref read from the table is.
+
+The repository each source is pinned to is the one `vendor-manifest.yaml` registers. Edit that
+line and the tree disagrees with itself until `update` runs: `verify` reports the source as
+`source-mismatch`, and `gen` and `fetch` stop for it rather than act on a pin the table
+contradicts. `update` is the way back — it reads the repository and the ref from the table
+alone.
 
 `gen` and `verify` never fetch: `gen` stops and asks for a `fetch` when the cache is missing
 rather than resolving a ref of its own, since that would take up whatever the source holds
-today with nothing in any diff saying a new version was adopted.
+today with nothing in any diff saying a new version was adopted. Where the lock pins no commit
+for the source at all it asks for an `update` instead — a `fetch` reproduces a pin rather than
+deciding one, and would only ask for the same update itself.
 
 `--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
 nothing to report, `1` violations (one per line on standard output), `2` a refusal or an
@@ -199,7 +214,8 @@ absent; writes are atomic; identity is verified byte for byte.
 **Violation kinds** — every reported line opens with a stable kind prefix: `closure` from
 `gen` and `verify` alike (a skill declares a contract whose canonical text is not there, the
 one state `gen` refuses to write over); `unresolved`, `stale-lock`, `drift`, `extra`,
-`lock` and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
+`lock`, `source-mismatch` (the lock pins a source to a repository the table of origins does
+not register it at) and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
 `symlink-escape` from `lint-selfcontain`; `self-test` from `self-test`. A successful run
 reports in the same shape: `adopted` and `retired` from `gen` for each digest it recorded a
 new value for or dropped, `mapped` and `unmapped` for each line it wrote into or took out of
