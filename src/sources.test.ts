@@ -440,3 +440,42 @@ test("a mapping written into a table whose lines end CRLF leaves the file unifor
     ].join("\r\n"),
   );
 });
+
+test("registering a source refuses a value the table would not read back as itself", () => {
+  // The scribe writes unquoted scalars into a document people also read. A
+  // value carrying a line break writes lines of its own — the table below
+  // gains a top-level key nobody wrote and still parses — and one opening with
+  // a comment character reads as no value at all. Both ends are asked, because
+  // they answer different questions: this one is "may this be written", the
+  // schema's is "may this be believed".
+  const unwritable: [string, { repository: string; ref: string }][] = [
+    [
+      "workflow",
+      { repository: "ba0918/agentic-workflow", ref: "main\nrogue: 1" },
+    ],
+    ["workflow", { repository: "ba0918/agentic-workflow", ref: "#main" }],
+    ["workflow", { repository: "ba0918/agentic-workflow", ref: "" }],
+    ["workflow", { repository: "not a repository", ref: "main" }],
+    ["work flow", { repository: "ba0918/agentic-workflow", ref: "main" }],
+  ];
+  for (const [name, record] of unwritable) {
+    expect(
+      () => withSourceRegistration("", name, record),
+      `${name} ${JSON.stringify(record)}`,
+    ).toThrow(ConfigError);
+  }
+});
+
+test("mapping a contract refuses a value the table would not read back as itself", () => {
+  const unwritable: [string, string][] = [
+    ["tdd-contract", "work flow"],
+    ["tdd contract", "workflow"],
+    ["tdd-contract", "workflow\nrogue: 1"],
+  ];
+  for (const [id, source] of unwritable) {
+    expect(
+      () => withContractMapping("", id, source),
+      `${id} ${source}`,
+    ).toThrow(ConfigError);
+  }
+});

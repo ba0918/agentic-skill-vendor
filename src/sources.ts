@@ -284,15 +284,29 @@ export function assertRepository(repository: string): void {
 }
 
 /**
- * Refuses a ref that could name something other than the commit it appears to.
+ * True for a ref that names the commit it appears to, and nothing else.
  *
  * The double dot and the empty segment are refused by name rather than by the
  * pattern: both are spellings the pattern alone lets through in the middle of
  * a value, and both are how a path or a URL is walked out of.
+ *
+ * Asked as a question rather than kept inside the schema's own refusal,
+ * because the same question is asked at three places and the answer has to be
+ * the same at all three: of a ref read out of the table, of the branch a
+ * repository answers with before it is written into the table, and of the
+ * scalar the scribe is about to write. Held only at the reading end, a value
+ * arriving from a source could land in the file in a shape the next run
+ * refuses — or, carrying a line break, in a shape that reads as more of the
+ * document than the one line it was meant to be.
  */
+export function isUsableRef(value: string): boolean {
+  return REF_FORM.test(value) && !value.includes("..") && !value.includes("//");
+}
+
+/** Refuses a ref that could name something other than the commit it appears to. */
 function requireRef(value: unknown, path: string): string {
-  const ref = requireForm(value, REF_FORM, path, "a branch, tag or commit SHA");
-  if (ref.includes("..") || ref.includes("//")) {
+  const ref = requireText(value, path);
+  if (!isUsableRef(ref)) {
     throw new ConfigError(
       `${DECLARATION_FILE}: ${path} must be a branch, tag or commit SHA, ` +
         `found ${JSON.stringify(ref)}`,
@@ -413,6 +427,39 @@ const BLOCK_INDENT = "  ";
 const ENTRY_INDENT = "    ";
 
 /**
+ * Refuses a ref the scribe is about to write into the table.
+ *
+ * The writing end asks a different question from the reading end: not "may
+ * this value be believed" but "may this value be written down at all". Every
+ * scalar below goes into the document unquoted, so one carrying a line break
+ * writes lines of its own — a document that still parses, holding a key nobody
+ * wrote — and one opening with a comment character writes a line with no value
+ * on it. Neither reads back as what was handed in, and the file it leaves is
+ * the tree's from then on.
+ */
+function assertWritableRef(ref: string): void {
+  if (!isUsableRef(ref)) {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: not a usable ref: ${JSON.stringify(ref)}`,
+    );
+  }
+}
+
+/**
+ * Refuses a source name the scribe is about to write as the origin of a
+ * contract.
+ *
+ * The name standing for this repository itself is the one value permitted here
+ * and refused as a registration: `source: local` is exactly what a contract
+ * this repository is the authority over is mapped to, while a *registered*
+ * source of that name is what would make the mapping ambiguous.
+ */
+function assertWritableSource(source: string): void {
+  if (source === LOCAL_SOURCE) return;
+  assertSourceName(source);
+}
+
+/**
  * The text with `id` mapped to `source`, inserted at the end of the contracts
  * block.
  *
@@ -425,6 +472,8 @@ export function withContractMapping(
   id: string,
   source: string,
 ): string {
+  assertValidContractId(id, `${DECLARATION_FILE}: contracts`);
+  assertWritableSource(source);
   return withEntry(text, "contracts", id, [`${ENTRY_INDENT}source: ${source}`]);
 }
 
@@ -437,6 +486,9 @@ export function withSourceRegistration(
   name: string,
   record: SourceRecord,
 ): string {
+  assertSourceName(name);
+  assertRepository(record.repository);
+  assertWritableRef(record.ref);
   return withEntry(text, "sources", name, [
     `${ENTRY_INDENT}repository: ${record.repository}`,
     `${ENTRY_INDENT}ref: ${record.ref}`,

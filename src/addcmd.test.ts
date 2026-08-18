@@ -11,6 +11,7 @@ import {
   readLockFile,
   rejectedBy,
   runCli,
+  snapshotTree,
   withGoodTree,
   writeFile,
 } from "./testing.ts";
@@ -322,5 +323,38 @@ test("add refused over a source already registered names the command that finish
     );
 
     expect(error.message).toContain("run update");
+  });
+});
+
+test("a default branch that could not be read back as a ref is refused before the table is written", async () => {
+  await withGoodTree(async (root) => {
+    // The branch comes from the repository being registered, and it is written
+    // into the table as an unquoted scalar. A name carrying a line break puts
+    // lines of its own into the document — this one adds a top-level key — and
+    // the table still reads as YAML afterwards, so nothing downstream notices.
+    // A ref read out of that same table is held to a strict shape; the value
+    // arriving from the source is now held to it too.
+    const github = fakeGitHub({
+      [REPOSITORY]: {
+        ...workflow()[REPOSITORY],
+        defaultBranch: "release/2.x\nrogue: planted by the answer",
+      },
+    });
+    const before = await snapshotTree(root);
+
+    const error = await rejectedBy(
+      () =>
+        commandAdd(
+          root,
+          () => {},
+          gitHubOver(github.fetch),
+          REPOSITORY,
+          undefined,
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("branch");
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });

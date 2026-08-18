@@ -20,7 +20,7 @@
 
 import { ConfigError, describeCause } from "./errors.ts";
 import { concatBytes } from "./digest.ts";
-import { isTreeRelativePath } from "./sources.ts";
+import { isTreeRelativePath, isUsableRef } from "./sources.ts";
 
 /** The API host, and the host serving file content at a commit. */
 const API_HOST = "https://api.github.com";
@@ -163,11 +163,15 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
       const url = repositoryUrl(repository);
       const document = requireObject(await readJson(transport, url), url);
       const branch = document["default_branch"];
-      if (typeof branch !== "string" || branch === "") {
+      // Held to the shape a ref read out of the declaration is held to. This
+      // value is written into that same table as an unquoted scalar, so a name
+      // carrying a line break puts lines of its own into the document and one
+      // opening with a comment character reads as no value at all — a table
+      // this tool wrote and the tree then lives with.
+      if (typeof branch !== "string" || !isUsableRef(branch)) {
         throw new ConfigError(
-          `${url}: answered with no default branch, found ${JSON.stringify(
-            branch,
-          )}`,
+          `${url}: answered with a default branch this tool cannot record, ` +
+            `found ${JSON.stringify(branch)}`,
         );
       }
       return branch;
