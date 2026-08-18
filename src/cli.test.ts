@@ -34,6 +34,8 @@ test("asking for help prints the commands and exits cleanly", async () => {
   expect(result.code).toStrictEqual(0);
   const text = result.stdout.join("\n");
   for (const command of [
+    "add",
+    "update",
     "fetch",
     "gen",
     "verify",
@@ -50,9 +52,13 @@ test("asking for help prints the commands and exits cleanly", async () => {
 });
 
 test("every command the entry point names is answered by a module of its own", () => {
+  // Two commands may be answered by one module — update and fetch share the
+  // path they end in — so the import list is read as the list of names it is,
+  // not as one name per module.
   const imported = new Set(
-    [...SOURCE.matchAll(/import \{ (\w+) \} from "\.\/(\w+)\.ts";/g)].map(
-      (match) => match[1],
+    [...SOURCE.matchAll(/import \{([^}]+)\} from "\.\/\w+\.ts";/g)].flatMap(
+      (match) =>
+        match[1].split(",").map((name) => name.trim().replace(/^type /, "")),
     ),
   );
   // The statements a case runs before it delegates — the refusal of an
@@ -66,6 +72,8 @@ test("every command the entry point names is answered by a module of its own", (
     ),
   ];
   expect(routed.map(([, command]) => command)).toStrictEqual([
+    "add",
+    "update",
     "fetch",
     "gen",
     "verify",

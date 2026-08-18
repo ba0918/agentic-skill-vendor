@@ -9,9 +9,10 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
+import { commandAdd } from "./addcmd.ts";
 import { commandGen } from "./gen.ts";
 import { gitHubOver } from "./github.ts";
-import { commandFetch } from "./resolvecmd.ts";
+import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import { commandVerify } from "./verify.ts";
 import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
@@ -20,6 +21,8 @@ const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
   "",
   "commands:",
+  "  add <owner/repo> [name]  register a source and take up what it holds",
+  "  update                   move every pin to what its ref names now",
   "  fetch                    fill the cache with what the lock pins",
   "  gen                      write the current contract text into every skill",
   "  verify                   check the tree against the lock",
@@ -29,7 +32,7 @@ const USAGE = [
   "options:",
   "  --root <path>            the tree to work on (default: .)",
   "",
-  "fetch is the only command here that reaches a network. gen, verify,",
+  "add, update and fetch are the commands that reach a network. gen, verify,",
   "lint-selfcontain and self-test read and write the tree and nothing else.",
   "",
   "exit codes: 0 nothing to report, 1 violations listed on stdout,",
@@ -92,6 +95,24 @@ function refuseOperands(operands: string[]): void {
 }
 
 /**
+ * The repository `add` was pointed at, and a refusal where it was pointed at
+ * nothing.
+ *
+ * The counterpart of refuseOperands for the one command that takes arguments:
+ * an argument list is as much a part of the contract as a flag, and a run that
+ * carried on with nothing named would ask the network about an empty string.
+ */
+function requireRepository(operands: string[]): string {
+  if (operands.length === 0) {
+    throw new ConfigError(`add needs an owner/repo to register\n${USAGE}`);
+  }
+  if (operands.length > 2) {
+    throw new ConfigError(`unexpected argument: ${operands[2]}\n${USAGE}`);
+  }
+  return operands[0];
+}
+
+/**
  * Runs one invocation and answers with its exit code: 0 clean, 1 violations
  * reported on `out`, 2 a configuration or usage error reported on `err`.
  *
@@ -111,6 +132,17 @@ export async function run(
       return 0;
     }
     switch (invocation.command) {
+      case "add":
+        return await commandAdd(
+          invocation.root,
+          out,
+          gitHubOver(transport),
+          requireRepository(invocation.operands),
+          invocation.operands[1],
+        );
+      case "update":
+        refuseOperands(invocation.operands);
+        return await commandUpdate(invocation.root, out, gitHubOver(transport));
       case "fetch":
         refuseOperands(invocation.operands);
         return await commandFetch(invocation.root, out, gitHubOver(transport));
