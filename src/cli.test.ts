@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { runCli, withEmptyDir, withGoodTree } from "./testing.ts";
+import {
+  importClosureOf,
+  runCli,
+  withEmptyDir,
+  withGoodTree,
+} from "./testing.ts";
 import { startedThisProgram } from "./cli.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
@@ -222,29 +227,35 @@ test("the commands that work offline reach no network, environment or subprocess
   // tree alone, so a repository can run them in continuous integration with no
   // credentials and no host to reach. The transport every test hands the entry
   // point refuses each request, which proves no command asks for one through
-  // it; this states the other half — that none of these modules reaches past
-  // the injection for a global.
-  const offline = [
-    "gen.ts",
-    "verify.ts",
-    "lint.ts",
-    "selftest.ts",
-    "manifest.ts",
-    "sources.ts",
-    "cache.ts",
-    "conformance.ts",
-    "declaration.ts",
-    "digest.ts",
-    "ignore.ts",
-    "walk.ts",
-  ];
-  for (const name of offline) {
-    const source = await fs.readFile(
-      new URL(`./${name}`, import.meta.url),
-      "utf8",
-    );
-    expect(/\bfetch\s*\(/.test(source), name).toStrictEqual(false);
-    expect(source.includes("process.env"), name).toStrictEqual(false);
-    expect(source.includes("node:child_process"), name).toStrictEqual(false);
+  // it; this states the other half — that nothing an offline command is built
+  // on reaches past the injection for a global.
+  //
+  // What each entry point is built on is followed, never listed. A list of
+  // module names cannot answer the one question this test exists to ask: an
+  // offline command that imported the network layer would add a module the
+  // list does not name, so the scan would walk past the very code it was
+  // written to catch and report a clean boundary.
+  const NETWORK_MODULE = "github.ts";
+  // The two the walk itself rests on. A closure that stopped at the entry
+  // point, or one that never found the network layer where it does sit, would
+  // pass everything below without looking at it.
+  expect(
+    (await importClosureOf("resolvecmd.ts")).has(NETWORK_MODULE),
+  ).toStrictEqual(true);
+  expect((await importClosureOf("lint.ts")).has("digest.ts")).toStrictEqual(
+    true,
+  );
+  for (const entry of ["gen.ts", "verify.ts", "lint.ts", "selftest.ts"]) {
+    const closure = await importClosureOf(entry);
+    expect(closure.has(NETWORK_MODULE), entry).toStrictEqual(false);
+    for (const name of closure) {
+      const source = await fs.readFile(
+        new URL(`./${name}`, import.meta.url),
+        "utf8",
+      );
+      expect(/\bfetch\s*\(/.test(source), name).toStrictEqual(false);
+      expect(source.includes("process.env"), name).toStrictEqual(false);
+      expect(source.includes("node:child_process"), name).toStrictEqual(false);
+    }
   }
 });
