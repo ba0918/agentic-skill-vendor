@@ -1,0 +1,281 @@
+// github.ts — the only place this tool talks to a network, and the only place
+// it says what a well-formed answer looks like.
+//
+// Two hosts, fixed here and reachable from nothing the tree says: the API that
+// resolves a ref to a commit and lists what a commit holds, and the raw content
+// host that serves one file at a commit. A declaration that could name a host
+// would turn a contract mapping into a way of pointing this tool at any server.
+//
+// Nothing here opens a connection by itself. The transport is handed in as a
+// function, so every test drives the real request-building and the real
+// response-judging with a fetch that answers from memory — and a test that
+// reached the network would be testing GitHub's uptime rather than this code.
+//
+// Fetching per file is what makes this module small enough to be worth writing
+// at all. An archive would mean a tar and a gzip reader — two established
+// formats this project refuses to hand-implement — where three URLs and a
+// schema check will do.
+
+import { ConfigError, describeCause } from "./errors.ts";
+import { concatBytes } from "./digest.ts";
+
+/** The API host, and the host serving file content at a commit. */
+const API_HOST = "https://api.github.com";
+const RAW_HOST = "https://raw.githubusercontent.com";
+
+/**
+ * A path built from tree-supplied text, one segment at a time.
+ *
+ * The separators a ref legitimately carries survive, and everything else is
+ * encoded: `release/2.x` names the branch it looks like, while a segment
+ * carrying anything the URL grammar would read as structure cannot reach the
+ * request as structure. The values are already checked against an allowlist
+ * before they get here — this is the second of the two, kept because the cost
+ * is one function call and the failure it guards against is a request sent
+ * somewhere nobody named.
+ */
+function encodePath(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
+}
+
+/** The repository itself: what the default branch is read from. */
+export function repositoryUrl(repository: string): string {
+  return `${API_HOST}/repos/${encodePath(repository)}`;
+}
+
+/** The commit a ref names right now. */
+export function commitUrl(repository: string, ref: string): string {
+  return `${API_HOST}/repos/${encodePath(repository)}/commits/${encodePath(
+    ref,
+  )}`;
+}
+
+/** Everything one commit holds, in one listing. */
+export function treeUrl(repository: string, revision: string): string {
+  return `${API_HOST}/repos/${encodePath(
+    repository,
+  )}/git/trees/${encodePath(revision)}?recursive=1`;
+}
+
+/** One file's bytes at one commit. */
+export function rawUrl(
+  repository: string,
+  revision: string,
+  path: string,
+): string {
+  return `${RAW_HOST}/${encodePath(repository)}/${encodePath(
+    revision,
+  )}/${encodePath(path)}`;
+}
+
+/**
+ * What a run may ask of the network, and nothing else.
+ *
+ * Four questions, each with one URL behind it. Everything above this interface
+ * — which contracts to look for, what to do with the bytes — is decided
+ * offline, so the network is never asked anything that depends on what an
+ * earlier answer contained.
+ */
+export interface GitHubClient {
+  /** The branch a repository hands out when a ref is not named. */
+  defaultBranchOf(repository: string): Promise<string>;
+  /** The commit a ref names right now, as a 40-digit SHA. */
+  commitOf(repository: string, ref: string): Promise<string>;
+  /** Every file one commit holds, as repository-relative paths. */
+  pathsAt(repository: string, revision: string): Promise<string[]>;
+  /** One file's bytes at one commit. */
+  fileAt(
+    repository: string,
+    revision: string,
+    path: string,
+  ): Promise<Uint8Array>;
+}
+
+const REVISION_FORM = /^[0-9a-f]{40}$/;
+
+/**
+ * How much of an answer this tool is willing to read.
+ *
+ * The scale this design stands on is "a few shared documents, text only", and
+ * a limit is what makes that assumption something the run enforces rather than
+ * something it hopes for. The two differ because they answer different
+ * questions: one file is a document a person wrote, while a listing covers
+ * every file in a repository and grows with the repository rather than with
+ * the contract.
+ *
+ * The count is of bytes actually taken off the wire, not of what a header
+ * claimed. A length header is written by the same party as the body.
+ */
+const FILE_LIMIT = 1024 * 1024;
+const LISTING_LIMIT = 8 * 1024 * 1024;
+
+/** The client over one transport. The transport is the only injected part. */
+export function gitHubOver(transport: typeof fetch): GitHubClient {
+  return {
+    async commitOf(repository, ref) {
+      const url = commitUrl(repository, ref);
+      const document = requireObject(await readJson(transport, url), url);
+      const sha = document["sha"];
+      if (typeof sha !== "string" || !REVISION_FORM.test(sha)) {
+        throw new ConfigError(
+          `${url}: answered with no commit SHA, found ${JSON.stringify(sha)}`,
+        );
+      }
+      return sha;
+    },
+    async defaultBranchOf(repository) {
+      const url = repositoryUrl(repository);
+      const document = requireObject(await readJson(transport, url), url);
+      const branch = document["default_branch"];
+      if (typeof branch !== "string" || branch === "") {
+        throw new ConfigError(
+          `${url}: answered with no default branch, found ${JSON.stringify(
+            branch,
+          )}`,
+        );
+      }
+      return branch;
+    },
+    async pathsAt(repository, revision) {
+      const url = treeUrl(repository, revision);
+      const document = requireObject(await readJson(transport, url), url);
+      // A listing the service cut short looks exactly like a repository
+      // holding fewer files. Read as complete, a contract's conformance tests
+      // would be pinned as absent and the tree would verify clean against a
+      // pin that had lost them.
+      if (document["truncated"] === true) {
+        throw new ConfigError(
+          `${url}: answered with a truncated listing; this repository holds ` +
+            `more files than one listing can carry`,
+        );
+      }
+      const entries = document["tree"];
+      if (!Array.isArray(entries)) {
+        throw new ConfigError(
+          `${url}: answered with no tree listing, found ${JSON.stringify(
+            entries,
+          )}`,
+        );
+      }
+      const paths: string[] = [];
+      for (const entry of entries) {
+        const listed = requireObject(entry, url);
+        // Only the files. A directory entry answers neither of the two
+        // questions this listing exists to answer offline — whether a source
+        // holds a contract, and which files its conformance tree carries.
+        if (listed["type"] !== "blob") continue;
+        const path = listed["path"];
+        if (typeof path !== "string") {
+          throw new ConfigError(
+            `${url}: listed a file with no path, found ${JSON.stringify(path)}`,
+          );
+        }
+        paths.push(path);
+      }
+      return paths;
+    },
+    async fileAt(repository, revision, path) {
+      return await request(
+        transport,
+        rawUrl(repository, revision, path),
+        FILE_LIMIT,
+      );
+    },
+  };
+}
+
+/** The JSON one request answers with, refused where the answer is not one. */
+async function readJson(
+  transport: typeof fetch,
+  url: string,
+): Promise<unknown> {
+  const text = new TextDecoder().decode(
+    await request(transport, url, LISTING_LIMIT),
+  );
+  try {
+    return JSON.parse(text);
+  } catch (cause) {
+    throw new ConfigError(
+      `${url}: answered with unreadable JSON: ${describeCause(cause)}`,
+    );
+  }
+}
+
+/**
+ * The bytes one request answers with.
+ *
+ * A failed request is a refusal rather than an empty answer: a run that read a
+ * 404 as "this repository holds no such contract" would report a closure gap
+ * about a repository it never successfully reached.
+ */
+async function request(
+  transport: typeof fetch,
+  url: string,
+  limit: number,
+): Promise<Uint8Array> {
+  let response: Response;
+  try {
+    response = await transport(url);
+  } catch (cause) {
+    throw new ConfigError(`cannot reach ${url}: ${describeCause(cause)}`);
+  }
+  if (!response.ok) {
+    // The rate limit is named where it applies. Every request this tool makes
+    // is unauthenticated, so the one refusal a person will actually meet is
+    // the hourly allowance, and "answered 403" alone sends them looking for a
+    // permission problem that is not there.
+    const limited =
+      response.status === 403 || response.status === 429
+        ? "; unauthenticated requests to this host are rate limited by the hour"
+        : "";
+    throw new ConfigError(`${url}: answered ${response.status}${limited}`);
+  }
+  return await readCapped(response, url, limit);
+}
+
+/**
+ * The body, read in the chunks it arrives in and stopped the moment it grows
+ * past what the run is willing to hold.
+ *
+ * Buffered whole and measured afterwards, the limit would be a statement about
+ * what the tool accepts rather than about what it reads: a host willing to
+ * stream without end would have the run out of memory before the check was
+ * ever reached.
+ */
+async function readCapped(
+  response: Response,
+  url: string,
+  limit: number,
+): Promise<Uint8Array> {
+  const body = response.body;
+  if (body === null) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.length;
+      if (total > limit) {
+        throw new ConfigError(
+          `${url}: answered with more than ${limit} bytes, which is too large ` +
+            `for a shared document`,
+        );
+      }
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return concatBytes(chunks);
+}
+
+function requireObject(value: unknown, url: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new ConfigError(
+      `${url}: answered with something other than an object`,
+    );
+  }
+  return value as Record<string, unknown>;
+}

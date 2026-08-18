@@ -262,3 +262,214 @@ async function walk(
     }
   }
 }
+
+/** One repository as the fake GitHub below serves it. */
+export interface FakeRepository {
+  defaultBranch: string;
+  /** What each ref resolves to: a ref name mapped to a commit SHA. */
+  refs: Record<string, string>;
+  /** The files each commit holds: a commit SHA mapped to path/content. */
+  files: Record<string, Record<string, string>>;
+  /** Answers the tree listing as truncated, the way a huge repository does. */
+  truncated?: boolean;
+}
+
+export interface FakeGitHub {
+  fetch: typeof fetch;
+  /** Every URL the tool asked for, in order. */
+  requested: string[];
+}
+
+/**
+ * A GitHub that answers from memory, in the shapes the real one answers in.
+ *
+ * The suite never opens a socket: the transport is injected everywhere it is
+ * used, and this is what gets injected. The response bodies carry the fields
+ * the real API sends around the ones the tool reads — a fake that answered with
+ * only the consumed fields would pass while the tool silently depended on a
+ * field the real service spells differently.
+ *
+ * The tree listing is derived from the files rather than stated beside them, so
+ * a case cannot describe a repository that lists a file it does not serve.
+ */
+export function fakeGitHub(
+  repositories: Record<string, FakeRepository>,
+): FakeGitHub {
+  const requested: string[] = [];
+  const transport = (async (input: string | URL | Request) => {
+    const url = String(input);
+    requested.push(url);
+    return answerFor(url, repositories);
+  }) as typeof fetch;
+  return { fetch: transport, requested };
+}
+
+function answerFor(
+  url: string,
+  repositories: Record<string, FakeRepository>,
+): Response {
+  const api = url.match(
+    /^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)(?:\/(commits|git\/trees)\/(.+?))?(?:\?recursive=1)?$/,
+  );
+  if (api !== null) {
+    const [, name, kind, rest] = api;
+    const repository = repositories[name];
+    if (repository === undefined) return notFound(name);
+    if (kind === undefined) return repositoryResponse(name, repository);
+    if (kind === "commits") return commitResponse(repository, rest);
+    return treeResponse(repository, rest);
+  }
+  const raw = url.match(
+    /^https:\/\/raw\.githubusercontent\.com\/([^/]+\/[^/]+)\/([0-9a-f]{40})\/(.+)$/,
+  );
+  if (raw !== null) {
+    const [, name, revision, path] = raw;
+    const content = repositories[name]?.files[revision]?.[path];
+    if (content === undefined) return notFound(path);
+    return new Response(content, {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
+  }
+  return notFound(url);
+}
+
+function notFound(_named: string): Response {
+  return jsonResponse(
+    {
+      message: "Not Found",
+      documentation_url: "https://docs.github.com/rest",
+      status: "404",
+    },
+    404,
+  );
+}
+
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function repositoryResponse(
+  name: string,
+  repository: FakeRepository,
+): Response {
+  const [owner, repo] = name.split("/");
+  return jsonResponse(
+    {
+      id: 428957369,
+      node_id: "R_kgDOGZ2Q-Q",
+      name: repo,
+      full_name: name,
+      private: false,
+      owner: {
+        login: owner,
+        id: 1904906,
+        node_id: "MDQ6VXNlcjE5MDQ5MDY=",
+        type: "User",
+        site_admin: false,
+      },
+      html_url: `https://github.com/${name}`,
+      description: null,
+      fork: false,
+      url: `https://api.github.com/repos/${name}`,
+      created_at: "2024-11-16T09:00:00Z",
+      updated_at: "2026-08-01T09:00:00Z",
+      pushed_at: "2026-08-01T09:00:00Z",
+      size: 42,
+      stargazers_count: 0,
+      watchers_count: 0,
+      language: "Markdown",
+      forks_count: 0,
+      open_issues_count: 0,
+      license: null,
+      topics: [],
+      visibility: "public",
+      default_branch: repository.defaultBranch,
+    },
+    200,
+  );
+}
+
+function commitResponse(repository: FakeRepository, ref: string): Response {
+  const sha =
+    repository.refs[ref] ?? (ref in repository.files ? ref : undefined);
+  if (sha === undefined) return notFound(ref);
+  return jsonResponse(
+    {
+      sha,
+      node_id: "C_kwDOGZ2Q-doAKD",
+      commit: {
+        author: {
+          name: "A Committer",
+          email: "committer@example.invalid",
+          date: "2026-08-01T09:00:00Z",
+        },
+        committer: {
+          name: "A Committer",
+          email: "committer@example.invalid",
+          date: "2026-08-01T09:00:00Z",
+        },
+        message: "the commit this ref names",
+        tree: { sha: `${sha.slice(0, 39)}0`, url: "https://api.github.com/" },
+        url: "https://api.github.com/",
+        comment_count: 0,
+        verification: {
+          verified: false,
+          reason: "unsigned",
+          signature: null,
+          payload: null,
+        },
+      },
+      url: "https://api.github.com/",
+      html_url: "https://github.com/",
+      comments_url: "https://api.github.com/",
+      author: null,
+      committer: null,
+      parents: [],
+    },
+    200,
+  );
+}
+
+function treeResponse(repository: FakeRepository, revision: string): Response {
+  const files = repository.files[revision];
+  if (files === undefined) return notFound(revision);
+  const directories = new Set<string>();
+  for (const path of Object.keys(files)) {
+    const parts = path.split("/");
+    for (let depth = 1; depth < parts.length; depth++) {
+      directories.add(parts.slice(0, depth).join("/"));
+    }
+  }
+  const tree = [
+    ...[...directories].sort(compareStrings).map((path) => ({
+      path,
+      mode: "040000",
+      type: "tree",
+      sha: "1".repeat(40),
+      url: "https://api.github.com/",
+    })),
+    ...Object.keys(files)
+      .sort(compareStrings)
+      .map((path) => ({
+        path,
+        mode: "100644",
+        type: "blob",
+        sha: "2".repeat(40),
+        size: files[path].length,
+        url: "https://api.github.com/",
+      })),
+  ];
+  return jsonResponse(
+    {
+      sha: revision,
+      url: "https://api.github.com/",
+      tree,
+      truncated: repository.truncated === true,
+    },
+    200,
+  );
+}
