@@ -71,10 +71,16 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   back as itself, the default branch `add` records included, which passes the same character
   check as a ref read from the table of origins. The refusal names the path and the mode, since
   what it keeps out is a file dropped from a fetch and read back as one upstream does not
-  hold — a conformance tree pinned as absent while the source has one. Everything else a
-  source holds is ignored whatever its mode: judged over the whole listing instead, one link
-  or one vendored subproject standing anywhere in a repository put every contract that
-  repository holds out of reach.
+  hold — a conformance tree pinned as absent while the source has one. For that same reason it
+  reaches the two positions those tests can stand hidden behind, though nothing is taken from
+  either: the conformance directory itself, where anything listed at all is a link or a
+  subproject, and the directory that one sits in, where only those two kinds are refused. Git
+  lists nothing beneath either, so tests standing under one never reach the check above; an
+  ordinary file at the directory the tests sit in is left alone, since nothing can sit under a
+  path a blob occupies and a contract carrying no tests is then a fact rather than something
+  the fetch dropped. Everything else a source holds is ignored whatever its mode: judged over
+  the whole listing instead, one link or one vendored subproject standing anywhere in a
+  repository put every contract that repository holds out of reach.
 - `source-mismatch`, a violation kind: the lock pins a source to a repository
   `vendor-manifest.yaml` does not register it at. The expected lock now takes that field from
   the table rather than carrying the lock's own value, which is what makes the divergence
