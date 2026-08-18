@@ -350,15 +350,20 @@ async function request(
     );
   }
   if (!response.ok) {
-    // The rate limit is named where it applies. Every request this tool makes
-    // is unauthenticated, so the one refusal a person will actually meet is
-    // the hourly allowance, and "answered 403" alone sends them looking for a
-    // permission problem that is not there.
-    const limited =
+    // The likeliest cause is named where it applies, as a cause rather than as
+    // the cause. Every request this tool makes is unauthenticated, so the
+    // hourly allowance is the refusal a person will usually have met, and
+    // "answered 403" alone sends them looking for a permission problem that is
+    // not there. It is not the only thing that answers this way: anything
+    // standing between the run and the host — a proxy, an egress filter — can
+    // refuse with the same status, and a message that named the rate limit
+    // outright sent a reader to wait out an allowance that was never spent.
+    const refused =
       response.status === 403 || response.status === 429
-        ? "; unauthenticated requests to this host are rate limited by the hour"
+        ? "; unauthenticated requests to this host are rate limited by the " +
+          "hour, and anything filtering outbound traffic answers the same way"
         : "";
-    throw new ConfigError(`${url}: answered ${response.status}${limited}`);
+    throw new ConfigError(`${url}: answered ${response.status}${refused}`);
   }
   return await readCapped(response, url, limit);
 }

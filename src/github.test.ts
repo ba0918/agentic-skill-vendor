@@ -179,6 +179,36 @@ test("an answer that is not shaped like the API's own is refused, never guessed 
   }
 });
 
+test("a refusal names the rate limit as a cause, never as the cause", async () => {
+  // 403 is what the hourly allowance answers with, and it is also what a
+  // proxy or an egress filter between the run and the host answers with. A
+  // message that named the allowance outright sent a reader to wait out one
+  // that was never spent, so the status stands on its own and the allowance
+  // is offered beside it.
+  for (const status of [403, 429]) {
+    const transport = (async () =>
+      new Response("", { status })) as unknown as typeof fetch;
+    const error = await rejectedBy(
+      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      ConfigError,
+    );
+    expect(error.message).toContain(`answered ${status}`);
+    expect(error.message).toContain("rate limited by the hour");
+    expect(error.message).toContain("filtering outbound traffic");
+  }
+});
+
+test("a refusal that is not a refused request carries no rate limit note", async () => {
+  const transport = (async () =>
+    new Response("", { status: 404 })) as unknown as typeof fetch;
+  const error = await rejectedBy(
+    () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+    ConfigError,
+  );
+  expect(error.message).toContain("answered 404");
+  expect(error.message).not.toContain("rate limited");
+});
+
 test("a body that is not JSON at all is refused as an unreadable answer", async () => {
   const transport = (async () =>
     new Response("<html>rate limited</html>", {
