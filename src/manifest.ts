@@ -20,12 +20,9 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
-import {
-  assertValidContractId,
-  compareStrings,
-  contractPath,
-} from "./digest.ts";
+import { assertValidContractId, compareStrings } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
+import type { ContractLocation } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import {
@@ -157,42 +154,61 @@ export async function renderExpectedLock(
   skills: SkillDeclaration[],
   resolutions: Resolutions,
   sources: LockSources,
+  locations: Map<string, ContractLocation>,
 ): Promise<string> {
   return canonicalJson(
     buildLock(
       dependenciesOf(skills),
       resolutions,
-      await presentContractIds(root, resolutions),
+      await presentContractIds(root, resolutions, locations),
       sources,
     ),
   );
 }
 
 /**
- * The resolved contracts whose canonical file the tree holds.
+ * The resolved contracts the tree still accounts for.
  *
- * Every command that renders a manifest asks this one question through this one
- * function. Two commands answering it differently would make the manifest gen
- * writes differ from the manifest verify expects, and the difference would be
- * reported as a stale manifest that regenerating never fixes.
+ * Every command that renders the lock asks this one question through this one
+ * function. Two commands answering it differently would make the lock gen
+ * writes differ from the lock verify expects, and the difference would be
+ * reported as a stale file that regenerating never fixes.
+ *
+ * What counts as accounted for depends on who is authority over the text. For a
+ * local contract it is the canonical file being there, as it always was. For a
+ * remote one it is the mapping being recorded in the declaration, and the cache
+ * has no say at all: a clean checkout holds no cache, and a rule that read the
+ * cache would drop every remote resolution from the lock a checkout renders —
+ * turning the one comparison that still works without a network into a
+ * guaranteed mismatch.
  *
  * The ids come from the lock rather than from any declaration, so this reaches
- * contracts/ for a contract nothing declares any more. The link check therefore
- * belongs here too, and the conformance tests beside the text are covered by it
- * on the same grounds: whether a link is refused is a fact about the tree, not
- * about which command is looking, and left out here a link planted at such a
- * contract stopped verify — which digests those tests — while the run that
- * rendered the manifest carried on.
+ * the canonical file of a contract nothing declares any more. The link check
+ * therefore belongs here too, and the conformance tests beside the text are
+ * covered by it on the same grounds: whether a link is refused is a fact about
+ * the tree, not about which command is looking, and left out here a link
+ * planted at such a contract stopped verify — which digests those tests — while
+ * the run that rendered the lock carried on.
  */
 async function presentContractIds(
   root: string,
   resolutions: Resolutions,
+  locations: Map<string, ContractLocation>,
 ): Promise<string[]> {
   const present: string[] = [];
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
-    const site = contractPath(id);
-    await assertPlainContractPaths(root, id);
-    if (await isRegularFileOrAbsent(root, site)) present.push(id);
+    const location = locations.get(id);
+    if (location === undefined) {
+      throw new ConfigError(
+        `cannot render the lock for ${id}: its origin was never resolved`,
+      );
+    }
+    if (!location.local) {
+      present.push(id);
+      continue;
+    }
+    await assertPlainContractPaths(root, location.site, id);
+    if (await isRegularFileOrAbsent(root, location.site)) present.push(id);
   }
   return present;
 }

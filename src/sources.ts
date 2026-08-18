@@ -16,7 +16,7 @@
 
 import { load as parseYaml } from "js-yaml";
 import { ConfigError, describeCause } from "./errors.ts";
-import { assertValidContractId } from "./digest.ts";
+import { assertValidContractId, contractPath } from "./digest.ts";
 import { emptyRecord } from "./records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 import {
@@ -97,6 +97,40 @@ export interface ContractOrigin {
 export interface Declaration {
   sources: Record<string, SourceRecord>;
   contracts: Record<string, ContractOrigin>;
+}
+
+/**
+ * Where a run reads one contract's canonical text, and who answers for it.
+ *
+ * `site` is null for a contract this tree does not hold the text of: a remote
+ * one whose bytes are not in the cache. That is a state, not a fault — a clean
+ * checkout is in it — and the commands part ways over it: gen asks for a fetch,
+ * verify checks what it still can.
+ *
+ * Stated here rather than beside the code that computes it, because both the
+ * lock's rendering and the distribution read it, and the two must not be able
+ * to hold different ideas of where a contract's text is.
+ */
+export type ContractLocation =
+  /** This repository is the authority: the text is at `site`, or nowhere. */
+  | { local: true; site: string }
+  /** Another repository is: the text is in the cache at `site`, or not yet. */
+  | { local: false; site: string | null };
+
+/**
+ * Where a contract's canonical text sits inside the source that holds it.
+ *
+ * One rule for every source. A mapping that names no path means the
+ * conventional position, `contracts/<id>.md`, whether the source is this
+ * repository or a repository being fetched from — which is what lets the
+ * derivation that writes these lines look in one place rather than in one
+ * place per kind of source.
+ */
+export function originPathOf(
+  id: string,
+  origin: ContractOrigin | undefined,
+): string {
+  return origin?.path ?? contractPath(id);
 }
 
 /**

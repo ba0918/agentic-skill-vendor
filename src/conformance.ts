@@ -6,15 +6,10 @@
 // ever recorded, so it is stated once, here, and tested against a vector that
 // was framed and hashed by hand outside this code.
 
-import {
-  compareStrings,
-  concatBytes,
-  contractPath,
-  CONTRACTS_DIR,
-  digestOfBytes,
-} from "./digest.ts";
+import { compareStrings, concatBytes, digestOfBytes } from "./digest.ts";
 import {
   assertPlainChain,
+  dirNameOf,
   isDirectoryOrAbsent,
   readBytes,
   walkFiles,
@@ -32,9 +27,19 @@ export interface ConformanceEntry {
   content: Uint8Array;
 }
 
-/** The directory a contract's conformance tests sit in. */
-export function conformanceDirectory(id: string): string {
-  return `${CONTRACTS_DIR}/${id}/conformance`;
+/**
+ * The directory a contract's conformance tests sit in: beside its canonical
+ * text, under the contract's own name.
+ *
+ * Derived from where the text is rather than from a fixed directory, because
+ * the text no longer has one fixed home. A contract fetched from another
+ * repository, and a local one whose text a declaration places outside the
+ * conventional directory, both keep their tests in the same relation to the
+ * text — which is what lets one rule answer for every contract the tool
+ * digests.
+ */
+export function conformanceDirectory(site: string, id: string): string {
+  return `${dirNameOf(site)}/${id}/conformance`;
 }
 
 /**
@@ -54,15 +59,16 @@ export function conformanceDirectory(id: string): string {
  */
 export async function assertPlainContractPaths(
   root: string,
+  site: string,
   id: string,
 ): Promise<void> {
-  await assertPlainChain(root, contractPath(id));
-  await assertPlainChain(root, conformanceDirectory(id));
+  await assertPlainChain(root, site);
+  await assertPlainChain(root, conformanceDirectory(site, id));
   // Asked for its refusal rather than its answer. Whether the tests are there
   // is the business of the commands that digest them; whether something else
   // entirely stands where that directory belongs is the business of every
   // command, including the ones that never read below it.
-  await isDirectoryOrAbsent(root, conformanceDirectory(id));
+  await isDirectoryOrAbsent(root, conformanceDirectory(site, id));
 }
 
 /**
@@ -146,11 +152,12 @@ export async function collectConformanceEntries(
  */
 export async function conformanceDigest(
   root: string,
+  site: string,
   id: string,
 ): Promise<string | null> {
   const entries = await collectConformanceEntries(
     root,
-    conformanceDirectory(id),
+    conformanceDirectory(site, id),
   );
   if (entries.length === 0) return null;
   return await conformanceDigestOfEntries(entries);

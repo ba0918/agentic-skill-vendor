@@ -46,6 +46,13 @@ import {
   type Resolution,
   type Resolutions,
 } from "./manifest.ts";
+import {
+  type ContractLocation,
+  type Declaration,
+  LOCAL_SOURCE,
+  originPathOf,
+  readDeclaration,
+} from "./sources.ts";
 
 const VENDOR_SUBPATH = "references/vendor";
 
@@ -92,18 +99,22 @@ export function vendorDirOf(skill: string): string {
  */
 export async function readContracts(
   root: string,
-  ids: string[],
+  locations: Map<string, ContractLocation>,
 ): Promise<Map<string, CanonicalContract | null>> {
   const contracts = new Map<string, CanonicalContract | null>();
-  if (ids.length === 0) return contracts;
+  if (locations.size === 0) return contracts;
   // A file standing at contracts/ made every contract below it read as "does
   // not exist" — the per-path lstat fails with ENOTDIR, which is not the
   // "nothing is there" this function answers with. Asked once, the fact is
   // named as what it is before any contract is looked up.
   await isDirectoryOrAbsent(root, CONTRACTS_DIR);
-  for (const id of ids) {
-    const site = contractPath(id);
-    await assertPlainContractPaths(root, id);
+  for (const [id, location] of locations) {
+    const site = location.site;
+    if (site === null) {
+      contracts.set(id, null);
+      continue;
+    }
+    await assertPlainContractPaths(root, site, id);
     if (!(await isRegularFileOrAbsent(root, site))) {
       contracts.set(id, null);
       continue;
@@ -113,6 +124,34 @@ export async function readContracts(
     contracts.set(id, { digest: await digestOfText(body), body });
   }
   return contracts;
+}
+
+/**
+ * Where this run reads each contract's canonical text.
+ *
+ * The declaration decides it, and the same answer serves the distribution, the
+ * lock's rendering and every check — one place, because a run that read a
+ * contract from one file while pinning what another file says is exactly the
+ * drift this tool exists to make impossible.
+ *
+ * A contract no mapping names is local at the conventional position. That is
+ * the shape of every repository that has never fetched anything, and it is why
+ * an absent declaration changes nothing about how such a tree behaves.
+ */
+export function locateContracts(
+  declaration: Declaration,
+  ids: string[],
+): Map<string, ContractLocation> {
+  const locations = new Map<string, ContractLocation>();
+  for (const id of ids) {
+    const origin = declaration.contracts[id];
+    if (origin === undefined || origin.source === LOCAL_SOURCE) {
+      locations.set(id, { local: true, site: originPathOf(id, origin) });
+      continue;
+    }
+    locations.set(id, { local: false, site: null });
+  }
+  return locations;
 }
 
 interface CanonicalContract {
@@ -179,6 +218,7 @@ export async function planExpansion(
   contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
   sources: LockSources,
+  locations: Map<string, ContractLocation>,
 ): Promise<WritePlan> {
   const encoder = new TextEncoder();
   const files: WritePlan["files"] = [];
@@ -198,7 +238,7 @@ export async function planExpansion(
       }
       if (contract === null) {
         throw new ConfigError(
-          `cannot plan ${id}: ${contractPath(id)} does not exist`,
+          `cannot plan ${id}: its canonical text is absent`,
         );
       }
       expected.add(`${id}.md`);
@@ -220,7 +260,7 @@ export async function planExpansion(
     lock: {
       site: LOCK_FILE,
       content: encoder.encode(
-        await renderExpectedLock(root, skills, resolutions, sources),
+        await renderExpectedLock(root, skills, resolutions, sources, locations),
       ),
     },
     removals,
@@ -283,18 +323,23 @@ export async function executePlan(
 export function closureViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
+  locations: Map<string, ContractLocation>,
 ): string[] {
   const violations: string[] = [];
   const dependentsOfId = dependentIndex(skills);
   for (const id of declaredIds(skills)) {
     if ((contracts.get(id) ?? null) !== null) continue;
+    // A contract fetched from elsewhere is not a closure gap when the cache is
+    // empty: the tree does hold its text, in a repository the declaration
+    // names, and what is missing is a fetch rather than a document. Reported
+    // here, a clean checkout would fail for a state it is supposed to be in.
+    if (locations.get(id)?.local === false) continue;
     const dependents = (dependentsOfId.get(id) ?? [])
       .map(displayName)
       .join(", ");
+    const site = locations.get(id)?.site ?? contractPath(id);
     violations.push(
-      `closure: ${id} is declared by ${dependents} but ${contractPath(
-        id,
-      )} does not exist`,
+      `closure: ${id} is declared by ${dependents} but ${site} does not exist`,
     );
   }
   return violations;
@@ -322,6 +367,7 @@ export function lockViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
+  locations: Map<string, ContractLocation>,
 ): string[] {
   const violations: string[] = [];
   // The same contracts gen would rewrite the lock over, not the declared ones
@@ -344,10 +390,10 @@ export function lockViolations(
       continue;
     }
     if (resolution.digest !== contract.digest) {
+      const site = locations.get(id)?.site ?? contractPath(id);
       violations.push(
-        `stale-lock: ${id} is recorded as ${resolution.digest} but ${contractPath(
-          id,
-        )} is ${contract.digest}; run gen to record the current text`,
+        `stale-lock: ${id} is recorded as ${resolution.digest} but ${site} ` +
+          `is ${contract.digest}; run gen to record the current text`,
       );
     }
   }
@@ -366,13 +412,19 @@ export interface TreeState {
   resolutions: Resolutions;
   skills: SkillDeclaration[];
   sources: LockSources;
+  declaration: Declaration;
 }
 
 export async function readTreeState(root: string): Promise<TreeState> {
   await assertTreeRoot(root);
   const { recordedSkills, resolutions, sources } = await readLock(root);
   const skills = await readSkills(root, recordedSkills);
-  return { resolutions, skills, sources };
+  return {
+    resolutions,
+    skills,
+    sources,
+    declaration: await readDeclaration(root),
+  };
 }
 
 /**
@@ -395,20 +447,21 @@ function lockedOrDeclared(
 }
 
 /**
- * The canonical text of every contract a run has to look at, read once.
+ * Where every contract a run has to look at is read from, decided once.
  *
- * Asked through this one function by gen and by verify, because the two must not
- * disagree about which contracts a tree holds. Each calling `readContracts` with
- * its own list is how they came apart: verify passed the declared ids while gen
- * passed the declared ids and the recorded ones, so a contract only the lock
- * named was rewritten by one command and never judged by the other.
+ * Asked through this one function by gen and by verify, because the two must
+ * not disagree about which contracts a tree holds or where their text is. Each
+ * building its own list is how they came apart: verify took the declared ids
+ * while gen took the declared ids and the recorded ones, so a contract only the
+ * lock named was rewritten by one command and never judged by the other.
  */
-export async function readTreeContracts(
-  root: string,
-  skills: SkillDeclaration[],
-  resolutions: Resolutions,
-): Promise<Map<string, CanonicalContract | null>> {
-  return await readContracts(root, lockedOrDeclared(skills, resolutions));
+export function locateTreeContracts(
+  state: TreeState,
+): Map<string, ContractLocation> {
+  return locateContracts(
+    state.declaration,
+    lockedOrDeclared(state.skills, state.resolutions),
+  );
 }
 
 /**
@@ -424,13 +477,15 @@ export async function readTreeContracts(
 async function deriveResolutions(
   root: string,
   contracts: Map<string, CanonicalContract | null>,
+  locations: Map<string, ContractLocation>,
 ): Promise<Resolutions> {
   const resolutions = emptyRecord<Resolution>();
   for (const id of [...contracts.keys()].sort(compareStrings)) {
     const contract = contracts.get(id) ?? null;
-    if (contract === null) continue;
+    const site = locations.get(id)?.site ?? null;
+    if (contract === null || site === null) continue;
     const resolution: Resolution = { digest: contract.digest };
-    const conformance = await conformanceDigest(root, id);
+    const conformance = await conformanceDigest(root, site, id);
     if (conformance !== null) resolution.conformance = conformance;
     resolutions[id] = resolution;
   }
@@ -521,15 +576,24 @@ function rewrittenValues(
  * is to make that diff exist and to say in one line what it changed.
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
-  const { resolutions: recorded, skills, sources } = await readTreeState(root);
-  const contracts = await readTreeContracts(root, skills, recorded);
-  const violations = closureViolations(skills, contracts);
+  const state = await readTreeState(root);
+  const { resolutions: recorded, skills, sources } = state;
+  const locations = locateTreeContracts(state);
+  const contracts = await readContracts(root, locations);
+  const violations = closureViolations(skills, contracts, locations);
   if (violations.length > 0) {
     for (const violation of violations) out(violation);
     return 1;
   }
-  const derived = await deriveResolutions(root, contracts);
-  const plan = await planExpansion(root, skills, contracts, derived, sources);
+  const derived = await deriveResolutions(root, contracts, locations);
+  const plan = await planExpansion(
+    root,
+    skills,
+    contracts,
+    derived,
+    sources,
+    locations,
+  );
   await executePlan(root, plan);
   for (const line of rewriteReport(recorded, derived)) out(line);
   return 0;

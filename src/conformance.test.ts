@@ -6,6 +6,7 @@ import {
   conformanceDigestOfEntries,
   conformanceDirectory,
 } from "./conformance.ts";
+import { contractPath } from "./digest.ts";
 import {
   escapeThrough,
   rejectedBy,
@@ -99,12 +100,20 @@ test("conformance content is hashed as raw bytes, not canonicalized text", async
 
 test("a file the tree's .gitignore matches is left out of the conformance digest", async () => {
   await withGoodTree(async (root) => {
-    const before = await conformanceDigest(root, "changelog-entry");
+    const before = await conformanceDigest(
+      root,
+      contractPath("changelog-entry"),
+      "changelog-entry",
+    );
     await writeFile(`${root}/.gitignore`, "*.pyc\n");
     await writeFile(`${root}/${CONFORMANCE}/cases/x.pyc`, "compiled bytes\n");
-    expect(await conformanceDigest(root, "changelog-entry")).toStrictEqual(
-      before,
-    );
+    expect(
+      await conformanceDigest(
+        root,
+        contractPath("changelog-entry"),
+        "changelog-entry",
+      ),
+    ).toStrictEqual(before);
   });
 });
 
@@ -142,9 +151,17 @@ test("a .gitignore in a directory between the root and the tests is obeyed", asy
 test("changing what .gitignore matches changes the conformance digest", async () => {
   await withGoodTree(async (root) => {
     await writeFile(`${root}/${CONFORMANCE}/cases/extra.md`, "one more case\n");
-    const included = await conformanceDigest(root, "changelog-entry");
+    const included = await conformanceDigest(
+      root,
+      contractPath("changelog-entry"),
+      "changelog-entry",
+    );
     await writeFile(`${root}/.gitignore`, "extra.md\n");
-    const excluded = await conformanceDigest(root, "changelog-entry");
+    const excluded = await conformanceDigest(
+      root,
+      contractPath("changelog-entry"),
+      "changelog-entry",
+    );
     expect(included === excluded).toStrictEqual(false);
   });
 });
@@ -156,13 +173,25 @@ test("a conformance directory left empty by the exclusion counts as absent", asy
       `${root}/contracts/verdict-format/conformance/x.pyc`,
       "compiled bytes\n",
     );
-    expect(await conformanceDigest(root, "verdict-format")).toStrictEqual(null);
+    expect(
+      await conformanceDigest(
+        root,
+        contractPath("verdict-format"),
+        "verdict-format",
+      ),
+    ).toStrictEqual(null);
   });
 });
 
 test("a contract with no conformance directory has no conformance digest", async () => {
   await withGoodTree(async (root) => {
-    expect(await conformanceDigest(root, "verdict-format")).toStrictEqual(null);
+    expect(
+      await conformanceDigest(
+        root,
+        contractPath("verdict-format"),
+        "verdict-format",
+      ),
+    ).toStrictEqual(null);
   });
 });
 
@@ -186,7 +215,10 @@ test("a conformance tree reached through a symlinked parent is refused, never di
       () =>
         collectConformanceEntries(
           root,
-          conformanceDirectory("changelog-entry"),
+          conformanceDirectory(
+            contractPath("changelog-entry"),
+            "changelog-entry",
+          ),
         ),
       ConfigError,
     );

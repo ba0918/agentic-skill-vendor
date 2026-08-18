@@ -34,6 +34,7 @@ test("planning over a declared contract whose text is missing refuses instead of
         new Map([["changelog-entry", null]]),
         {},
         {},
+        new Map(),
       ),
     ).rejects.toThrow(ConfigError);
   });
@@ -1178,5 +1179,41 @@ test("a removed canonical text with its declaration left behind keeps its resolu
     expect(
       "verdict-format" in (await readLockFile(root)).resolutions,
     ).toStrictEqual(true);
+  });
+});
+
+test("a contract whose canonical text is declared elsewhere is distributed from there", async () => {
+  await withGoodTree(async (root) => {
+    // The conventional position is a default, not a rule. A repository that
+    // keeps a document where its own readers expect it says so in one line,
+    // and the vendored copies have to come from that file rather than from a
+    // path that no longer holds anything.
+    await fs.mkdir(`${root}/docs/style`, { recursive: true });
+    await fs.rename(
+      `${root}/contracts/verdict-format.md`,
+      `${root}/docs/style/verdict-format.md`,
+    );
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "contracts:",
+        "  verdict-format:",
+        "    source: local",
+        "    path: docs/style/verdict-format.md",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    const copy = await fs.readFile(`${root}/${COPY}`, "utf8");
+    const canonical = await fs.readFile(
+      `${root}/docs/style/verdict-format.md`,
+      "utf8",
+    );
+    expect(copy.split("\n").slice(4).join("\n")).toStrictEqual(
+      canonical.split("---\n")[2].replace(/^\n+/, ""),
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
