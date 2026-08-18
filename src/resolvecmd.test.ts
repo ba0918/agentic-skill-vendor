@@ -594,3 +594,37 @@ test("update leaves no table behind in a tree that keeps none", async () => {
     expect(after.code, after.stderr.join("\n")).toStrictEqual(0);
   });
 });
+
+test("update that cannot fetch what it resolved leaves the tree exactly as it was", async () => {
+  await withGoodTree(async (root) => {
+    // The lock and the table have to move together: a table naming a source
+    // for a contract whose text never arrived describes a tree that does not
+    // exist. The run is recoverable by running update again, but only because
+    // the next run happens to redo the same work — the tree in between is one
+    // no reviewer could read as a state the tool meant to produce.
+    await declareInSkill(root, "tdd-contract");
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  workflow:",
+        `    repository: ${REPOSITORY}`,
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    const github = fakeGitHub(workflow());
+    const unreachable = (async (input: string | URL | Request) =>
+      String(input).startsWith("https://raw.githubusercontent.com/")
+        ? new Response("the host is down", { status: 503 })
+        : await github.fetch(input)) as typeof fetch;
+    const before = await snapshotTree(root);
+
+    await rejectedBy(
+      () => commandUpdate(root, () => {}, gitHubOver(unreachable)),
+      ConfigError,
+    );
+
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});

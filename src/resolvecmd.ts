@@ -107,27 +107,44 @@ export async function commandUpdate(
   // case — the very change being adopted — and refusing over it would make
   // every genuine upstream edit a failure. What the new text is gets recorded
   // by the gen that follows, as an adoption a reviewer reads in the diff.
-  const declaration = await mapDeclaredContracts(
-    root,
+  const mapping = await mapDeclaredContracts(root, client, state, resolved);
+  const files = await collectSources(
     client,
-    state,
+    mapping.declaration,
     resolved,
-    out,
+    null,
   );
-  const files = await collectSources(client, declaration, resolved, null);
+  // The table lands with the bytes it accounts for, the way gen builds its
+  // whole plan before writing any of it. Written before the fetch, a source
+  // that could not be reached left a table naming an origin for a contract
+  // whose text never arrived and a lock still pinned where it was — a tree
+  // describing a state no run ever produced, which a reader has no way to tell
+  // from one the tool meant.
+  if (mapping.text !== null) {
+    files.push({
+      site: DECLARATION_FILE,
+      content: new TextEncoder().encode(mapping.text),
+    });
+  }
   await placeInCache(root, files);
   // Rendered from the table this run leaves behind, never the one it read: the
   // mapping written a moment ago decides which contracts the lock accounts
   // for, and rendering against the older table would leave a file verify
   // reports as differing from what the tree renders to.
-  await writeLockSources(root, { ...state, declaration }, resolved);
+  await writeLockSources(
+    root,
+    { ...state, declaration: mapping.declaration },
+    resolved,
+  );
   await pruneCache(root, resolved);
+  for (const line of mapping.report) out(line);
   return 0;
 }
 
 /**
- * Writes a mapping for every declared contract exactly one registered source
- * holds at the conventional position, and reports each line it wrote.
+ * A mapping for every declared contract exactly one registered source holds at
+ * the conventional position: the revised table, its text, and the line each
+ * mapping is reported as.
  *
  * The one thing a person writes is the id in a skill. Which source holds it is
  * a question that can be answered by looking, so it is answered by looking —
@@ -139,18 +156,26 @@ export async function commandUpdate(
  * else is a decision nothing here can infer, so those lines stay the person's
  * to write, and a line already written is never second-guessed: an explicit
  * mapping is itself the adjudication this search would otherwise have to make.
+ *
+ * The text is handed back rather than written, and the report with it, so both
+ * land with everything else the run produces or with none of it. Reported from
+ * here, a line would announce a mapping the run then failed to write.
  */
 async function mapDeclaredContracts(
   root: string,
   client: GitHubClient,
   state: TreeState,
   sources: LockSources,
-  out: Sink,
-): Promise<Declaration> {
+): Promise<{
+  declaration: Declaration;
+  text: string | null;
+  report: string[];
+}> {
+  const unchanged = { declaration: state.declaration, text: null, report: [] };
   const unmapped = declaredIds(state.skills).filter(
     (id) => state.declaration.contracts[id] === undefined,
   );
-  if (unmapped.length === 0) return state.declaration;
+  if (unmapped.length === 0) return unchanged;
   const listings = new Map<string, string[]>();
   for (const name of Object.keys(state.declaration.sources).sort(
     compareStrings,
@@ -164,6 +189,7 @@ async function mapDeclaredContracts(
   }
   let text = await readDeclarationText(root);
   const before = text;
+  const report: string[] = [];
   for (const id of unmapped) {
     // A canonical text in this repository settles the question before any
     // source is looked at, which is the order the derivation is defined in.
@@ -190,16 +216,15 @@ async function mapDeclaredContracts(
       );
     }
     text = withContractMapping(text, id, holders[0]);
-    out(`mapped: ${id} <- ${holders[0]}`);
+    report.push(`mapped: ${id} <- ${holders[0]}`);
   }
   // A search that found nothing to write down leaves the file alone, rather
-  // than writing back what it read. Written unconditionally, a tree that keeps
+  // than handing back what it read. Written unconditionally, a tree that keeps
   // no table at all — every repository whose contracts are all its own — got
   // one holding no document, which this tool's own reader refuses: one update
   // and every later gen and verify stopped on a file that update had made.
-  if (text === before) return state.declaration;
-  await atomicWriteFile(root, DECLARATION_FILE, new TextEncoder().encode(text));
-  return parseDeclaration(text);
+  if (text === before) return unchanged;
+  return { declaration: parseDeclaration(text), text, report };
 }
 
 /** The declaration as it stands, or an empty document where there is none. */
