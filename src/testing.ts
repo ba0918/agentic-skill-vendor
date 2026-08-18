@@ -338,6 +338,13 @@ export interface FakeRepository {
   refs: Record<string, string>;
   /** The files each commit holds: a commit SHA mapped to path/content. */
   files: Record<string, Record<string, string>>;
+  /**
+   * What a path is listed with, where it is not an ordinary file: a path
+   * mapped to its git mode. A symlink is `120000` and a submodule `160000`,
+   * and the listing's own `type` follows from the mode the way the real
+   * service's does.
+   */
+  modes?: Record<string, string>;
   /** Answers the tree listing as truncated, the way a huge repository does. */
   truncated?: boolean;
 }
@@ -528,8 +535,8 @@ async function treeResponse(
         .sort(compareStrings)
         .map(async (path) => ({
           path,
-          mode: "100644",
-          type: "blob",
+          mode: repository.modes?.[path] ?? "100644",
+          type: repository.modes?.[path] === "160000" ? "commit" : "blob",
           // The id is computed from the bytes this same fake serves. Stated as
           // a constant beside them, the listing and the content could disagree
           // — and a case built on that fake would prove nothing about the check

@@ -231,3 +231,25 @@ test("the listing carries the object id the commit gives each file", async () =>
     await gitObjectIdOf(new TextEncoder().encode("# Workflow\n")),
   );
 });
+
+test("a listing naming anything but an ordinary file is refused", async () => {
+  // A symlink arriving from upstream would be fetched as an ordinary file
+  // whose content is the path it points at, and a submodule is not a file at
+  // all. Left out of the listing instead, either would be indistinguishable
+  // from "the source does not hold that file" — which pins a conformance tree
+  // as absent while upstream has one.
+  for (const mode of ["120000", "160000"]) {
+    const github = fakeGitHub({
+      [REPOSITORY]: {
+        ...workflowRepository()[REPOSITORY],
+        modes: { "contracts/tdd-contract/conformance/cases/first.md": mode },
+      },
+    });
+    const error = await rejectedBy(
+      () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
+      ConfigError,
+    );
+    expect(error.message, mode).toContain("first.md");
+    expect(error.message, mode).toContain(mode);
+  }
+});
