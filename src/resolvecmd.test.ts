@@ -7,11 +7,13 @@ import { gitHubOver } from "./github.ts";
 import { parseDeclaration } from "./sources.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import {
+  escapeThrough,
   fakeGitHub,
   type FakeRepository,
   readLockFile,
   rejectedBy,
   runCli,
+  snapshotTree,
   withGoodTree,
   writeFile,
   writeLockFile,
@@ -489,5 +491,36 @@ test("a mapping already written wins over the search, whatever else holds the co
         "utf8",
       ),
     ).toStrictEqual("# TDD Contract\n\nAnother copy.\n");
+  });
+});
+
+test("fetch refuses to write through a link planted in the cache", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A link inside the cache would have fetched bytes land outside the tree
+    // the run was pointed at. Every write goes through the guarded primitive,
+    // so the refusal is a property of the write rather than of this command.
+    await writeFile(
+      `${root}/${cacheSiteOf("workflow", REVISION, "contracts/placeholder.md")}`,
+      "placeholder\n",
+    );
+    const outside = await escapeThrough(
+      root,
+      `.agentic-skill-vendor/cache/workflow/${REVISION}/contracts`,
+    );
+    const before = await snapshotTree(outside);
+    const github = fakeGitHub(workflow());
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("symlink");
+    expect(await snapshotTree(outside)).toStrictEqual(before);
   });
 });
