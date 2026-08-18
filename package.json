@@ -1,6 +1,6 @@
 {
   "name": "@ba0918-dev/agentic-skill-vendor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Vendors shared reference documents into agent skill directories and locks what each skill depends on.",
   "license": "MIT",
   "type": "module",
@@ -9,6 +9,7 @@
   },
   "files": [
     "dist/",
+    "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
