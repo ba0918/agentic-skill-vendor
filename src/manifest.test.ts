@@ -393,6 +393,22 @@ test("a recorded source survives a run that rewrites the lock", async () => {
     // reach the network, and gen reaches none. Rewritten from the tree alone,
     // the lock would drop the pin every time a contract's text changed, and
     // the next fetch would have nothing left to restore the cache from.
+    await fs.writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  workflow:",
+        "    repository: ba0918/agentic-workflow",
+        "    ref: main",
+        "",
+        "contracts:",
+        "  changelog-entry:",
+        "    source: local",
+        "  verdict-format:",
+        "    source: local",
+        "",
+      ].join("\n"),
+    );
     const lock = await readLockFile(root);
     lock.sources = {
       workflow: {

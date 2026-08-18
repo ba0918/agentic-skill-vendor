@@ -487,3 +487,66 @@ function treeResponse(repository: FakeRepository, revision: string): Response {
     200,
   );
 }
+
+/**
+ * The source repository the remote cases fetch from: one contract at the
+ * conventional position, with one conformance case beside it.
+ *
+ * Stated once because several cases have to agree about what the network
+ * answered with — a case that described its own repository could assert
+ * against bytes no other case would ever see.
+ */
+export const REMOTE = {
+  repository: "ba0918/agentic-workflow",
+  revision: "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d",
+  id: "tdd-contract",
+  contract: "# TDD Contract\n\nWrite the test first, then the code.\n",
+  conformanceCase: "A case the contract has to satisfy.\n",
+};
+
+/** That repository, in the shape the fake GitHub serves. */
+export function remoteSource(): Record<string, FakeRepository> {
+  return {
+    [REMOTE.repository]: {
+      defaultBranch: "main",
+      refs: { main: REMOTE.revision },
+      files: {
+        [REMOTE.revision]: {
+          "README.md": "# Workflow\n",
+          [`contracts/${REMOTE.id}.md`]: REMOTE.contract,
+          [`contracts/${REMOTE.id}/conformance/cases/first.md`]:
+            REMOTE.conformanceCase,
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The fixture tree with one skill declaring the remote contract, the source
+ * registered, and the cache filled — the state a repository is in right after
+ * an `add`.
+ */
+export async function withFetchedTree(
+  fn: (root: string) => Promise<void>,
+): Promise<void> {
+  await withGoodTree(async (root) => {
+    const site = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      site,
+      (await fs.readFile(site, "utf8")).replace(
+        "    - changelog-entry\n",
+        `    - changelog-entry\n    - ${REMOTE.id}\n`,
+      ),
+    );
+    const github = fakeGitHub(remoteSource());
+    const added = await runCli(
+      ["add", REMOTE.repository, "workflow", "--root", root],
+      github.fetch,
+    );
+    if (added.code !== 0) {
+      throw new Error(`add failed: ${added.stderr.join("\n")}`);
+    }
+    await fn(root);
+  });
+}

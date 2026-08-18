@@ -22,7 +22,7 @@ import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
 import { assertValidContractId, compareStrings } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
-import type { ContractLocation } from "./sources.ts";
+import type { ContractLocation, Declaration } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import {
@@ -155,15 +155,38 @@ export async function renderExpectedLock(
   resolutions: Resolutions,
   sources: LockSources,
   locations: Map<string, ContractLocation>,
+  declaration: Declaration,
 ): Promise<string> {
   return canonicalJson(
     buildLock(
       dependenciesOf(skills),
       resolutions,
       await presentContractIds(root, resolutions, locations),
-      sources,
+      registeredSources(sources, declaration),
     ),
   );
+}
+
+/**
+ * The pins whose source the declaration still registers.
+ *
+ * A pin left for a withdrawn source names a version nothing can reach: no
+ * mapping sends a run to it, and its cache directory is cleared by the next
+ * fetch. The filter lives here rather than in the command that writes the
+ * lock, because both the writing and the checking pass through this one
+ * rendering — applied on one side only, gen and verify would disagree about
+ * what "up to date" means, and the tree would be reported as stale by a run
+ * that had just put it right.
+ */
+function registeredSources(
+  sources: LockSources,
+  declaration: Declaration,
+): LockSources {
+  const kept: LockSources = emptyRecord();
+  for (const name of Object.keys(sources)) {
+    if (name in declaration.sources) kept[name] = sources[name];
+  }
+  return kept;
 }
 
 /**

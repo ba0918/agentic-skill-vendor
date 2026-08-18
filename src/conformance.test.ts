@@ -34,7 +34,7 @@ async function plantOutsideFile(root: string, name: string): Promise<string> {
 
 /** The relative paths a conformance collection found, in the order it read them. */
 async function collectedPaths(root: string): Promise<string[]> {
-  return (await collectConformanceEntries(root, CONFORMANCE)).map(
+  return (await collectConformanceEntries(root, CONFORMANCE, true)).map(
     (entry) => entry.path,
   );
 }
@@ -46,9 +46,9 @@ test("collecting conformance files refuses a symlink inside the tree", async () 
       `${root}/contracts/changelog-entry/conformance/cases/minimal.md`,
       secret,
     );
-    await expect(collectConformanceEntries(root, CONFORMANCE)).rejects.toThrow(
-      ConfigError,
-    );
+    await expect(
+      collectConformanceEntries(root, CONFORMANCE, true),
+    ).rejects.toThrow(ConfigError);
   });
 });
 
@@ -59,9 +59,9 @@ test("a symlink under an ignored directory is still refused", async () => {
     await replaceWithSymlink(`${root}/${CONFORMANCE}/skipped/link.md`, secret);
     // Excluding a file from the digest is not a reason to stop looking at it:
     // the scan that refuses links has to see the whole tree.
-    await expect(collectConformanceEntries(root, CONFORMANCE)).rejects.toThrow(
-      ConfigError,
-    );
+    await expect(
+      collectConformanceEntries(root, CONFORMANCE, true),
+    ).rejects.toThrow(ConfigError);
   });
 });
 
@@ -104,6 +104,7 @@ test("a file the tree's .gitignore matches is left out of the conformance digest
       root,
       contractPath("changelog-entry"),
       "changelog-entry",
+      true,
     );
     await writeFile(`${root}/.gitignore`, "*.pyc\n");
     await writeFile(`${root}/${CONFORMANCE}/cases/x.pyc`, "compiled bytes\n");
@@ -112,6 +113,7 @@ test("a file the tree's .gitignore matches is left out of the conformance digest
         root,
         contractPath("changelog-entry"),
         "changelog-entry",
+        true,
       ),
     ).toStrictEqual(before);
   });
@@ -155,12 +157,14 @@ test("changing what .gitignore matches changes the conformance digest", async ()
       root,
       contractPath("changelog-entry"),
       "changelog-entry",
+      true,
     );
     await writeFile(`${root}/.gitignore`, "extra.md\n");
     const excluded = await conformanceDigest(
       root,
       contractPath("changelog-entry"),
       "changelog-entry",
+      true,
     );
     expect(included === excluded).toStrictEqual(false);
   });
@@ -178,6 +182,7 @@ test("a conformance directory left empty by the exclusion counts as absent", asy
         root,
         contractPath("verdict-format"),
         "verdict-format",
+        true,
       ),
     ).toStrictEqual(null);
   });
@@ -190,6 +195,7 @@ test("a contract with no conformance directory has no conformance digest", async
         root,
         contractPath("verdict-format"),
         "verdict-format",
+        true,
       ),
     ).toStrictEqual(null);
   });
@@ -219,6 +225,7 @@ test("a conformance tree reached through a symlinked parent is refused, never di
             contractPath("changelog-entry"),
             "changelog-entry",
           ),
+          true,
         ),
       ConfigError,
     );

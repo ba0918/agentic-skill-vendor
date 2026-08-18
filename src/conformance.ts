@@ -111,6 +111,16 @@ export async function conformanceDigestOfEntries(
  * check that exists to catch it — exclusion narrows what is digested, not what
  * is looked at.
  *
+ * `applyIgnoreRules` is false for material fetched from another repository,
+ * and that is not an exception to the rule above but the same rule read
+ * correctly. The question is always "would a checkout carry this file", and
+ * for fetched material the checkout that decides is the source repository's —
+ * whose own rules already settled it before the listing this came from was
+ * ever produced. This tree's rules answer a different question, and they
+ * exclude the whole cache on purpose: applied here, every fetched conformance
+ * tree would digest as absent, and a repository that followed the advice to
+ * ignore the cache would silently stop pinning any of them.
+ *
  * The way down to the directory is checked as well as the directory itself. A
  * link at `contracts/<id>/` puts the whole conformance tree outside the
  * boundary, and its digest would then be pinned as if the tree held it.
@@ -118,19 +128,15 @@ export async function conformanceDigestOfEntries(
 export async function collectConformanceEntries(
   root: string,
   relative: string,
+  applyIgnoreRules: boolean,
 ): Promise<ConformanceEntry[]> {
   await assertPlainChain(root, relative);
   const dir = `${root}/${relative}`;
   if (!(await isDirectoryOrAbsent(root, relative))) return [];
   const found = await walkFiles(dir, relative);
-  const rules = await readIgnoreRules(root, [
-    ...ancestorDirectories(relative),
-    ...found
-      .filter(
-        (path) => path === IGNORE_FILE || path.endsWith(`/${IGNORE_FILE}`),
-      )
-      .map((path) => joinRelative(relative, treeDirectoryOf(path))),
-  ]);
+  const rules = applyIgnoreRules
+    ? await treeIgnoreRules(root, relative, found)
+    : { excludes: () => false };
   const entries: ConformanceEntry[] = [];
   for (const path of found) {
     if (rules.excludes(joinRelative(relative, path))) continue;
@@ -140,6 +146,24 @@ export async function collectConformanceEntries(
     });
   }
   return entries;
+}
+
+/**
+ * The tree's own ignore rules, as they apply to one conformance directory.
+ */
+async function treeIgnoreRules(
+  root: string,
+  relative: string,
+  found: string[],
+) {
+  return await readIgnoreRules(root, [
+    ...ancestorDirectories(relative),
+    ...found
+      .filter(
+        (path) => path === IGNORE_FILE || path.endsWith(`/${IGNORE_FILE}`),
+      )
+      .map((path) => joinRelative(relative, treeDirectoryOf(path))),
+  ]);
 }
 
 /**
@@ -154,10 +178,12 @@ export async function conformanceDigest(
   root: string,
   site: string,
   id: string,
+  applyIgnoreRules: boolean,
 ): Promise<string | null> {
   const entries = await collectConformanceEntries(
     root,
     conformanceDirectory(site, id),
+    applyIgnoreRules,
   );
   if (entries.length === 0) return null;
   return await conformanceDigestOfEntries(entries);

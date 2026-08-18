@@ -4,6 +4,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { planExpansion } from "./gen.ts";
+import { contractDigest } from "./digest.ts";
+import { parseDeclaration } from "./sources.ts";
 import {
   append,
   escapeThrough,
@@ -13,6 +15,8 @@ import {
   replaceWithSymlink,
   runCli,
   snapshotTree,
+  REMOTE,
+  withFetchedTree,
   withGoodTree,
   withUnreadable,
   writeFile,
@@ -35,6 +39,7 @@ test("planning over a declared contract whose text is missing refuses instead of
         {},
         {},
         new Map(),
+        { sources: {}, contracts: {} },
       ),
     ).rejects.toThrow(ConfigError);
   });
@@ -1214,6 +1219,162 @@ test("a contract whose canonical text is declared elsewhere is distributed from 
     expect(copy.split("\n").slice(4).join("\n")).toStrictEqual(
       canonical.split("---\n")[2].replace(/^\n+/, ""),
     );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a contract fetched from another repository is distributed from the cache", async () => {
+  await withFetchedTree(async (root) => {
+    // The bytes another repository is authority over reach the skills the same
+    // way a local contract's do: one copy per declaring skill, byte identical
+    // to the canonical text, with the lock recording what was adopted.
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      `adopted: ${REMOTE.id} ${await contractDigest(
+        REMOTE.contract,
+      )} (initial adoption)`,
+    );
+
+    const copy = await fs.readFile(
+      `${root}/skills/release-notes/references/vendor/${REMOTE.id}.md`,
+      "utf8",
+    );
+    expect(copy.split("\n").slice(4).join("\n")).toStrictEqual(REMOTE.contract);
+    expect(
+      (await readLockFile(root)).resolutions[REMOTE.id].digest,
+    ).toStrictEqual(await contractDigest(REMOTE.contract));
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a fetched contract's conformance tests are digested although the tree ignores the cache", async () => {
+  await withFetchedTree(async (root) => {
+    // The tree is told to keep the cache out of the repository, which is what
+    // every consuming repository is told to do. Those rules answer the
+    // question "would a checkout of this repository carry this file", and for
+    // fetched material the answer that matters is the source repository's —
+    // its own rules already decided what it tracks. Applied here, every
+    // fetched conformance tree would digest as absent.
+    await writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const resolution = (await readLockFile(root)).resolutions[REMOTE.id];
+    expect(resolution.conformance).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("gen asks for a fetch rather than distributing a contract whose cache is gone", async () => {
+  await withFetchedTree(async (root) => {
+    // The text of a fetched contract lives only in the cache, and the cache is
+    // disposable. What gen must not do is resolve the ref again on its own: it
+    // would adopt whatever the source holds today, with no line in any diff
+    // saying a new version was taken up.
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(REMOTE.id);
+    expect(result.stderr.join("\n")).toContain("fetch");
+  });
+});
+
+test("gen writes the origin of a declared contract this repository holds itself", async () => {
+  await withFetchedTree(async (root) => {
+    // Once a tree keeps a table of origins, the table has to be complete:
+    // reading it must answer "where does this contract come from" for every
+    // contract, not only for the ones that came from elsewhere. Deriving the
+    // local ones is offline work — the file is either there or it is not.
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain("mapped: changelog-entry <- local");
+    expect(result.stdout).toContain("mapped: verdict-format <- local");
+
+    const declaration = parseDeclaration(
+      await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+    );
+    expect(declaration.contracts["changelog-entry"]).toStrictEqual({
+      source: "local",
+    });
+    expect(declaration.contracts[REMOTE.id]).toStrictEqual({
+      source: "workflow",
+    });
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("gen leaves a tree that keeps no table of origins exactly as it was", async () => {
+  await withGoodTree(async (root) => {
+    // Every repository using only its own contracts is in this state, and the
+    // table is born with the first source registered rather than with the
+    // first gen. Writing one here would put a file into every existing
+    // repository that nothing in it asked for.
+    const before = await snapshotTree(root);
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("gen takes the origin line out when no skill declares the contract any more", async () => {
+  await withFetchedTree(async (root) => {
+    // The table answers for the contracts the tree uses. A line for a contract
+    // nothing declares any more would keep a source alive in the reader's mind
+    // and keep its text in the cache after the last skill stopped asking.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const site = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      site,
+      (await fs.readFile(site, "utf8")).replace(`    - ${REMOTE.id}\n`, ""),
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(`unmapped: ${REMOTE.id}`);
+    expect(
+      REMOTE.id in
+        parseDeclaration(
+          await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+        ).contracts,
+    ).toStrictEqual(false);
+    // The source itself stays registered: nothing here can tell a contract
+    // that was withdrawn from one the tree will declare again tomorrow.
+    expect(
+      parseDeclaration(
+        await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+      ).sources["workflow"].repository,
+    ).toStrictEqual(REMOTE.repository);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("gen drops a lock pin for a source the table no longer registers", async () => {
+  await withFetchedTree(async (root) => {
+    // The lock records what was resolved, so a pin for a source nobody
+    // registers any more names a version nothing can reach. Left standing, it
+    // would keep its cache directory alive and the lock would describe a
+    // repository the tree has stopped using.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const site = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      site,
+      (await fs.readFile(site, "utf8")).replace(`    - ${REMOTE.id}\n`, ""),
+    );
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "contracts:",
+        "  changelog-entry:",
+        "    source: local",
+        "  verdict-format:",
+        "    source: local",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect("sources" in (await readLockFile(root))).toStrictEqual(false);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });

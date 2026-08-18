@@ -38,6 +38,7 @@ import {
   SKILLS_DIR,
 } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
+import { cacheSiteOf } from "./cache.ts";
 import {
   LOCK_FILE,
   type LockSources,
@@ -49,9 +50,13 @@ import {
 import {
   type ContractLocation,
   type Declaration,
+  DECLARATION_FILE,
   LOCAL_SOURCE,
   originPathOf,
+  parseDeclaration,
   readDeclaration,
+  withContractMapping,
+  withoutContractMapping,
 } from "./sources.ts";
 
 const VENDOR_SUBPATH = "references/vendor";
@@ -138,10 +143,12 @@ export async function readContracts(
  * the shape of every repository that has never fetched anything, and it is why
  * an absent declaration changes nothing about how such a tree behaves.
  */
-export function locateContracts(
+export async function locateContracts(
+  root: string,
   declaration: Declaration,
+  sources: LockSources,
   ids: string[],
-): Map<string, ContractLocation> {
+): Promise<Map<string, ContractLocation>> {
   const locations = new Map<string, ContractLocation>();
   for (const id of ids) {
     const origin = declaration.contracts[id];
@@ -149,7 +156,25 @@ export function locateContracts(
       locations.set(id, { local: true, site: originPathOf(id, origin) });
       continue;
     }
-    locations.set(id, { local: false, site: null });
+    // A remote contract is read out of the cache at the commit the lock pins,
+    // and a cache that does not hold it yet is a state rather than a fault: a
+    // clean checkout is in it. The commands part ways over what to do about
+    // that, so what this answers is only whether the bytes are here.
+    const pinned = sources[origin.source];
+    if (pinned === undefined) {
+      locations.set(id, { local: false, site: null });
+      continue;
+    }
+    const site = cacheSiteOf(
+      origin.source,
+      pinned.revision,
+      originPathOf(id, origin),
+    );
+    await assertPlainChain(root, site);
+    locations.set(id, {
+      local: false,
+      site: (await isRegularFileOrAbsent(root, site)) ? site : null,
+    });
   }
   return locations;
 }
@@ -219,6 +244,7 @@ export async function planExpansion(
   resolutions: Resolutions,
   sources: LockSources,
   locations: Map<string, ContractLocation>,
+  declaration: Declaration,
 ): Promise<WritePlan> {
   const encoder = new TextEncoder();
   const files: WritePlan["files"] = [];
@@ -260,7 +286,14 @@ export async function planExpansion(
     lock: {
       site: LOCK_FILE,
       content: encoder.encode(
-        await renderExpectedLock(root, skills, resolutions, sources, locations),
+        await renderExpectedLock(
+          root,
+          skills,
+          resolutions,
+          sources,
+          locations,
+          declaration,
+        ),
       ),
     },
     removals,
@@ -455,11 +488,14 @@ function lockedOrDeclared(
  * while gen took the declared ids and the recorded ones, so a contract only the
  * lock named was rewritten by one command and never judged by the other.
  */
-export function locateTreeContracts(
+export async function locateTreeContracts(
+  root: string,
   state: TreeState,
-): Map<string, ContractLocation> {
-  return locateContracts(
+): Promise<Map<string, ContractLocation>> {
+  return await locateContracts(
+    root,
     state.declaration,
+    state.sources,
     lockedOrDeclared(state.skills, state.resolutions),
   );
 }
@@ -485,7 +521,12 @@ async function deriveResolutions(
     const site = locations.get(id)?.site ?? null;
     if (contract === null || site === null) continue;
     const resolution: Resolution = { digest: contract.digest };
-    const conformance = await conformanceDigest(root, site, id);
+    const conformance = await conformanceDigest(
+      root,
+      site,
+      id,
+      locations.get(id)?.local === true,
+    );
     if (conformance !== null) resolution.conformance = conformance;
     resolutions[id] = resolution;
   }
@@ -568,6 +609,33 @@ function rewrittenValues(
 }
 
 /**
+ * Refuses a run whose declared remote contracts are not in the cache.
+ *
+ * A refusal, not a violation: the tree is not wrong, it is incomplete, and one
+ * fetch completes it. What gen must not do is resolve the ref itself. That
+ * would take up whatever the source repository holds today, with no line in
+ * any diff saying a new version had been adopted — the moving target the lock
+ * exists to pin down.
+ */
+function assertCacheHolds(
+  skills: SkillDeclaration[],
+  locations: Map<string, ContractLocation>,
+  declaration: Declaration,
+): void {
+  const missing = declaredIds(skills).filter((id) => {
+    const location = locations.get(id);
+    return location !== undefined && !location.local && location.site === null;
+  });
+  if (missing.length === 0) return;
+  const named = missing
+    .map((id) => `${id} (from ${declaration.contracts[id]?.source})`)
+    .join(", ");
+  throw new ConfigError(
+    `the cache holds no text for ${named}; run fetch to put it back`,
+  );
+}
+
+/**
  * Writes the lock the canonical text implies and the copies that go with it.
  *
  * The canonical text is the authority; there is no approval step between an
@@ -576,15 +644,18 @@ function rewrittenValues(
  * is to make that diff exist and to say in one line what it changed.
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
-  const state = await readTreeState(root);
+  const read = await readTreeState(root);
+  const table = await reviseOrigins(root, read);
+  const state = { ...read, declaration: table.declaration };
   const { resolutions: recorded, skills, sources } = state;
-  const locations = locateTreeContracts(state);
+  const locations = await locateTreeContracts(root, state);
   const contracts = await readContracts(root, locations);
   const violations = closureViolations(skills, contracts, locations);
   if (violations.length > 0) {
     for (const violation of violations) out(violation);
     return 1;
   }
+  assertCacheHolds(skills, locations, state.declaration);
   const derived = await deriveResolutions(root, contracts, locations);
   const plan = await planExpansion(
     root,
@@ -593,8 +664,73 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     derived,
     sources,
     locations,
+    state.declaration,
   );
+  if (table.text !== null) {
+    plan.files.push({
+      site: DECLARATION_FILE,
+      content: new TextEncoder().encode(table.text),
+    });
+  }
   await executePlan(root, plan);
+  for (const line of table.report) out(line);
   for (const line of rewriteReport(recorded, derived)) out(line);
   return 0;
+}
+
+/**
+ * The table of origins brought back in line with what the skills declare: a
+ * line written for every declared contract this repository holds itself, and
+ * the lines nothing declares any more taken out.
+ *
+ * Only a tree that already keeps a table is maintained. A repository using
+ * nothing but its own contracts keeps none, and writing one for it would put a
+ * file into every existing repository that nothing in it asked for — the table
+ * is born with the first source registered, not with the first gen.
+ *
+ * Only the conventional position is searched, and only where no line exists
+ * yet. A line already written is an adjudication, and a canonical text kept
+ * anywhere else is a decision no derivation can make.
+ *
+ * The revised text is handed back rather than written, so it lands with every
+ * other byte this run produces or with none of them.
+ */
+async function reviseOrigins(
+  root: string,
+  state: TreeState,
+): Promise<{
+  declaration: Declaration;
+  text: string | null;
+  report: string[];
+}> {
+  if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) {
+    return { declaration: state.declaration, text: null, report: [] };
+  }
+  const declared = new Set(declaredIds(state.skills));
+  const report: string[] = [];
+  let text = await readTextFile(
+    `${root}/${DECLARATION_FILE}`,
+    DECLARATION_FILE,
+  );
+  const before = text;
+  // The lines nothing declares any more go first. A line kept for a withdrawn
+  // contract holds its source open in the reader's mind and holds its text in
+  // the cache after the last skill stopped asking for it.
+  for (const id of Object.keys(state.declaration.contracts).sort(
+    compareStrings,
+  )) {
+    if (declared.has(id)) continue;
+    text = withoutContractMapping(text, id);
+    report.push(`unmapped: ${id}`);
+  }
+  for (const id of declaredIds(state.skills)) {
+    if (state.declaration.contracts[id] !== undefined) continue;
+    if (!(await isRegularFileOrAbsent(root, contractPath(id)))) continue;
+    text = withContractMapping(text, id, LOCAL_SOURCE);
+    report.push(`mapped: ${id} <- ${LOCAL_SOURCE}`);
+  }
+  if (text === before) {
+    return { declaration: state.declaration, text: null, report: [] };
+  }
+  return { declaration: parseDeclaration(text), text, report };
 }

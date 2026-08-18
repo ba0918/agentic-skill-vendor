@@ -29,7 +29,7 @@ import {
   vendorDirOf,
   vendorHeader,
 } from "./gen.ts";
-import type { ContractLocation } from "./sources.ts";
+import type { ContractLocation, Declaration } from "./sources.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the
@@ -115,6 +115,7 @@ async function lockFileViolations(
   resolutions: Resolutions,
   sources: LockSources,
   locations: Map<string, ContractLocation>,
+  declaration: Declaration,
 ): Promise<string[]> {
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     return [`lock: ${LOCK_FILE} is missing`];
@@ -125,6 +126,7 @@ async function lockFileViolations(
     resolutions,
     sources,
     locations,
+    declaration,
   );
   const actual = decodeUtf8(
     await readBytes(`${root}/${LOCK_FILE}`, LOCK_FILE),
@@ -148,13 +150,19 @@ async function conformanceViolations(
 ): Promise<string[]> {
   const violations: string[] = [];
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
-    const site = locations.get(id)?.site ?? null;
+    const location = locations.get(id);
+    const site = location?.site ?? null;
     // The tests of a contract whose text this tree does not hold are not
     // compared: they are in the cache with the text, and a clean checkout has
     // neither. Silence is the honest answer — a finding here would report a
     // tree nobody changed as broken.
     if (site === null) continue;
-    const current = await conformanceDigest(root, site, id);
+    const current = await conformanceDigest(
+      root,
+      site,
+      id,
+      location?.local === true,
+    );
     const locked = resolutions[id].conformance ?? null;
     if (current === locked) continue;
     violations.push(
@@ -177,7 +185,7 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
-  const locations = locateTreeContracts(state);
+  const locations = await locateTreeContracts(root, state);
   const contracts = await readContracts(root, locations);
 
   // The three file-system checks are independent of one another and of the
@@ -187,7 +195,14 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   // whichever settled first.
   const settled = await Promise.allSettled([
     copyViolations(root, skills, resolutions),
-    lockFileViolations(root, skills, resolutions, sources, locations),
+    lockFileViolations(
+      root,
+      skills,
+      resolutions,
+      sources,
+      locations,
+      state.declaration,
+    ),
     conformanceViolations(root, resolutions, locations),
   ]);
   const violations = [

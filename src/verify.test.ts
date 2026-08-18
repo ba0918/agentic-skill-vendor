@@ -5,7 +5,9 @@ import {
   kindsOf,
   PERMISSIONS_APPLY,
   replaceWithSymlink,
+  REMOTE,
   runCli,
+  withFetchedTree,
   withGoodTree,
   writeFile,
 } from "./testing.ts";
@@ -341,5 +343,36 @@ test("a SKILL.md reaching its opening delimiter only after a blank line makes ve
     expect(result.code).toStrictEqual(2);
     expect(result.stdout).toStrictEqual([]);
     expect(result.stderr.join("\n")).toContain("error:");
+  });
+});
+
+test("a clean checkout with no cache verifies the copies and the lock without complaint", async () => {
+  await withFetchedTree(async (root) => {
+    // The state continuous integration runs in: the cache is not committed, so
+    // a fresh checkout holds none of it. The copies carry the header and the
+    // body digest, which is everything the comparison against the lock needs,
+    // so the check a consuming repository depends on completes with no network
+    // and no fetched file in sight.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+
+    const result = await verify(root);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
+  });
+});
+
+test("a copy of a fetched contract that was edited is still reported as drift with no cache", async () => {
+  await withFetchedTree(async (root) => {
+    // The skip is narrow on purpose: what cannot be checked without the cache
+    // is the text against the lock, never the copies against the lock.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+    await append(
+      `${root}/skills/release-notes/references/vendor/${REMOTE.id}.md`,
+      "\nEdited by hand after generation.\n",
+    );
+
+    expect(kindsOf((await verify(root)).stdout)).toStrictEqual(["drift"]);
   });
 });
