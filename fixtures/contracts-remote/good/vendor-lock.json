@@ -1,0 +1,23 @@
+{
+  "dependencies": {
+    "release-notes": [
+      "report-format",
+      "tdd-contract"
+    ]
+  },
+  "resolutions": {
+    "report-format": {
+      "digest": "sha256:7cd34ca1056ed680bd25418a3371af1ac29b7d9a11bce9b9c475af7796ae5160"
+    },
+    "tdd-contract": {
+      "conformance": "sha256:0db72a1f69edeaabea98e6cb01de7218947c0dc6390800d38edf9270a7c88986",
+      "digest": "sha256:f15b11b0c425eba2ac1f8f976de88c5d79f8dc78315db5336612f3b3a92ef3ff"
+    }
+  },
+  "sources": {
+    "workflow": {
+      "repository": "ba0918/agentic-workflow",
+      "revision": "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d"
+    }
+  }
+}

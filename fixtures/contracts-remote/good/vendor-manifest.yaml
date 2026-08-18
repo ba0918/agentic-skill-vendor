@@ -1,0 +1,10 @@
+sources:
+  workflow:
+    repository: ba0918/agentic-workflow
+    ref: main
+
+contracts:
+  tdd-contract:
+    source: workflow
+  report-format:
+    source: local

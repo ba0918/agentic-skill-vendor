@@ -62,3 +62,13 @@ jobs:
 
       - name: Check that the fixture skills are self-contained
         run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-basic/good
+
+      # The second fixture takes one of its contracts from another repository,
+      # and it is committed with the cache that contract's text sits in. Run
+      # here, it states the boundary this workflow depends on: verify answers
+      # from the tree alone, with no network, no credentials and no fetch.
+      - name: Verify the fetched fixture tree against its lock
+        run: bun run src/cli.ts verify --root fixtures/contracts-remote/good
+
+      - name: Check that the fetched fixture skills are self-contained
+        run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-remote/good

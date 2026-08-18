@@ -9,6 +9,7 @@ import {
   runCli,
   withFetchedTree,
   withGoodTree,
+  withRemoteFixture,
   writeFile,
 } from "./testing.ts";
 
@@ -374,5 +375,29 @@ test("a copy of a fetched contract that was edited is still reported as drift wi
     );
 
     expect(kindsOf((await verify(root)).stdout)).toStrictEqual(["drift"]);
+  });
+});
+
+test("the committed tree that fetches a contract verifies and lints clean offline", async () => {
+  await withRemoteFixture(async (root) => {
+    // The state a consuming repository is in after add and gen: one contract
+    // of its own, one taken from another repository, the cache beside them.
+    // Nothing here reaches a network, which is what the tree is committed to
+    // demonstrate.
+    expect((await verify(root)).stdout).toStrictEqual([]);
+    expect(
+      (await runCli(["lint-selfcontain", "--root", root])).code,
+    ).toStrictEqual(0);
+    expect((await runCli(["gen", "--root", root])).stdout).toStrictEqual([]);
+    expect((await verify(root)).code).toStrictEqual(0);
+  });
+});
+
+test("the committed fetched tree still verifies once its cache is thrown away", async () => {
+  await withRemoteFixture(async (root) => {
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+    const result = await verify(root);
+    expect(result.stdout).toStrictEqual([]);
+    expect(result.code).toStrictEqual(0);
   });
 });

@@ -74,6 +74,28 @@ export async function withGoodTree<T>(
   }
 }
 
+/**
+ * The committed tree that takes one contract from another repository, cache
+ * and all. Cloned per case for the reason the local one is.
+ */
+const REMOTE_FIXTURE = fileURLToPath(
+  new URL("../fixtures/contracts-remote/good", import.meta.url),
+);
+
+/** Clones the fetched-tree fixture and runs `fn` against the clone. */
+export async function withRemoteFixture<T>(
+  fn: (root: string) => Promise<T>,
+): Promise<T> {
+  const dir = await fs.mkdtemp(join(tmpdir(), "vendor-remote-"));
+  try {
+    const root = `${dir}/tree`;
+    await fs.cp(REMOTE_FIXTURE, root, { recursive: true });
+    return await fn(root);
+  } finally {
+    await fs.rm(dir, { recursive: true });
+  }
+}
+
 /** Runs `fn` against an empty temporary directory. */
 export async function withEmptyDir<T>(
   fn: (dir: string) => Promise<T>,

@@ -19,6 +19,14 @@
 credentials.*
 secrets.*
 
+# The tool's own working directory, written by the fetching commands at the
+# root they are pointed at. Anchored to this repository's root on purpose: an
+# unanchored pattern would also match the filled cache inside
+# fixtures/contracts-remote/good/, which is committed material — the fixture
+# exists to prove that a tree with a cache verifies offline, and a cache git
+# never carried would leave that proof testing nothing.
+/.agentic-skill-vendor/
+
 # Written by Deno as a side effect of running the tool with `deno run`. The
 # tool runs on that runtime but is not developed against it, so the lock is a
 # local artifact rather than part of the project.
