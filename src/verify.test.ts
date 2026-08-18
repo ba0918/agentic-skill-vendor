@@ -5,12 +5,14 @@ import {
   kindsOf,
   PERMISSIONS_APPLY,
   replaceWithSymlink,
+  readLockFile,
   REMOTE,
   runCli,
   withFetchedTree,
   withGoodTree,
   withRemoteFixture,
   writeFile,
+  writeLockFile,
 } from "./testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
@@ -397,6 +399,49 @@ test("a fetched contract the lock no longer matches is sent to fetch, not to gen
     const stale = result.stdout.find((line) => line.startsWith("stale-lock:"));
     expect(stale).toBeDefined();
     expect(stale).toContain("fetch");
+  });
+});
+
+test("a lock pinning a source to a repository the table does not register is a violation", async () => {
+  await withFetchedTree(async (root) => {
+    // The tree disagrees with itself: a fetch goes to the repository the lock
+    // names, while the table of origins registers another one. That is the
+    // same class of state as a stale lock — a person who edited the table and
+    // has not run update yet is in it — so it is reported and the run carries
+    // on with its other checks rather than stopping.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const lock = await readLockFile(root);
+    lock.sources.workflow.repository = "someone/else";
+    await writeLockFile(root, lock);
+
+    const result = await verify(root);
+
+    expect(result.code).toStrictEqual(1);
+    const finding = result.stdout.find((line) =>
+      line.startsWith("source-mismatch:"),
+    );
+    expect(finding).toBeDefined();
+    expect(finding).toContain("someone/else");
+    expect(finding).toContain(REMOTE.repository);
+    expect(finding).toContain("update");
+  });
+});
+
+test("a source the lock and the table disagree about is reported once", async () => {
+  await withFetchedTree(async (root) => {
+    // The file is compared against a rendering that now takes the repository
+    // from the table, so the whole-file comparison differs over the very same
+    // cause. Reported as well, it would send a reader to the shape of the lock
+    // file while what is wrong is which repository it names — and the update
+    // that resolves the one rewrites the whole file anyway.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const lock = await readLockFile(root);
+    lock.sources.workflow.repository = "someone/else";
+    await writeLockFile(root, lock);
+
+    expect(kindsOf((await verify(root)).stdout)).toStrictEqual([
+      "source-mismatch",
+    ]);
   });
 });
 

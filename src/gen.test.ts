@@ -1298,6 +1298,25 @@ test("gen asks for an update where the lock pins no commit for a source", async 
   });
 });
 
+test("gen stops rather than distributing text the table says comes from elsewhere", async () => {
+  await withFetchedTree(async (root) => {
+    // The cache was filled from the repository the lock names, while the table
+    // of origins registers another one. Carrying on would hand every declaring
+    // skill bytes the table attributes to a repository they never came from,
+    // and would rewrite the lock as though the tree had never disagreed.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const lock = await readLockFile(root);
+    lock.sources.workflow.repository = "someone/else";
+    await writeLockFile(root, lock);
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("someone/else");
+    expect(result.stderr.join("\n")).toContain("run update");
+  });
+});
+
 test("gen writes the origin of a declared contract this repository holds itself", async () => {
   await withFetchedTree(async (root) => {
     // Once a tree keeps a table of origins, the table has to be complete:

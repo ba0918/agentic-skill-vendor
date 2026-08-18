@@ -30,6 +30,7 @@ import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import type { GitHubClient, TreeBlob } from "./github.ts";
 import {
+  assertPinnedRepositories,
   LOCK_FILE,
   type LockSource,
   type LockSources,
@@ -81,6 +82,10 @@ export async function commandFetch(
   client: GitHubClient,
 ): Promise<number> {
   const state = await readTreeState(root);
+  // Asked before the first request goes out. This command takes bytes from the
+  // repository the pin names, so a pin the table does not register would send
+  // the whole run to a repository the tree says elsewhere it does not use.
+  assertPinnedRepositories(state.sources, state.declaration);
   await warnUnlessIgnored(root, out);
   const revisions = await collectSources(
     client,

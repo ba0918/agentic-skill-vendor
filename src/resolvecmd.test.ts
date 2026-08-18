@@ -212,6 +212,32 @@ test("fetch stops when a registered source has no commit in the lock to fetch", 
   });
 });
 
+test("fetch stops before asking for anything where the pin names an unregistered repository", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The pin is what a fetch acts on, so one naming a repository the table
+    // does not register sends every request of the run to it. Acting on the
+    // half of a self-contradicting tree that reaches a network is the one thing
+    // this command must never do.
+    const lock = await readLockFile(root);
+    lock.sources.workflow.repository = "someone/else";
+    await writeLockFile(root, lock);
+    const github = fakeGitHub(workflow());
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("run update");
+    expect(github.requested).toStrictEqual([]);
+  });
+});
+
 test("the fetch command reports a poisoned answer on the refusal exit code", async () => {
   await withRemoteTree(async (root) => {
     // Through the command line, bytes that are not the ones the commit lists
@@ -266,6 +292,34 @@ test("update resolves the ref to the commit it names and records it in the lock"
     expect(lines).toContain(
       `resolved: workflow ${REVISION} (initial resolution)`,
     );
+  });
+});
+
+test("update takes a source back to the repository the table registers", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The way out of a lock and a table naming different repositories, and the
+    // reason this command is the one the refusals name. It reads the repository
+    // and the ref from the table alone, so it never acts on the pinned value —
+    // it replaces it. Refused here as gen and fetch are, the state would have
+    // no command that could leave it.
+    const lock = await readLockFile(root);
+    lock.sources.workflow.repository = "someone/else";
+    await writeLockFile(root, lock);
+    const github = fakeGitHub(workflow());
+
+    const code = await commandUpdate(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(
+      (await readLockFile(root)).sources.workflow.repository,
+    ).toStrictEqual(REPOSITORY);
+    expect(
+      github.requested.filter((url) => !url.includes(REPOSITORY)),
+    ).toStrictEqual([]);
   });
 });
 

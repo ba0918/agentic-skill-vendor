@@ -22,7 +22,11 @@ import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
 import { assertValidContractId, compareStrings } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
-import type { ContractLocation, Declaration } from "./sources.ts";
+import {
+  type ContractLocation,
+  type Declaration,
+  DECLARATION_FILE,
+} from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import {
@@ -168,7 +172,8 @@ export async function renderExpectedLock(
 }
 
 /**
- * The pins whose source the declaration still registers.
+ * The pins whose source the declaration still registers, each named with the
+ * repository the declaration registers it at.
  *
  * A pin left for a withdrawn source names a version nothing can reach: no
  * mapping sends a run to it, and its cache directory is cleared by the next
@@ -177,6 +182,18 @@ export async function renderExpectedLock(
  * rendering — applied on one side only, gen and verify would disagree about
  * what "up to date" means, and the tree would be reported as stale by a run
  * that had just put it right.
+ *
+ * The repository is taken from the declaration rather than carried across from
+ * the lock, although the revision beside it is carried. The declaration is
+ * where a person writes which repository a source is, so it is the authority
+ * over that field, and the lock records what was resolved from it. Rendered
+ * from the lock's own value, the field was compared with itself: a lock naming
+ * a repository the declaration does not register was the repository every fetch
+ * went to, while the comparison against this rendering reported nothing.
+ *
+ * The revision cannot be reconciled the same way, and that is the whole reason
+ * the pin exists: what the declaration holds is a ref, and turning a ref into a
+ * commit is a resolution, taken by update and reviewed in the diff it lands in.
  */
 function registeredSources(
   sources: LockSources,
@@ -184,9 +201,102 @@ function registeredSources(
 ): LockSources {
   const kept: LockSources = emptyRecord();
   for (const name of Object.keys(sources)) {
-    if (name in declaration.sources) kept[name] = sources[name];
+    const registered = declaration.sources[name];
+    if (registered === undefined) continue;
+    kept[name] = {
+      repository: registered.repository,
+      revision: sources[name].revision,
+    };
   }
   return kept;
+}
+
+/**
+ * One source the lock and the declaration do not agree about: the repository
+ * the lock pins it to, and the one the declaration registers it at.
+ *
+ * The fact is computed in one place and phrased in two — a violation for the
+ * command that reports, a refusal for the commands that stop — because a
+ * second computation of it could disagree with the first, and the tree would
+ * be refused by one command over a state another calls clean.
+ */
+interface DivergentSource {
+  name: string;
+  pinned: string;
+  registered: string;
+}
+
+function divergentSources(
+  sources: LockSources,
+  declaration: Declaration,
+): DivergentSource[] {
+  const divergent: DivergentSource[] = [];
+  for (const name of Object.keys(sources).sort(compareStrings)) {
+    const registered = declaration.sources[name];
+    // A pin for a source the declaration no longer registers is not a
+    // disagreement about where that source is: it is a pin the rendering drops
+    // whole, which the next gen writes out of the file.
+    if (registered === undefined) continue;
+    if (registered.repository === sources[name].repository) continue;
+    divergent.push({
+      name,
+      pinned: sources[name].repository,
+      registered: registered.repository,
+    });
+  }
+  return divergent;
+}
+
+/**
+ * The lock's pins that name a repository the declaration does not register it
+ * at, one finding each.
+ *
+ * Reported rather than refused, because the tree reaches this state
+ * legitimately: a person edits the repository in the declaration and has not
+ * run update yet. It is the same class as a stale lock — the tree disagreeing
+ * with itself — and the commands that act on the value stop over it instead.
+ */
+export function sourceViolations(
+  sources: LockSources,
+  declaration: Declaration,
+): string[] {
+  return divergentSources(sources, declaration).map(
+    (source) =>
+      `source-mismatch: ${LOCK_FILE} pins ${source.name} to ` +
+      `${source.pinned} but ${DECLARATION_FILE} registers ` +
+      `${source.registered}; run update to pin the registered repository`,
+  );
+}
+
+/**
+ * Refuses a run that would act on a pin naming a repository the declaration
+ * does not register the source at.
+ *
+ * The commands that act on the value stop where the command that only looks
+ * reports. A fetch takes bytes from the repository the pin names, and a gen
+ * distributes what such a fetch left in the cache, so both would carry out an
+ * instruction the tree contradicts elsewhere — and the gen would rewrite the
+ * lock afterwards, leaving no trace that the two had ever disagreed.
+ *
+ * update is not refused here, and that is what makes this refusal a state a
+ * tree can leave: update reads the repository and the ref from the declaration
+ * alone, so it never acts on the pinned value at all — it replaces it, which is
+ * the way on this refusal names.
+ *
+ * One source is named rather than all of them. The way out is the same command
+ * for every one of them, and it resolves every registered source in one run.
+ */
+export function assertPinnedRepositories(
+  sources: LockSources,
+  declaration: Declaration,
+): void {
+  const [first] = divergentSources(sources, declaration);
+  if (first === undefined) return;
+  throw new ConfigError(
+    `${LOCK_FILE} pins ${first.name} to ${first.pinned} while ` +
+      `${DECLARATION_FILE} registers ${first.registered}; run update to pin ` +
+      `the registered repository and take up what it holds`,
+  );
 }
 
 /**

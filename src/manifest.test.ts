@@ -3,7 +3,12 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
-import { canonicalJson, readLock, type Resolutions } from "./manifest.ts";
+import {
+  canonicalJson,
+  readLock,
+  renderExpectedLock,
+  type Resolutions,
+} from "./manifest.ts";
 import {
   readLockFile,
   runCli,
@@ -478,5 +483,33 @@ test("a tree still holding the old lock file is refused with both filenames name
     expect(result.code).toStrictEqual(2);
     expect(result.stderr.join("\n")).toContain("vendor-lock.json");
     expect(result.stderr.join("\n")).toContain("vendor-lock.json");
+  });
+});
+
+test("the expected lock names the repository the declaration registers", async () => {
+  await withEmptyDir(async (root) => {
+    // The declaration is the authority over where a source is fetched from, so
+    // the lock is rendered against it. Carried across from the lock instead,
+    // that field was compared with itself, and a lock naming some other
+    // repository — the one every fetch then went to — could not be reported by
+    // any check at all.
+    const rendered = await renderExpectedLock(
+      root,
+      [],
+      {},
+      { workflow: { repository: "someone/else", revision: "a".repeat(40) } },
+      new Map(),
+      {
+        sources: {
+          workflow: { repository: "ba0918/agentic-workflow", ref: "main" },
+        },
+        contracts: {},
+      },
+    );
+
+    expect(JSON.parse(rendered).sources.workflow).toStrictEqual({
+      repository: "ba0918/agentic-workflow",
+      revision: "a".repeat(40),
+    });
   });
 });

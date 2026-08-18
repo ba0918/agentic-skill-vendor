@@ -40,6 +40,7 @@ import {
 import { emptyRecord } from "./records.ts";
 import { cacheSiteOf } from "./cache.ts";
 import {
+  assertPinnedRepositories,
   LOCK_FILE,
   type LockSources,
   readLock,
@@ -712,6 +713,12 @@ function assertCacheHolds(
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
   const read = await readTreeState(root);
+  // Asked before anything else this run does. What follows reads a cache
+  // filled from the repository the lock names and rewrites the lock from what
+  // it finds, so a run that carried on would distribute bytes the table
+  // attributes to another repository and then leave a lock agreeing with the
+  // table, with nothing anywhere saying the two had disagreed.
+  assertPinnedRepositories(read.sources, read.declaration);
   const table = await reviseOrigins(root, read);
   const state = { ...read, declaration: table.declaration };
   const { resolutions: recorded, skills, sources } = state;

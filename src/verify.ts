@@ -18,6 +18,7 @@ import {
   type LockSources,
   renderExpectedLock,
   type Resolutions,
+  sourceViolations,
 } from "./manifest.ts";
 import {
   closureViolations,
@@ -105,6 +106,16 @@ async function copyViolations(
  * recomputed, so a divergence already reported as a stale lock or a conformance
  * mismatch is not reported a second time here as a badly rendered file.
  *
+ * The repository each source is pinned to cannot be carried across the same
+ * way — the rendering takes it from the declaration, which is the authority
+ * over it — so a lock naming another repository differs from the rendering by
+ * construction. That one cause gets one finding: the source is named, and the
+ * whole-file comparison stays silent for the run. Reported as well, it would
+ * send a reader to the shape of the file while what is wrong is which
+ * repository it names, and the update that resolves the one rewrites the whole
+ * file through this same rendering, so nothing that comparison could have said
+ * survives the remedy.
+ *
  * The finding is `lock`, not `manifest`. The word manifest now names the
  * declaration file — `vendor-manifest.yaml`, written by hand — and a finding
  * carrying it would send a reader to the file this check never opens.
@@ -120,6 +131,8 @@ async function lockFileViolations(
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     return [`lock: ${LOCK_FILE} is missing`];
   }
+  const divergent = sourceViolations(sources, declaration);
+  if (divergent.length > 0) return divergent;
   const expected = await renderExpectedLock(
     root,
     skills,
