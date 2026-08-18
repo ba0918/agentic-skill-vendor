@@ -212,6 +212,37 @@ export function digestOfText(text: string): Promise<string> {
   return digestOfBytes(new TextEncoder().encode(text));
 }
 
+/**
+ * The git object id of these bytes: the SHA-1 of `blob <byte length>\0`
+ * followed by the content, in lowercase hex.
+ *
+ * Not one of this tool's identity digests, and it must never be read as one.
+ * Every digest above answers "is this the text the tree adopted", and this one
+ * answers "are these the bytes the commit holds" — the acceptance test for a
+ * download, computed the way the source's own listing computes it, so a
+ * transfer can be judged without any comparison against the lock.
+ *
+ * SHA-1 is the algorithm because git's object id is a SHA-1 and nothing else
+ * would match the listing. It is a hash chosen by the format being read rather
+ * than by this tool, which is why it is used for detecting a corrupt transfer
+ * and never for what the tool itself vouches for: an adversary who could pick
+ * the bytes a source serves could already serve whatever they liked.
+ *
+ * The header counts bytes rather than characters, because that is what git
+ * counts. Measured on the decoded text, every document holding a character
+ * outside ASCII would be refused against a listing that is telling the truth.
+ */
+export async function gitObjectIdOf(bytes: Uint8Array): Promise<string> {
+  const header = new TextEncoder().encode(`blob ${bytes.length}\0`);
+  // Copied for the reason sha256Hex copies: Web Crypto asks for bytes backed
+  // by a plain ArrayBuffer, and a buffer read off a socket may not be.
+  const object = new Uint8Array(concatBytes([header, bytes]));
+  const digest = await crypto.subtle.digest("SHA-1", object);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 /** Digest of a contract document's canonical body. */
 export function contractDigest(text: string, site?: string): Promise<string> {
   return digestOfText(canonicalBody(text, site));

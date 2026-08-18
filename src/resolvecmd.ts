@@ -7,28 +7,28 @@
 // three end in the same place — bytes verified, then written into the cache —
 // so that place is written once, here.
 //
-// Nothing in this module decides what a contract's digest should be. The lock
-// says what was adopted and this checks the bytes against it; the one command
-// allowed to record a new digest is `gen`, offline, from the canonical text.
-// A fetch that recorded what it found would make "the tree adopted this text"
-// a claim about whatever the network answered with.
+// Nothing in this module decides what a contract's digest should be. The one
+// command allowed to record a digest is `gen`, offline, from the canonical
+// text. A fetch that recorded what it found would make "the tree adopted this
+// text" a claim about whatever the network answered with.
+//
+// Nothing here reads the lock's digests either. What a download is judged
+// against is the commit it came from — the listing carries an object id for
+// every file — so the cache can be rebuilt to match the commit from any state
+// the tree is in. Judged against the lock, the checks pointed at each other:
+// this refused bytes the lock did not already record, gen rewrote the lock
+// from whatever the cache held, and a tree between the two could be moved by
+// neither.
 
 import { cacheIsIgnored, cacheSiteOf, CACHE_DIR, pruneCache } from "./cache.ts";
-import { conformanceDigestOfEntries } from "./conformance.ts";
-import {
-  canonicalBody,
-  compareStrings,
-  contractPath,
-  digestOfText,
-} from "./digest.ts";
+import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
-import type { GitHubClient } from "./github.ts";
+import type { GitHubClient, TreeBlob } from "./github.ts";
 import {
   LOCK_FILE,
   type LockSource,
   type LockSources,
   renderExpectedLock,
-  type Resolutions,
 } from "./manifest.ts";
 import { emptyRecord } from "./records.ts";
 import {
@@ -40,7 +40,6 @@ import {
 } from "./sources.ts";
 import {
   atomicWriteFile,
-  decodeUtf8,
   dirNameOf,
   isRegularFileOrAbsent,
   readTextFile,
@@ -69,12 +68,7 @@ export async function commandFetch(
 ): Promise<number> {
   const state = await readTreeState(root);
   await warnUnlessIgnored(root, out);
-  const files = await collectSources(
-    client,
-    state.declaration,
-    state.sources,
-    state.resolutions,
-  );
+  const files = await collectSources(client, state.declaration, state.sources);
   await placeInCache(root, files);
   await pruneCache(root, state.sources);
   return 0;
@@ -108,12 +102,7 @@ export async function commandUpdate(
   // every genuine upstream edit a failure. What the new text is gets recorded
   // by the gen that follows, as an adoption a reviewer reads in the diff.
   const mapping = await mapDeclaredContracts(root, client, state, resolved);
-  const files = await collectSources(
-    client,
-    mapping.declaration,
-    resolved,
-    null,
-  );
+  const files = await collectSources(client, mapping.declaration, resolved);
   // The table lands with the bytes it accounts for, the way gen builds its
   // whole plan before writing any of it. Written before the fetch, a source
   // that could not be reached left a table naming an origin for a contract
@@ -184,7 +173,9 @@ async function mapDeclaredContracts(
     if (pinned === undefined) continue;
     listings.set(
       name,
-      await client.pathsAt(pinned.repository, pinned.revision),
+      (await client.blobsAt(pinned.repository, pinned.revision)).map(
+        (entry) => entry.path,
+      ),
     );
   }
   let text = await readDeclarationText(root);
@@ -295,15 +286,14 @@ async function writeLockSources(
  * Checked first and written afterwards for the reason gen builds its whole
  * plan before writing it: a run stopped part way must not leave a cache half
  * filled with bytes nothing has vouched for. What a mismatch means here is not
- * a state of the tree — the lock names one immutable commit, so bytes that
- * disagree with it mean the fetch or the host is wrong — and that is why it
- * stops the run instead of being reported as a violation.
+ * a state of the tree — the commit is immutable and says what each of its
+ * files hashes to — and that is why it stops the run instead of being reported
+ * as a violation.
  */
 async function collectSources(
   client: GitHubClient,
   declaration: Declaration,
   sources: LockSources,
-  resolutions: Resolutions | null,
 ): Promise<CachedFile[]> {
   const files: CachedFile[] = [];
   for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
@@ -320,7 +310,7 @@ async function collectSources(
           `records no commit for it; run update to resolve one`,
       );
     }
-    const listing = await client.pathsAt(pinned.repository, pinned.revision);
+    const listing = await client.blobsAt(pinned.repository, pinned.revision);
     for (const id of contracts) {
       files.push(
         ...(await collectContract(
@@ -330,7 +320,6 @@ async function collectSources(
           listing,
           id,
           originPathOf(id, declaration.contracts[id]),
-          resolutions,
         )),
       );
     }
@@ -347,77 +336,92 @@ function contractsOf(declaration: Declaration, source: string): string[] {
 
 /**
  * One contract's canonical text and the conformance tests beside it, fetched
- * and checked against what the lock records for them.
+ * and checked against the ids the commit itself gives them.
  *
- * A contract the lock says nothing about yet is fetched without a comparison —
- * there is nothing to compare against, and the first digest is recorded by the
- * gen that follows. Everything the lock does name is compared, because the
- * commit is immutable: bytes that disagree with the lock at a pinned commit
- * are not a version that moved, they are an answer that should not have been
- * given.
+ * The listing decides what is taken: the contract at its mapped path, and
+ * every file under the conformance directory beside it. Both come from the one
+ * answer that also carries their object ids, so what lands in the cache is
+ * what the pinned commit holds — a fact established without the lock, which
+ * records adoption rather than what a transfer is allowed to be.
  */
 async function collectContract(
   client: GitHubClient,
   source: string,
   pinned: LockSource,
-  listing: string[],
+  listing: TreeBlob[],
   id: string,
   path: string,
-  resolutions: Resolutions | null,
 ): Promise<CachedFile[]> {
-  const named = `${pinned.repository}@${pinned.revision.slice(0, 12)}:${path}`;
-  if (!listing.includes(path)) {
+  const listed = listing.find((entry) => entry.path === path);
+  if (listed === undefined) {
     throw new ConfigError(
       `${pinned.repository} does not hold ${path} at the commit the lock ` +
         `pins ${source} to; ${DECLARATION_FILE} maps ${id} to it`,
     );
   }
-  const bytes = await client.fileAt(pinned.repository, pinned.revision, path);
-  const digest = await digestOfText(
-    canonicalBody(decodeUtf8(bytes, named), named),
-  );
-  const recorded = resolutions?.[id];
-  if (recorded !== undefined && recorded.digest !== digest) {
-    throw new ConfigError(
-      `${named} digests to ${digest}, the lock pins ${recorded.digest}; ` +
-        `nothing was written to the cache`,
-    );
-  }
   const files: CachedFile[] = [
-    { site: cacheSiteOf(source, pinned.revision, path), content: bytes },
+    {
+      site: cacheSiteOf(source, pinned.revision, path),
+      content: await fetchChecked(client, pinned, listed),
+    },
   ];
-  const conformance = `${dirNameOf(path)}/${id}/conformance`;
-  const entries: { path: string; content: Uint8Array }[] = [];
-  for (const listed of listing
-    .filter((candidate) => candidate.startsWith(`${conformance}/`))
-    .sort(compareStrings)) {
-    const content = await client.fileAt(
-      pinned.repository,
-      pinned.revision,
-      listed,
-    );
-    entries.push({ path: listed.slice(conformance.length + 1), content });
-    files.push({
-      site: cacheSiteOf(source, pinned.revision, listed),
-      content,
-    });
-  }
-  // The tests are digested as the fetch found them, with none of this tree's
-  // own ignore rules applied. The listing this came from holds what the source
+  // The tests travel with the text, as the fetch finds them, with none of this
+  // tree's own ignore rules applied. The listing holds what the source
   // repository tracks — its own rules already decided that — while this tree's
   // rules exclude the whole cache on purpose, and applying them here would
-  // digest every fetched conformance tree as empty.
-  const tests =
-    entries.length === 0 ? null : await conformanceDigestOfEntries(entries);
-  if (recorded !== undefined && (recorded.conformance ?? null) !== tests) {
-    throw new ConfigError(
-      `the conformance tests of ${id} at the pinned commit digest to ` +
-        `${tests ?? "nothing"}, the lock records ${
-          recorded.conformance ?? "none"
-        }; nothing was written to the cache`,
-    );
+  // fetch no conformance tree at all.
+  const conformance = `${dirNameOf(path)}/${id}/conformance`;
+  for (const entry of listing
+    .filter((candidate) => candidate.path.startsWith(`${conformance}/`))
+    .sort((a, b) => compareStrings(a.path, b.path))) {
+    files.push({
+      site: cacheSiteOf(source, pinned.revision, entry.path),
+      content: await fetchChecked(client, pinned, entry),
+    });
   }
   return files;
+}
+
+/**
+ * One file's bytes, refused unless they hash to the object id the commit's own
+ * listing gives for that file.
+ *
+ * The acceptance test is the source commit, never the lock. A commit is
+ * immutable and names what each of its files hashes to, so "the cache holds
+ * what this commit holds" is something a fetch can establish by itself — which
+ * is what lets it rebuild the cache from any state the tree is in.
+ *
+ * A mismatch is a transfer that went wrong or a source answering with
+ * something the commit does not hold, so the run stops and writes nothing. The
+ * message says so, because the wording it replaced accused the host in a state
+ * the tool itself had produced: a lock and a cache that had drifted apart left
+ * fetch refusing bytes that were perfectly good.
+ */
+async function fetchChecked(
+  client: GitHubClient,
+  pinned: LockSource,
+  blob: TreeBlob,
+): Promise<Uint8Array> {
+  const bytes = await client.fileAt(
+    pinned.repository,
+    pinned.revision,
+    blob.path,
+  );
+  const arrived = await gitObjectIdOf(bytes);
+  if (arrived !== blob.objectId) {
+    const named = `${pinned.repository}@${pinned.revision.slice(0, 12)}:${
+      blob.path
+    }`;
+    throw new ConfigError(
+      `${named}: the bytes that arrived carry the object id ${arrived}, ` +
+        `while the commit lists ${blob.objectId} for that file; nothing was ` +
+        `written to the cache. The lock takes no part in this check — run ` +
+        `fetch again, and if the file keeps arriving as something else, ` +
+        `${pinned.repository} is answering with bytes this commit does not ` +
+        `hold`,
+    );
+  }
+  return bytes;
 }
 
 /** Writes the checked bytes, each through the guarded atomic write. */

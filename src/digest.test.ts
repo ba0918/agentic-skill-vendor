@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "./errors.ts";
-import { canonicalBody, contractDigest, isValidContractId } from "./digest.ts";
+import {
+  canonicalBody,
+  contractDigest,
+  gitObjectIdOf,
+  isValidContractId,
+} from "./digest.ts";
 
 test("the canonical body drops the frontmatter and the blank lines after it", () => {
   expect(
@@ -118,4 +123,27 @@ test("ids that could escape or break a path are rejected", () => {
   ]) {
     expect(isValidContractId(id), id).toStrictEqual(false);
   }
+});
+
+test("a file's git object id is the SHA-1 of its length header and its bytes", async () => {
+  // The values are what git itself answers with for these two blobs, so the
+  // check a fetch makes against a listing is anchored to git's own definition
+  // rather than to this tool's reading of it.
+  const encoder = new TextEncoder();
+  expect(await gitObjectIdOf(encoder.encode("hello world\n"))).toStrictEqual(
+    "3b18e512dba79e4c8300dd08aeb37f8e728b8dad",
+  );
+  expect(await gitObjectIdOf(new Uint8Array())).toStrictEqual(
+    "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+  );
+});
+
+test("a git object id counts bytes rather than characters", async () => {
+  // The header carries the byte length, and a character outside ASCII is more
+  // than one byte. Counted as characters, every document carrying one would be
+  // refused as corrupt against a listing that is telling the truth.
+  const encoder = new TextEncoder();
+  expect(await gitObjectIdOf(encoder.encode("é\n"))).toStrictEqual(
+    "c6003325155f475bd7c87731607525dce73be9cf",
+  );
 });

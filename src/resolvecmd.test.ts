@@ -110,35 +110,33 @@ test("fetch puts the pinned text and the tests beside it into the cache", async 
   });
 });
 
-test("fetch stops and leaves the cache empty when the pinned text is not what the lock adopted", async () => {
+test("fetch rebuilds the cache the commit describes even where the lock records another digest", async () => {
   await withRemoteTree(async (root, lines) => {
-    // The lock names one immutable commit, so bytes disagreeing with it are
-    // not a version that moved — they are an answer that should not have been
-    // given. Adopting them would put text nobody reviewed into every skill.
+    // A lock recording one digest while the pinned commit holds another text
+    // used to be a state nothing could leave: fetch refused over the
+    // disagreement, gen asked for a cache fetch would not write, and verify
+    // called the tree clean. The cache is rebuilt from the commit instead, and
+    // the disagreement is what the next gen reports as an adoption.
     const lock = await readLockFile(root);
     lock.resolutions["tdd-contract"] = {
-      digest: await contractDigest(CONTRACT),
+      digest: await contractDigest("# TDD Contract\n\nThe text before.\n"),
     };
     await writeLockFile(root, lock);
-    const github = fakeGitHub(
-      workflow({
-        "contracts/tdd-contract.md": "# TDD Contract\n\nSomething else.\n",
-      }),
+    const github = fakeGitHub(workflow());
+
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
     );
 
-    const error = await rejectedBy(
-      () =>
-        commandFetch(
-          root,
-          (line) => lines.push(line),
-          gitHubOver(github.fetch),
-        ),
-      ConfigError,
-    );
-    expect(error.message).toContain("the lock pins");
-    expect(await fs.exists(`${root}/.agentic-skill-vendor`)).toStrictEqual(
-      false,
-    );
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md")}`,
+        "utf8",
+      ),
+    ).toStrictEqual(CONTRACT);
   });
 });
 
@@ -216,21 +214,18 @@ test("fetch stops when a registered source has no commit in the lock to fetch", 
 
 test("the fetch command reports a poisoned answer on the refusal exit code", async () => {
   await withRemoteTree(async (root) => {
-    // Through the command line, a mismatch between the pinned digest and the
-    // bytes a host answered with is a refusal — not a violation of the tree,
-    // which is what exit 1 means and what continuous integration acts on.
-    const lock = await readLockFile(root);
-    lock.resolutions["tdd-contract"] = {
-      digest: await contractDigest(CONTRACT),
-    };
-    await writeLockFile(root, lock);
-    const github = fakeGitHub(
-      workflow({ "contracts/tdd-contract.md": "# TDD Contract\n\nElse.\n" }),
-    );
+    // Through the command line, bytes that are not the ones the commit lists
+    // are a refusal — not a violation of the tree, which is what exit 1 means
+    // and what continuous integration acts on.
+    const github = fakeGitHub(workflow());
+    const tampered = (async (input: string | URL | Request) =>
+      String(input).startsWith("https://raw.githubusercontent.com/")
+        ? new Response("# TDD Contract\n\nElse.\n")
+        : await github.fetch(input)) as typeof fetch;
 
-    const result = await runCli(["fetch", "--root", root], github.fetch);
+    const result = await runCli(["fetch", "--root", root], tampered);
     expect(result.code).toStrictEqual(2);
-    expect(result.stderr.join("\n")).toContain("the lock pins");
+    expect(result.stderr.join("\n")).toContain("object id");
   });
 });
 
@@ -657,5 +652,31 @@ test("a listing that walks out of the repository writes nothing outside the tree
     );
 
     expect(await snapshotTree(outside)).toStrictEqual(before);
+  });
+});
+
+test("bytes that are not what the commit's own listing names are refused and nothing is cached", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The listing gives an object id for every file it names, so the bytes can
+    // be judged against the commit they came from without any comparison
+    // against the lock. Bytes that fail it are a transfer that went wrong or a
+    // source answering with something the commit does not hold — either way,
+    // not a version to take up.
+    const github = fakeGitHub(workflow());
+    const tampered = (async (input: string | URL | Request) =>
+      String(input).startsWith("https://raw.githubusercontent.com/")
+        ? new Response("# TDD Contract\n\nBytes nobody committed.\n")
+        : await github.fetch(input)) as typeof fetch;
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(root, (line) => lines.push(line), gitHubOver(tampered)),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("object id");
+    expect(await fs.exists(`${root}/.agentic-skill-vendor`)).toStrictEqual(
+      false,
+    );
   });
 });

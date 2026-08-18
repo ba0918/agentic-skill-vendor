@@ -70,6 +70,19 @@ export function rawUrl(
 }
 
 /**
+ * One ordinary file a commit holds: where it sits, and the object id the
+ * commit's own listing gives for its bytes.
+ *
+ * The id travels with the path because the two are one answer. Asked for
+ * separately, the pair could describe two different commits, and the check a
+ * download is judged against would be judging it against the wrong one.
+ */
+export interface TreeBlob {
+  path: string;
+  objectId: string;
+}
+
+/**
  * What a run may ask of the network, and nothing else.
  *
  * Four questions, each with one URL behind it. Everything above this interface
@@ -82,8 +95,8 @@ export interface GitHubClient {
   defaultBranchOf(repository: string): Promise<string>;
   /** The commit a ref names right now, as a 40-digit SHA. */
   commitOf(repository: string, ref: string): Promise<string>;
-  /** Every file one commit holds, as repository-relative paths. */
-  pathsAt(repository: string, revision: string): Promise<string[]>;
+  /** Every file one commit holds, each with the id the commit gives it. */
+  blobsAt(repository: string, revision: string): Promise<TreeBlob[]>;
   /** One file's bytes at one commit. */
   fileAt(
     repository: string,
@@ -92,7 +105,12 @@ export interface GitHubClient {
   ): Promise<Uint8Array>;
 }
 
-const REVISION_FORM = /^[0-9a-f]{40}$/;
+/**
+ * A git object id: what a commit is named by, and what a listing gives for
+ * every file it names. One form for both, because a commit SHA is an object id
+ * — two constants of the same shape would be two places to keep in step.
+ */
+const OBJECT_ID_FORM = /^[0-9a-f]{40}$/;
 
 /**
  * How much of an answer this tool is willing to read.
@@ -117,7 +135,7 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
       const url = commitUrl(repository, ref);
       const document = requireObject(await readJson(transport, url), url);
       const sha = document["sha"];
-      if (typeof sha !== "string" || !REVISION_FORM.test(sha)) {
+      if (typeof sha !== "string" || !OBJECT_ID_FORM.test(sha)) {
         throw new ConfigError(
           `${url}: answered with no commit SHA, found ${JSON.stringify(sha)}`,
         );
@@ -137,7 +155,7 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
       }
       return branch;
     },
-    async pathsAt(repository, revision) {
+    async blobsAt(repository, revision) {
       const url = treeUrl(repository, revision);
       const document = requireObject(await readJson(transport, url), url);
       // A listing the service cut short looks exactly like a repository
@@ -158,7 +176,7 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
           )}`,
         );
       }
-      const paths: string[] = [];
+      const blobs: TreeBlob[] = [];
       for (const entry of entries) {
         const listed = requireObject(entry, url);
         // Only the files. A directory entry answers neither of the two
@@ -187,9 +205,22 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
               `inside the repository it lists`,
           );
         }
-        paths.push(path);
+        const objectId = listed["sha"];
+        // The id is what every one of this file's bytes is judged against, so
+        // an answer that omits it or spells it as something other than an
+        // object id is refused rather than carried as an empty acceptance
+        // test. Read as "no id to check against", the fetch would keep whatever
+        // arrived — which is the check being absent exactly where a host is
+        // already behaving oddly.
+        if (typeof objectId !== "string" || !OBJECT_ID_FORM.test(objectId)) {
+          throw new ConfigError(
+            `${url}: listed ${JSON.stringify(path)} with no object id, ` +
+              `found ${JSON.stringify(objectId)}`,
+          );
+        }
+        blobs.push({ path, objectId });
       }
-      return paths;
+      return blobs;
     },
     async fileAt(repository, revision, path) {
       return await request(

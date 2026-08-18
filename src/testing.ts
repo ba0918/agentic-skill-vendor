@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
-import { compareStrings, sha256Hex } from "./digest.ts";
+import { compareStrings, gitObjectIdOf, sha256Hex } from "./digest.ts";
 
 const LOCK_FILE = "vendor-lock.json";
 
@@ -367,15 +367,15 @@ export function fakeGitHub(
   const transport = (async (input: string | URL | Request) => {
     const url = String(input);
     requested.push(url);
-    return answerFor(url, repositories);
+    return await answerFor(url, repositories);
   }) as typeof fetch;
   return { fetch: transport, requested };
 }
 
-function answerFor(
+async function answerFor(
   url: string,
   repositories: Record<string, FakeRepository>,
-): Response {
+): Promise<Response> {
   const api = url.match(
     /^https:\/\/api\.github\.com\/repos\/([^/]+\/[^/]+)(?:\/(commits|git\/trees)\/(.+?))?(?:\?recursive=1)?$/,
   );
@@ -385,7 +385,7 @@ function answerFor(
     if (repository === undefined) return notFound(name);
     if (kind === undefined) return repositoryResponse(name, repository);
     if (kind === "commits") return commitResponse(repository, rest);
-    return treeResponse(repository, rest);
+    return await treeResponse(repository, rest);
   }
   const raw = url.match(
     /^https:\/\/raw\.githubusercontent\.com\/([^/]+\/[^/]+)\/([0-9a-f]{40})\/(.+)$/,
@@ -502,7 +502,10 @@ function commitResponse(repository: FakeRepository, ref: string): Response {
   );
 }
 
-function treeResponse(repository: FakeRepository, revision: string): Response {
+async function treeResponse(
+  repository: FakeRepository,
+  revision: string,
+): Promise<Response> {
   const files = repository.files[revision];
   if (files === undefined) return notFound(revision);
   const directories = new Set<string>();
@@ -520,16 +523,22 @@ function treeResponse(repository: FakeRepository, revision: string): Response {
       sha: "1".repeat(40),
       url: "https://api.github.com/",
     })),
-    ...Object.keys(files)
-      .sort(compareStrings)
-      .map((path) => ({
-        path,
-        mode: "100644",
-        type: "blob",
-        sha: "2".repeat(40),
-        size: files[path].length,
-        url: "https://api.github.com/",
-      })),
+    ...(await Promise.all(
+      Object.keys(files)
+        .sort(compareStrings)
+        .map(async (path) => ({
+          path,
+          mode: "100644",
+          type: "blob",
+          // The id is computed from the bytes this same fake serves. Stated as
+          // a constant beside them, the listing and the content could disagree
+          // — and a case built on that fake would prove nothing about the check
+          // a fetch makes, since every download would fail it.
+          sha: await gitObjectIdOf(new TextEncoder().encode(files[path])),
+          size: files[path].length,
+          url: "https://api.github.com/",
+        })),
+    )),
   ];
   return jsonResponse(
     {

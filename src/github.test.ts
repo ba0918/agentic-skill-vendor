@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "./errors.ts";
+import { gitObjectIdOf } from "./digest.ts";
 import {
   commitUrl,
   gitHubOver,
@@ -87,9 +88,8 @@ test("the files one commit holds are listed and the directories are left out", a
   // holds a contract at the conventional position, and which conformance files
   // sit beside it. A directory entry answers neither.
   const github = fakeGitHub(workflowRepository());
-  expect(
-    await gitHubOver(github.fetch).pathsAt(REPOSITORY, REVISION),
-  ).toStrictEqual([
+  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  expect(listed.map((entry) => entry.path)).toStrictEqual([
     "README.md",
     "contracts/tdd-contract.md",
     "contracts/tdd-contract/conformance/cases/first.md",
@@ -116,7 +116,7 @@ test("a listing the service had to cut short is refused rather than read as comp
     [REPOSITORY]: { ...workflowRepository()[REPOSITORY], truncated: true },
   });
   const error = await rejectedBy(
-    () => gitHubOver(github.fetch).pathsAt(REPOSITORY, REVISION),
+    () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
     ConfigError,
   );
   expect(error.message).toContain("truncated");
@@ -186,7 +186,7 @@ test("a body that is not JSON at all is refused as an unreadable answer", async 
       headers: { "content-type": "text/html" },
     })) as unknown as typeof fetch;
   const error = await rejectedBy(
-    () => gitHubOver(transport).pathsAt(REPOSITORY, REVISION),
+    () => gitHubOver(transport).blobsAt(REPOSITORY, REVISION),
     ConfigError,
   );
   expect(error.message).toContain("unreadable JSON");
@@ -214,8 +214,20 @@ test("a listing naming a file outside the repository it lists is refused", async
   });
 
   const error = await rejectedBy(
-    () => gitHubOver(github.fetch).pathsAt(REPOSITORY, REVISION),
+    () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
     ConfigError,
   );
   expect(error.message).toContain("escape.md");
+});
+
+test("the listing carries the object id the commit gives each file", async () => {
+  // The id is what a download is judged against, so it has to come from the
+  // same answer that says the file exists. Asked for separately, the two could
+  // describe different commits.
+  const github = fakeGitHub(workflowRepository());
+  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  const readme = listed.find((entry) => entry.path === "README.md");
+  expect(readme?.objectId).toStrictEqual(
+    await gitObjectIdOf(new TextEncoder().encode("# Workflow\n")),
+  );
 });
