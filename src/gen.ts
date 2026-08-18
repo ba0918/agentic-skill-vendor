@@ -720,7 +720,23 @@ async function reviseOrigins(
     compareStrings,
   )) {
     if (declared.has(id)) continue;
-    text = withoutContractMapping(text, id);
+    const pruned = withoutContractMapping(text, id);
+    // A line the scribe could not reach is refused rather than reported. The
+    // report is how the change to this table is read, so `unmapped` for an
+    // entry still standing in the file sends a reviewer looking for a diff
+    // nobody made. Passing over it in silence is no better: the entry would
+    // stay for good, with every later run reaching this same point, doing
+    // nothing and answering 0. Which shapes are out of reach is the scribe's
+    // business — a flow-form entry, an indentation this tool never writes —
+    // and all this can tell is that the edit did not happen.
+    if (pruned === text) {
+      throw new ConfigError(
+        `${DECLARATION_FILE}: nothing declares ${id} any more, and its ` +
+          `contracts.${id} entry is not written in a form this tool can take ` +
+          `out; take the entry out by hand`,
+      );
+    }
+    text = pruned;
     report.push(`unmapped: ${id}`);
   }
   for (const id of declaredIds(state.skills)) {

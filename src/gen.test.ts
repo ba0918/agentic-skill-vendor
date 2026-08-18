@@ -1378,3 +1378,30 @@ test("gen drops a lock pin for a source the table no longer registers", async ()
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
+
+test("gen refuses a stale mapping it cannot take out rather than reporting one it did not", async () => {
+  await withGoodTree(async (root) => {
+    // The report is this tool's account of what it did to the table, and the
+    // account has to hold: a line saying a mapping was taken out while it is
+    // still in the file leaves the next reader looking for a change nobody
+    // made. Passed over quietly instead, the line would never go away at all —
+    // gen would answer 0 over a table it had just described as revised, run
+    // after run. A mapping written in a shape the line-by-line scribe cannot
+    // edit is refused for the reason a block written that way is: the one edit
+    // no derivation can make is asked of the person who wrote the line.
+    const table = [
+      "contracts:",
+      "  retired-contract: {source: local}",
+      "",
+    ].join("\n");
+    await writeFile(`${root}/vendor-manifest.yaml`, table);
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("retired-contract");
+    expect(
+      await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
+    ).toStrictEqual(table);
+  });
+});
