@@ -10,6 +10,8 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import { commandGen } from "./gen.ts";
+import { gitHubOver } from "./github.ts";
+import { commandFetch } from "./resolvecmd.ts";
 import { commandVerify } from "./verify.ts";
 import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
@@ -18,6 +20,7 @@ const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
   "",
   "commands:",
+  "  fetch                    fill the cache with what the lock pins",
   "  gen                      write the current contract text into every skill",
   "  verify                   check the tree against the lock",
   "  lint-selfcontain         check that no skill points outside itself",
@@ -25,6 +28,9 @@ const USAGE = [
   "",
   "options:",
   "  --root <path>            the tree to work on (default: .)",
+  "",
+  "fetch is the only command here that reaches a network. gen, verify,",
+  "lint-selfcontain and self-test read and write the tree and nothing else.",
   "",
   "exit codes: 0 nothing to report, 1 violations listed on stdout,",
   "            2 a refusal or an internal error described on stderr",
@@ -96,6 +102,7 @@ export async function run(
   argv: string[],
   out: Sink,
   err: Sink,
+  transport: typeof fetch = fetch,
 ): Promise<number> {
   try {
     const invocation = parseArguments(argv);
@@ -104,6 +111,9 @@ export async function run(
       return 0;
     }
     switch (invocation.command) {
+      case "fetch":
+        refuseOperands(invocation.operands);
+        return await commandFetch(invocation.root, out, gitHubOver(transport));
       case "gen":
         refuseOperands(invocation.operands);
         return await commandGen(invocation.root, out);

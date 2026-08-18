@@ -33,7 +33,13 @@ test("asking for help prints the commands and exits cleanly", async () => {
   const result = await runCli(["--help"]);
   expect(result.code).toStrictEqual(0);
   const text = result.stdout.join("\n");
-  for (const command of ["gen", "verify", "lint-selfcontain", "self-test"]) {
+  for (const command of [
+    "fetch",
+    "gen",
+    "verify",
+    "lint-selfcontain",
+    "self-test",
+  ]) {
     expect(text).toContain(command);
   }
   // The tool has no approval boundary any more, so the help must not go on
@@ -60,6 +66,7 @@ test("every command the entry point names is answered by a module of its own", (
     ),
   ];
   expect(routed.map(([, command]) => command)).toStrictEqual([
+    "fetch",
     "gen",
     "verify",
     "lint-selfcontain",
@@ -200,4 +207,36 @@ test("the entry-point probe answers false when no program is started", () => {
 
 test("the entry-point probe answers false for a path it was not started with", () => {
   expect(startedThisProgram(["node", "/no/such/entry"])).toStrictEqual(false);
+});
+
+test("the commands that work offline reach no network, environment or subprocess", async () => {
+  // The boundary the whole design rests on: gen and verify answer from the
+  // tree alone, so a repository can run them in continuous integration with no
+  // credentials and no host to reach. The transport every test hands the entry
+  // point refuses each request, which proves no command asks for one through
+  // it; this states the other half — that none of these modules reaches past
+  // the injection for a global.
+  const offline = [
+    "gen.ts",
+    "verify.ts",
+    "lint.ts",
+    "selftest.ts",
+    "manifest.ts",
+    "sources.ts",
+    "cache.ts",
+    "conformance.ts",
+    "declaration.ts",
+    "digest.ts",
+    "ignore.ts",
+    "walk.ts",
+  ];
+  for (const name of offline) {
+    const source = await fs.readFile(
+      new URL(`./${name}`, import.meta.url),
+      "utf8",
+    );
+    expect(/\bfetch\s*\(/.test(source), name).toStrictEqual(false);
+    expect(source.includes("process.env"), name).toStrictEqual(false);
+    expect(source.includes("node:child_process"), name).toStrictEqual(false);
+  }
 });
