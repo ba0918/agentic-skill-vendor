@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
 import { contractDigest } from "./digest.ts";
-import { cacheSiteOf } from "./cache.ts";
+import { CACHE_DIR, cacheRevisionDirOf, cacheSiteOf } from "./cache.ts";
 import { gitHubOver } from "./github.ts";
 import { parseDeclaration } from "./sources.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
@@ -489,19 +489,17 @@ test("a mapping already written wins over the search, whatever else holds the co
   });
 });
 
-test("fetch refuses to write through a link planted in the cache", async () => {
+test("fetch refuses to write through a link planted above a revision", async () => {
   await withRemoteTree(async (root, lines) => {
-    // A link inside the cache would have fetched bytes land outside the tree
-    // the run was pointed at. Every write goes through the guarded primitive,
-    // so the refusal is a property of the write rather than of this command.
+    // A link above the revision directory would have the whole placement land
+    // outside the tree the run was pointed at. Every write goes through the
+    // guarded primitive, so the refusal is a property of the write rather than
+    // of this command.
     await writeFile(
       `${root}/${cacheSiteOf("workflow", REVISION, "contracts/placeholder.md")}`,
       "placeholder\n",
     );
-    const outside = await escapeThrough(
-      root,
-      `.agentic-skill-vendor/cache/workflow/${REVISION}/contracts`,
-    );
+    const outside = await escapeThrough(root, `${CACHE_DIR}/workflow`);
     const before = await snapshotTree(outside);
     const github = fakeGitHub(workflow());
 
@@ -517,6 +515,39 @@ test("fetch refuses to write through a link planted in the cache", async () => {
 
     expect(error.message).toContain("symlink");
     expect(await snapshotTree(outside)).toStrictEqual(before);
+  });
+});
+
+test("a link planted inside a revision is replaced with the fetch rather than written through", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The revision directory is placed whole, so whatever a previous state left
+    // inside it goes with it. The link is unlinked rather than followed: what
+    // it pointed at outside the tree is left exactly as it was, and the cache
+    // ends up holding the file the commit holds.
+    await writeFile(
+      `${root}/${cacheSiteOf("workflow", REVISION, "contracts/placeholder.md")}`,
+      "placeholder\n",
+    );
+    const outside = await escapeThrough(
+      root,
+      `${cacheRevisionDirOf("workflow", REVISION)}/contracts`,
+    );
+    const before = await snapshotTree(outside);
+    const github = fakeGitHub(workflow());
+
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(await snapshotTree(outside)).toStrictEqual(before);
+    const site = cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md");
+    expect((await fs.lstat(`${root}/${site}`)).isFile()).toStrictEqual(true);
+    expect(await fs.readFile(`${root}/${site}`, "utf8")).toStrictEqual(
+      CONTRACT,
+    );
   });
 });
 
@@ -678,5 +709,35 @@ test("bytes that are not what the commit's own listing names are refused and not
     expect(await fs.exists(`${root}/.agentic-skill-vendor`)).toStrictEqual(
       false,
     );
+  });
+});
+
+test("a fetch that cannot place a revision whole leaves no revision directory behind", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A revision directory standing at its place is what every later command
+    // reads as "this revision was taken up". A run that stopped part way must
+    // therefore leave nothing there at all, rather than a directory holding
+    // whichever files happened to arrive first.
+    const github = fakeGitHub(
+      workflow({
+        "contracts/tdd-contract.md": CONTRACT,
+        "contracts/tdd-contract/conformance/cases/first.md": CASE,
+        "contracts/tdd-contract/conformance/cases/first.md/second.md": CASE,
+      }),
+    );
+
+    await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(
+      await fs.exists(`${root}/${cacheRevisionDirOf("workflow", REVISION)}`),
+    ).toStrictEqual(false);
   });
 });

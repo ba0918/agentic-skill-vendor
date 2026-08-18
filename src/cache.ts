@@ -21,13 +21,25 @@ import { displayName, isDirectoryOrAbsent, listEntries } from "./walk.ts";
 /** Where fetched material is kept, relative to the tree root. */
 export const CACHE_DIR = `${TOOL_DIR}/cache`;
 
+/**
+ * Where one revision's whole fetch sits: its source, then the revision.
+ *
+ * This is the level a fetch is placed at, in one move. A directory standing
+ * here means that revision was taken up completely, and nothing writes into it
+ * a file at a time — so no run can find a half-filled one and read it as a
+ * fetch that finished.
+ */
+export function cacheRevisionDirOf(source: string, revision: string): string {
+  return `${CACHE_DIR}/${source}/${revision}`;
+}
+
 /** Where one fetched file sits: its source, the revision, then its own path. */
 export function cacheSiteOf(
   source: string,
   revision: string,
   path: string,
 ): string {
-  return `${CACHE_DIR}/${source}/${revision}/${path}`;
+  return `${cacheRevisionDirOf(source, revision)}/${path}`;
 }
 
 /**
@@ -39,6 +51,12 @@ export function cacheSiteOf(
  * but the pinned revision — so keeping it grows the tree by one full copy per
  * update and leaves a reader unable to tell which directory the distribution
  * actually came from.
+ *
+ * A temporary a stopped fetch left behind falls to the same rule rather than to
+ * a clause of its own: its name carries the temporary suffix, so it is never
+ * the revision the lock pins, and a second branch saying so would be the same
+ * fact written twice. What matters is that it goes — a half-built directory is
+ * not a revision and must never be read as one.
  *
  * Only names the directory listing itself supplies are removed, and the listing
  * refuses a symlink before it hands one over. A name read off disk cannot carry

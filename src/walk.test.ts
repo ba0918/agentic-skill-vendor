@@ -4,6 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import {
+  atomicWriteDirectory,
   atomicWriteFile,
   decodeUtf8,
   ensureParentDirectory,
@@ -531,5 +532,90 @@ test("a tree-supplied name with control bytes is quoted in the refusal", async (
     expect(error.message).not.toContain("\u001b");
     expect(error.message).toContain("\\u001b");
     expect(error.message).toContain("esc");
+  });
+});
+
+test("a directory appears at its place holding every file it was given", async () => {
+  await withEmptyDir(async (dir) => {
+    await atomicWriteDirectory(dir, "cache/workflow/abc", [
+      { path: "contracts/tdd.md", content: encoder.encode("the contract\n") },
+      {
+        path: "contracts/tdd/conformance/cases/first.md",
+        content: encoder.encode("a case\n"),
+      },
+    ]);
+
+    expect(
+      await fs.readFile(`${dir}/cache/workflow/abc/contracts/tdd.md`, "utf8"),
+    ).toStrictEqual("the contract\n");
+    expect(
+      await fs.readFile(
+        `${dir}/cache/workflow/abc/contracts/tdd/conformance/cases/first.md`,
+        "utf8",
+      ),
+    ).toStrictEqual("a case\n");
+    expect(await fs.readdir(`${dir}/cache/workflow`)).toStrictEqual(["abc"]);
+  });
+});
+
+test("a directory that could not be built whole leaves neither the directory nor a temporary", async () => {
+  await withEmptyDir(async (dir) => {
+    // The second file names the first as its parent, so the build cannot
+    // finish. What must not survive it is anything at the directory's own
+    // place — every later command reads that as a complete fetch — and the
+    // half-built temporary beside it, which the next run would otherwise have
+    // to explain.
+    await expect(
+      atomicWriteDirectory(dir, "cache/workflow/abc", [
+        { path: "a.md", content: encoder.encode("a file\n") },
+        { path: "a.md/b.md", content: encoder.encode("under a file\n") },
+      ]),
+    ).rejects.toThrow(ConfigError);
+
+    expect(await fs.readdir(`${dir}/cache/workflow`)).toStrictEqual([]);
+  });
+});
+
+test("placing a directory refuses a symlink standing where a parent belongs", async () => {
+  await withEmptyDir(async (dir) => {
+    // A link at any level above puts everything below it outside the tree the
+    // run was pointed at, and a fetch would fill it without ever asking about
+    // the directory's own path.
+    const outside = `${dir}/elsewhere`;
+    await fs.mkdir(outside, { recursive: true });
+    await fs.mkdir(`${dir}/tree/cache`, { recursive: true });
+    await replaceWithSymlink(`${dir}/tree/cache/workflow`, outside);
+
+    const error = await rejectedBy(
+      () =>
+        atomicWriteDirectory(`${dir}/tree`, "cache/workflow/abc", [
+          { path: "a.md", content: encoder.encode("a file\n") },
+        ]),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("symlink");
+    expect(await fs.readdir(outside)).toStrictEqual([]);
+  });
+});
+
+test("placing a directory refuses to write over something that is not a directory", async () => {
+  await withEmptyDir(async (dir) => {
+    // Whatever stands there is not a half-built copy of what is being placed,
+    // so replacing it is destroying a file nobody asked this run to touch.
+    await writeFile(`${dir}/cache/workflow/abc`, "a file where a fetch goes\n");
+
+    const error = await rejectedBy(
+      () =>
+        atomicWriteDirectory(dir, "cache/workflow/abc", [
+          { path: "a.md", content: encoder.encode("a file\n") },
+        ]),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("not a directory");
+    expect(
+      await fs.readFile(`${dir}/cache/workflow/abc`, "utf8"),
+    ).toStrictEqual("a file where a fetch goes\n");
   });
 });

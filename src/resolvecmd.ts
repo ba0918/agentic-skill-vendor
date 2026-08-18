@@ -20,7 +20,12 @@
 // from whatever the cache held, and a tree between the two could be moved by
 // neither.
 
-import { cacheIsIgnored, cacheSiteOf, CACHE_DIR, pruneCache } from "./cache.ts";
+import {
+  cacheIsIgnored,
+  cacheRevisionDirOf,
+  CACHE_DIR,
+  pruneCache,
+} from "./cache.ts";
 import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import type { GitHubClient, TreeBlob } from "./github.ts";
@@ -39,18 +44,27 @@ import {
   withContractMapping,
 } from "./sources.ts";
 import {
+  atomicWriteDirectory,
   atomicWriteFile,
   dirNameOf,
   isRegularFileOrAbsent,
+  type PlacedFile,
   readTextFile,
 } from "./walk.ts";
 import { locateTreeContracts, readTreeState, type TreeState } from "./gen.ts";
 import { declaredIds } from "./declaration.ts";
 
-/** One file on its way into the cache: where it goes, and what it holds. */
-interface CachedFile {
+/**
+ * One revision on its way into the cache: the directory it is placed at, and
+ * every file that directory is to hold.
+ *
+ * Collected as a whole rather than as loose files, because a whole is what gets
+ * placed. A list of files with nothing saying which revision each belongs to
+ * would leave the placement deciding it again from the paths.
+ */
+interface CachedRevision {
   site: string;
-  content: Uint8Array;
+  files: PlacedFile[];
 }
 
 /**
@@ -68,8 +82,12 @@ export async function commandFetch(
 ): Promise<number> {
   const state = await readTreeState(root);
   await warnUnlessIgnored(root, out);
-  const files = await collectSources(client, state.declaration, state.sources);
-  await placeInCache(root, files);
+  const revisions = await collectSources(
+    client,
+    state.declaration,
+    state.sources,
+  );
+  await placeInCache(root, revisions);
   await pruneCache(root, state.sources);
   return 0;
 }
@@ -102,7 +120,8 @@ export async function commandUpdate(
   // every genuine upstream edit a failure. What the new text is gets recorded
   // by the gen that follows, as an adoption a reviewer reads in the diff.
   const mapping = await mapDeclaredContracts(root, client, state, resolved);
-  const files = await collectSources(client, mapping.declaration, resolved);
+  const revisions = await collectSources(client, mapping.declaration, resolved);
+  await placeInCache(root, revisions);
   // The table lands with the bytes it accounts for, the way gen builds its
   // whole plan before writing any of it. Written before the fetch, a source
   // that could not be reached left a table naming an origin for a contract
@@ -110,12 +129,12 @@ export async function commandUpdate(
   // describing a state no run ever produced, which a reader has no way to tell
   // from one the tool meant.
   if (mapping.text !== null) {
-    files.push({
-      site: DECLARATION_FILE,
-      content: new TextEncoder().encode(mapping.text),
-    });
+    await atomicWriteFile(
+      root,
+      DECLARATION_FILE,
+      new TextEncoder().encode(mapping.text),
+    );
   }
-  await placeInCache(root, files);
   // Rendered from the table this run leaves behind, never the one it read: the
   // mapping written a moment ago decides which contracts the lock accounts
   // for, and rendering against the older table would leave a file verify
@@ -294,8 +313,8 @@ async function collectSources(
   client: GitHubClient,
   declaration: Declaration,
   sources: LockSources,
-): Promise<CachedFile[]> {
-  const files: CachedFile[] = [];
+): Promise<CachedRevision[]> {
+  const revisions: CachedRevision[] = [];
   for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
     const contracts = contractsOf(declaration, name);
     if (contracts.length === 0) continue;
@@ -311,20 +330,25 @@ async function collectSources(
       );
     }
     const listing = await client.blobsAt(pinned.repository, pinned.revision);
+    const files: PlacedFile[] = [];
     for (const id of contracts) {
       files.push(
         ...(await collectContract(
           client,
-          name,
           pinned,
           listing,
           id,
           originPathOf(id, declaration.contracts[id]),
+          name,
         )),
       );
     }
+    revisions.push({
+      site: cacheRevisionDirOf(name, pinned.revision),
+      files,
+    });
   }
-  return files;
+  return revisions;
 }
 
 /** The contract ids one source is the origin of, in a fixed order. */
@@ -346,12 +370,12 @@ function contractsOf(declaration: Declaration, source: string): string[] {
  */
 async function collectContract(
   client: GitHubClient,
-  source: string,
   pinned: LockSource,
   listing: TreeBlob[],
   id: string,
   path: string,
-): Promise<CachedFile[]> {
+  source: string,
+): Promise<PlacedFile[]> {
   const listed = listing.find((entry) => entry.path === path);
   if (listed === undefined) {
     throw new ConfigError(
@@ -359,11 +383,8 @@ async function collectContract(
         `pins ${source} to; ${DECLARATION_FILE} maps ${id} to it`,
     );
   }
-  const files: CachedFile[] = [
-    {
-      site: cacheSiteOf(source, pinned.revision, path),
-      content: await fetchChecked(client, pinned, listed),
-    },
+  const files: PlacedFile[] = [
+    { path, content: await fetchChecked(client, pinned, listed) },
   ];
   // The tests travel with the text, as the fetch finds them, with none of this
   // tree's own ignore rules applied. The listing holds what the source
@@ -375,7 +396,7 @@ async function collectContract(
     .filter((candidate) => candidate.path.startsWith(`${conformance}/`))
     .sort((a, b) => compareStrings(a.path, b.path))) {
     files.push({
-      site: cacheSiteOf(source, pinned.revision, entry.path),
+      path: entry.path,
       content: await fetchChecked(client, pinned, entry),
     });
   }
@@ -424,10 +445,19 @@ async function fetchChecked(
   return bytes;
 }
 
-/** Writes the checked bytes, each through the guarded atomic write. */
-async function placeInCache(root: string, files: CachedFile[]): Promise<void> {
-  for (const file of files) {
-    await atomicWriteFile(root, file.site, file.content);
+/**
+ * Places each revision's checked bytes, one guarded move per revision.
+ *
+ * Written file by file, a run stopped part way left a revision directory
+ * holding whichever files had arrived first — and every later command reads a
+ * directory standing at that place as a revision that was taken up whole.
+ */
+async function placeInCache(
+  root: string,
+  revisions: CachedRevision[],
+): Promise<void> {
+  for (const revision of revisions) {
+    await atomicWriteDirectory(root, revision.site, revision.files);
   }
 }
 

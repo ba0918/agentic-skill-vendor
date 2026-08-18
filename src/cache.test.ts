@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { CACHE_DIR, cacheIsIgnored, cacheSiteOf, pruneCache } from "./cache.ts";
+import {
+  CACHE_DIR,
+  cacheIsIgnored,
+  cacheRevisionDirOf,
+  cacheSiteOf,
+  pruneCache,
+} from "./cache.ts";
 import { withEmptyDir, writeFile } from "./testing.ts";
+import { TEMPORARY_SUFFIX } from "./walk.ts";
 
 test("a fetched file is placed under its source and the revision it came from", () => {
   // The revision is a directory level of its own, which is what makes pruning
@@ -72,5 +79,33 @@ test("the cache counts as ignored only where the tree's own rules exclude it", a
 
     await writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
     expect(await cacheIsIgnored(root)).toStrictEqual(true);
+  });
+});
+
+test("a revision's directory is the level a whole fetch is placed at", () => {
+  expect(cacheRevisionDirOf("workflow", REVISION)).toStrictEqual(
+    `.agentic-skill-vendor/cache/workflow/${REVISION}`,
+  );
+});
+
+test("a temporary a stopped fetch left behind is cleared out of the cache", async () => {
+  await withEmptyDir(async (root) => {
+    // A half-built directory is not a revision and must never be read as one.
+    // Its name carries the temporary suffix, so it can be no revision the lock
+    // pins and falls to the same rule a superseded one does.
+    await writeFile(
+      `${root}/${cacheRevisionDirOf("workflow", REVISION)}${TEMPORARY_SUFFIX}/contracts/a.md`,
+      "half of a fetch\n",
+    );
+    await writeFile(
+      `${root}/${cacheSiteOf("workflow", REVISION, "contracts/a.md")}`,
+      "current\n",
+    );
+
+    await pruneCache(root, SOURCES);
+
+    expect(await fs.readdir(`${root}/${CACHE_DIR}/workflow`)).toStrictEqual([
+      REVISION,
+    ]);
   });
 });

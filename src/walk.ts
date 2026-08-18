@@ -78,6 +78,16 @@ export function displayName(name: string): string {
  */
 export const SYMLINK_REFUSAL = "symlink is not allowed inside the tree";
 
+/**
+ * What a half-written thing is called while it is being written.
+ *
+ * One spelling for the file-level write and the directory-level one, so that
+ * whatever recognises a leftover recognises both. The cache's own clearing
+ * reads it: a name carrying this suffix is not a revision, and it must never be
+ * read as one.
+ */
+export const TEMPORARY_SUFFIX = ".tmp";
+
 /** One entry of a directory, with its kind resolved without following it. */
 export interface DirectoryEntry {
   name: string;
@@ -293,10 +303,10 @@ export async function atomicWriteFile(
   content: Uint8Array,
 ): Promise<void> {
   const path = `${root}/${relative}`;
-  const temporary = `${path}.tmp`;
+  const temporary = `${path}${TEMPORARY_SUFFIX}`;
   await assertPlainChain(root, dirNameOf(relative));
   await ensureParentDirectory(root, relative);
-  await assertWritableTarget(temporary, `${relative}.tmp`);
+  await assertWritableTarget(temporary, `${relative}${TEMPORARY_SUFFIX}`);
   await assertWritableTarget(path, relative);
   try {
     await fs.writeFile(temporary, content);
@@ -305,6 +315,89 @@ export async function atomicWriteFile(
     await fs.rm(temporary).catch(() => {});
     throw new ConfigError(
       `cannot write ${displayName(relative)}: ${describeCause(cause)}`,
+    );
+  }
+}
+
+/** One file on its way into a directory being placed whole. */
+export interface PlacedFile {
+  path: string;
+  content: Uint8Array;
+}
+
+/**
+ * Builds a whole directory under a temporary name and moves it into place with
+ * one rename, so the path either holds everything it was given or holds
+ * nothing.
+ *
+ * The file-level write above cannot be reused a file at a time. Each of its
+ * renames is atomic on its own, and a run stopped between two of them leaves a
+ * directory that exists and is incomplete — which is exactly the state the
+ * caller must never be able to observe, because "the directory is there" is how
+ * every later command answers "was this fetched". One rename over the whole
+ * directory is what makes those two the same statement.
+ *
+ * The temporary is a sibling for the reason the file-level one is: a rename is
+ * atomic only within a file system, and the OS temporary directory is often on
+ * another. Anything left at the temporary name by an earlier run is cleared
+ * first — it is nobody's data, and building on top of it would carry files
+ * this run never fetched into the directory it places.
+ *
+ * The paths inside are not re-judged here. A path that stays inside the tree it
+ * is read against is decided where a path enters the tool, and asking again
+ * here would make this primitive depend on the module that reads the
+ * declaration — which depends on this one.
+ */
+export async function atomicWriteDirectory(
+  root: string,
+  relative: string,
+  files: PlacedFile[],
+): Promise<void> {
+  const path = `${root}/${relative}`;
+  const temporary = `${path}${TEMPORARY_SUFFIX}`;
+  await assertPlainChain(root, dirNameOf(relative));
+  await assertReplaceableDirectory(root, relative);
+  await ensureParentDirectory(root, relative);
+  try {
+    await fs.rm(temporary, { recursive: true, force: true });
+    for (const file of files) {
+      const site = `${temporary}/${file.path}`;
+      await fs.mkdir(dirNameOf(site), { recursive: true });
+      await fs.writeFile(site, file.content);
+    }
+    // The old content goes before the rename rather than after it. A rename
+    // onto a directory that still holds files fails, and the alternative —
+    // renaming the old one aside and removing it afterwards — buys nothing:
+    // what must never exist is a directory holding half a fetch, and a moment
+    // where the path holds nothing at all is a state one fetch repairs.
+    await fs.rm(path, { recursive: true, force: true });
+    await fs.rename(temporary, path);
+  } catch (cause) {
+    await fs.rm(temporary, { recursive: true, force: true }).catch(() => {});
+    throw new ConfigError(
+      `cannot write ${displayName(relative)}: ${describeCause(cause)}`,
+    );
+  }
+}
+
+/**
+ * Refuses the directory's own place unless replacing what stands there is what
+ * the caller asked for: nothing at all, or a directory of the same name.
+ *
+ * The check runs before anything is removed, so the removal can never be the
+ * thing that discovers the mistake. Whatever else stands at that path — a
+ * file, a socket, a pipe — is not a copy of what is being placed, and taking it
+ * out would destroy something no caller pointed this run at.
+ */
+async function assertReplaceableDirectory(
+  root: string,
+  relative: string,
+): Promise<void> {
+  const info = await kindAt(root, relative);
+  if (info === null) return;
+  if (!info.isDirectory()) {
+    throw new ConfigError(
+      `refusing to write over ${displayName(relative)}: not a directory`,
     );
   }
 }
