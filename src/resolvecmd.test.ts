@@ -628,3 +628,34 @@ test("update that cannot fetch what it resolved leaves the tree exactly as it wa
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
+
+test("a listing that walks out of the repository writes nothing outside the tree", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // Every conformance file the listing names becomes a cache site under the
+    // tree root. A path carrying enough upward steps lands past the root, so a
+    // host answering with one would have the run write wherever it said —
+    // silently, on the exit code of a clean fetch.
+    const outside = root.slice(0, root.lastIndexOf("/"));
+    const before = await snapshotTree(outside);
+    const github = fakeGitHub(
+      workflow({
+        "contracts/tdd-contract.md": CONTRACT,
+        "contracts/tdd-contract/conformance/cases/first.md": CASE,
+        [`contracts/tdd-contract/conformance/${"../".repeat(8)}escape.md`]:
+          "planted by the answer\n",
+      }),
+    );
+
+    await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(await snapshotTree(outside)).toStrictEqual(before);
+  });
+});

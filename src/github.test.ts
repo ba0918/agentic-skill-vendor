@@ -191,3 +191,31 @@ test("a body that is not JSON at all is refused as an unreadable answer", async 
   );
   expect(error.message).toContain("unreadable JSON");
 });
+
+test("a listing naming a file outside the repository it lists is refused", async () => {
+  // The paths in this answer are joined onto cache directories and onto request
+  // URLs, so a segment that walks upward has a fetch write wherever it points.
+  // The shape is judged here, where the answer arrives, rather than left to
+  // each caller: the declaration side already holds paths to this rule, and an
+  // answer from a host is trusted less than a line in this tree, not more.
+  // Dropping the entry silently was the other way out, and it hides a host
+  // answering with something a repository cannot hold.
+  const github = fakeGitHub({
+    [REPOSITORY]: {
+      defaultBranch: "main",
+      refs: { main: REVISION },
+      files: {
+        [REVISION]: {
+          "contracts/tdd-contract.md": "# TDD Contract\n",
+          "contracts/tdd-contract/conformance/../../../escape.md": "planted\n",
+        },
+      },
+    },
+  });
+
+  const error = await rejectedBy(
+    () => gitHubOver(github.fetch).pathsAt(REPOSITORY, REVISION),
+    ConfigError,
+  );
+  expect(error.message).toContain("escape.md");
+});

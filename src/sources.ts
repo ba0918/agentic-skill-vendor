@@ -301,6 +301,31 @@ function requireRef(value: unknown, path: string): string {
   return ref;
 }
 
+/**
+ * True for a path that stays inside the tree it is read against: no empty
+ * segment, no `.`, no `..`, nothing that reads as absolute, no backslash.
+ *
+ * One rule, wherever the path came from. A path is a line in this table or an
+ * entry in a listing a host answered with, and both are joined onto a
+ * directory this tool then reads from and writes into — so the answer to
+ * "does this stay inside" has to be the same on both sides. Held as two
+ * checks, one per module, the two drifted: the table refused a `..` while a
+ * listing carrying one wrote a fetched file past the root of the tree the run
+ * was pointed at.
+ *
+ * A backslash is refused although a POSIX file name may hold one, because the
+ * same value is joined by a runtime that may read it as a separator, and a
+ * shape meaning one thing per platform is not one this can vouch for.
+ */
+export function isTreeRelativePath(path: string): boolean {
+  return (
+    !path.includes("\\") &&
+    path
+      .split("/")
+      .every((segment) => segment !== "" && segment !== "." && segment !== "..")
+  );
+}
+
 function requireForm(
   value: unknown,
   form: RegExp,
@@ -340,14 +365,7 @@ function readCanonicalPath(
 ): string {
   const path = requireText(value, `contracts.${id}.path`);
   const segments = path.split("/");
-  if (
-    path === "" ||
-    path.startsWith("/") ||
-    segments.some(
-      (segment) => segment === "" || segment === "." || segment === "..",
-    ) ||
-    path.includes("\\")
-  ) {
+  if (!isTreeRelativePath(path)) {
     throw new ConfigError(
       `${DECLARATION_FILE}: contracts.${id}.path must be a path inside the ` +
         `tree it is read against, found ${JSON.stringify(path)}`,
