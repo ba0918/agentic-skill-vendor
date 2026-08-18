@@ -388,3 +388,29 @@ test("a block written in a form the scribe cannot edit is refused rather than do
       .message,
   ).toContain("contracts");
 });
+
+test("a mapping written below a comment at the left margin is still taken out", () => {
+  // A comment carries no indentation in YAML, so one written at the left
+  // margin stands inside the block a person wrote it into. Read as the line
+  // the block ends before, every entry below it is out of the scribe's reach:
+  // the prune leaves the mapping where it was, and the run that asked for it
+  // reports a line it never took out.
+  const table = [
+    "contracts:",
+    "  report-format:",
+    "    source: local",
+    "# tdd-contract is ours as well",
+    "  tdd-contract:",
+    "    source: local",
+    "",
+  ].join("\n");
+
+  const written = withoutContractMapping(table, "tdd-contract");
+
+  const declaration = parseDeclaration(written);
+  expect("tdd-contract" in declaration.contracts).toStrictEqual(false);
+  expect(declaration.contracts["report-format"]).toStrictEqual({
+    source: "local",
+  });
+  expect(written).toContain("# tdd-contract is ours as well");
+});

@@ -542,10 +542,20 @@ function blockOpeningOf(lines: string[], block: string): number {
   );
 }
 
-/** The line the block ends before: the next top-level line, or the end. */
+/**
+ * The line the block ends before: the next top-level line, or the end.
+ *
+ * A comment is not a top-level line, wherever it starts. YAML gives a comment
+ * no indentation to read, so one written at the left margin between two
+ * entries stands inside the block as surely as an indented one — and read as
+ * the end of it, every entry below stood outside the scribe's reach: the prune
+ * left the line where it was and the insertion landed in the middle of the
+ * table.
+ */
 function blockEndOf(lines: string[], opening: number): number {
   for (let index = opening + 1; index < lines.length; index++) {
     const line = lines[index];
+    if (line.trimStart().startsWith("#")) continue;
     if (line !== "" && !line.startsWith(" ")) return index;
   }
   return lines.length;
