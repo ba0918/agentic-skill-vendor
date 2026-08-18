@@ -159,8 +159,9 @@ jobs:
       - name: Use a recent npm
         run: npm install -g npm@latest
 
-      # prepare and prepack run from the package's own scripts during the
-      # publish, and both need the development dependencies present.
+      # prepack runs from the package's own scripts during the publish, and it
+      # builds dist/ with bun, so the development dependencies have to be
+      # present before npm is asked to publish anything.
       - name: Install the locked dependencies
         run: bun install --frozen-lockfile
 
