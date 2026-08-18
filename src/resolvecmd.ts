@@ -163,6 +163,7 @@ async function mapDeclaredContracts(
     );
   }
   let text = await readDeclarationText(root);
+  const before = text;
   for (const id of unmapped) {
     // A canonical text in this repository settles the question before any
     // source is looked at, which is the order the derivation is defined in.
@@ -191,6 +192,12 @@ async function mapDeclaredContracts(
     text = withContractMapping(text, id, holders[0]);
     out(`mapped: ${id} <- ${holders[0]}`);
   }
+  // A search that found nothing to write down leaves the file alone, rather
+  // than writing back what it read. Written unconditionally, a tree that keeps
+  // no table at all — every repository whose contracts are all its own — got
+  // one holding no document, which this tool's own reader refuses: one update
+  // and every later gen and verify stopped on a file that update had made.
+  if (text === before) return state.declaration;
   await atomicWriteFile(root, DECLARATION_FILE, new TextEncoder().encode(text));
   return parseDeclaration(text);
 }

@@ -576,3 +576,21 @@ test("a contract this repository holds itself is never captured by a source that
     ).toContain("An entry names the change first");
   });
 });
+
+test("update leaves no table behind in a tree that keeps none", async () => {
+  await withGoodTree(async (root) => {
+    // Every contract this tree declares is one it holds itself, so the search
+    // for a source that holds them has nothing to write down. Written anyway,
+    // the empty result lands as a file holding no document at all — and this
+    // tool's own reader refuses that, so the run that produced the file is the
+    // last one the tree gets through.
+    const result = await runCli(["update", "--root", root]);
+
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(await fs.exists(`${root}/vendor-manifest.yaml`)).toStrictEqual(
+      false,
+    );
+    const after = await runCli(["verify", "--root", root]);
+    expect(after.code, after.stderr.join("\n")).toStrictEqual(0);
+  });
+});
