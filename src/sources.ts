@@ -187,12 +187,6 @@ function readSourceRecords(value: unknown): Record<string, SourceRecord> {
   if (value === undefined || value === null) return sources;
   const entries = requireMapping(value, "sources");
   for (const name of Object.keys(entries)) {
-    if (name === LOCAL_SOURCE) {
-      throw new ConfigError(
-        `${DECLARATION_FILE}: sources.${LOCAL_SOURCE} is reserved for this ` +
-          `repository's own contracts and cannot name a source`,
-      );
-    }
     assertSourceName(name);
     const entry = requireMapping(entries[name], `sources.${name}`);
     sources[name] = {
@@ -249,12 +243,25 @@ function readContractOrigins(
 }
 
 /**
- * Refuses a source name that could not stand alone as a directory.
+ * Refuses a source name that could not stand alone as a directory, and the one
+ * name that already means something else.
  *
  * The name is a path segment under the cache and a key in the lock, so it is
  * held to the shape a contract id is held to and for the same reason.
+ *
+ * Both refusals live here rather than one here and one in the schema, because
+ * the schema is read from a file that has already been written: a command
+ * asking whether a name is usable before it writes would get "yes" for the
+ * reserved one and land an entry every later run stops on. One validator is
+ * what keeps the answer the same on both sides of the write.
  */
 export function assertSourceName(name: string): void {
+  if (name === LOCAL_SOURCE) {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: ${LOCAL_SOURCE} is reserved for this ` +
+        `repository's own contracts and cannot name a source`,
+    );
+  }
   if (
     name.length > NAME_LIMIT ||
     name.includes("..") ||

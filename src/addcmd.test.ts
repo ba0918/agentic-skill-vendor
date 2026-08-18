@@ -221,3 +221,28 @@ test("the update command moves every registered pin", async () => {
     ).toStrictEqual(REVISION);
   });
 });
+
+test("the name reserved for this repository is refused before the table is written", async () => {
+  await withGoodTree(async (root) => {
+    // `source: local` has to keep one reading, so the name cannot be handed to
+    // a repository. Refused only once the schema reads the table back, the
+    // refusal would come after the entry had already landed on disk — a file
+    // this command wrote and every later run stops on.
+    const github = fakeGitHub(workflow());
+    const error = await rejectedBy(
+      () =>
+        commandAdd(
+          root,
+          () => {},
+          gitHubOver(github.fetch),
+          REPOSITORY,
+          "local",
+        ),
+      ConfigError,
+    );
+    expect(error.message).toContain("local");
+    expect(await fs.exists(`${root}/vendor-manifest.yaml`)).toStrictEqual(
+      false,
+    );
+  });
+});
