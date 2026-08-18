@@ -453,7 +453,7 @@ export function withSourceRegistration(
  * decision while reporting that it pruned a mapping.
  */
 export function withoutContractMapping(text: string, id: string): string {
-  const lines = text.replace(/\n$/, "").split("\n");
+  const { lines, ending } = documentLines(text);
   const opening = blockOpeningOf(lines, "contracts");
   if (opening === -1) return text;
   // The search stops where the block does. A source may be named after the
@@ -467,7 +467,27 @@ export function withoutContractMapping(text: string, id: string): string {
   if (entry === -1) return text;
   let end = entry + 1;
   while (end < closing && lines[end].startsWith(ENTRY_INDENT)) end++;
-  return [...lines.slice(0, entry), ...lines.slice(end), ""].join("\n");
+  return [...lines.slice(0, entry), ...lines.slice(end), ""].join(ending);
+}
+
+/**
+ * The document as lines, with the ending its lines are written with.
+ *
+ * The ending is carried rather than settled on. The scribe adds lines to a
+ * file an editor keeps: lines of its own ending appended to a document written
+ * with the other leave a file that still parses and no longer has one line
+ * ending, and the next save of it rewrites every line — a whole-file diff
+ * around the one line a run added, which is the same cost as re-rendering the
+ * document.
+ *
+ * A document holding both endings is read as the one that is not bare, since
+ * that is the ending something in the person's toolchain writes.
+ */
+function documentLines(text: string): { lines: string[]; ending: string } {
+  return {
+    lines: text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/),
+    ending: text.includes("\r\n") ? "\r\n" : "\n",
+  };
 }
 
 /** True for the line that opens an entry of this name inside a block. */
@@ -487,7 +507,7 @@ function withEntry(
   name: string,
   body: string[],
 ): string {
-  const lines = text === "" ? [] : text.replace(/\n$/, "").split("\n");
+  const { lines, ending } = documentLines(text);
   const entry = [`${BLOCK_INDENT}${name}:`, ...body];
   const opening = blockOpeningOf(lines, block);
   if (opening === -1) {
@@ -495,7 +515,7 @@ function withEntry(
     // document is empty or already ends in one: the file is read by people,
     // and two blocks running into each other read as one.
     const separator = lines.length > 0 && lines.at(-1) !== "" ? [""] : [];
-    return [...lines, ...separator, `${block}:`, ...entry, ""].join("\n");
+    return [...lines, ...separator, `${block}:`, ...entry, ""].join(ending);
   }
   const inserted = insertionPointOf(lines, opening);
   return [
@@ -503,7 +523,7 @@ function withEntry(
     ...entry,
     ...lines.slice(inserted),
     "",
-  ].join("\n");
+  ].join(ending);
 }
 
 /** True for the line that opens a top-level block of this name. */

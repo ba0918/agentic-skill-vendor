@@ -414,3 +414,29 @@ test("a mapping written below a comment at the left margin is still taken out", 
   });
   expect(written).toContain("# tdd-contract is ours as well");
 });
+
+test("a mapping written into a table whose lines end CRLF leaves the file uniform", () => {
+  // The scribe adds its lines to lines a person's editor wrote. Given LF
+  // endings of its own, the file still parses and stops being uniform: the
+  // next editor to save it rewrites every line, and the one line this run
+  // added is lost in a diff of the whole table.
+  const table = [
+    "contracts:",
+    "  report-format:",
+    "    source: local",
+    "",
+  ].join("\r\n");
+
+  const written = withContractMapping(table, "tdd-contract", "local");
+
+  expect(written).toStrictEqual(
+    [
+      "contracts:",
+      "  report-format:",
+      "    source: local",
+      "  tdd-contract:",
+      "    source: local",
+      "",
+    ].join("\r\n"),
+  );
+});
