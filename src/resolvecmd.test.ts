@@ -815,6 +815,113 @@ function workflowListing(
   };
 }
 
+test("a file named in a shape this tool cannot take does not stop a fetch that never reads it", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A repository on POSIX legitimately tracks a name carrying a backslash,
+    // and this tool refuses that shape wherever it consumes a path — the same
+    // value is joined by a runtime that may read it as a separator. Judged
+    // over the whole listing, one such file anywhere in a source put every
+    // contract that source holds out of reach, over a name no contract of this
+    // tree has anything to do with.
+    const github = fakeGitHub(
+      workflow({
+        "contracts/tdd-contract.md": CONTRACT,
+        "contracts/tdd-contract/conformance/cases/first.md": CASE,
+        "tests/fixtures/windows\\path.txt": "a name a repository may hold\n",
+      }),
+    );
+
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md")}`,
+        "utf8",
+      ),
+    ).toStrictEqual(CONTRACT);
+  });
+});
+
+test("a conformance file named in a shape this tool cannot take is refused, named with its path", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // The same shape, at a path the run does take. Every file taken becomes a
+    // request URL and a cache site under the tree root, so a name that means
+    // one thing on one platform and another elsewhere is not one this tool can
+    // vouch for — and dropping it would pin a conformance tree as smaller than
+    // the source holds it.
+    const planted = "contracts/tdd-contract/conformance/cases/windows\\x.md";
+    const github = fakeGitHub(
+      workflow({
+        "contracts/tdd-contract.md": CONTRACT,
+        "contracts/tdd-contract/conformance/cases/first.md": CASE,
+        [planted]: "a case named in a shape this tool cannot take\n",
+      }),
+    );
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain(planted);
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("an entry standing at the conformance tree's own directory in an unusable shape is refused", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A canonical text at the root of its source leaves the position the
+    // conformance tree would stand in spelled with a leading `.` segment.
+    // Nothing is ever taken from that position, but it is judged there, and an
+    // entry the listing actually carries at it is judged as the path it is
+    // listed under rather than as a file of some mode.
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  workflow:",
+        `    repository: ${REPOSITORY}`,
+        "    ref: main",
+        "",
+        "contracts:",
+        "  tdd-contract:",
+        "    source: workflow",
+        "    path: tdd-contract.md",
+        "",
+      ].join("\n"),
+    );
+    const github = fakeGitHub(
+      workflow({
+        "tdd-contract.md": CONTRACT,
+        "./tdd-contract": "an entry at a position no path may be spelled at\n",
+      }),
+    );
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain("./tdd-contract");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
 test("a link standing where no contract is taken from does not stop the fetch", async () => {
   await withRemoteTree(async (root, lines) => {
     // The refusal exists so that a file this run was going to take cannot be

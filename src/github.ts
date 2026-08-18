@@ -20,7 +20,7 @@
 
 import { ConfigError, describeCause } from "./errors.ts";
 import { concatBytes } from "./digest.ts";
-import { isTreeRelativePath, isUsableRef } from "./sources.ts";
+import { isUsableRef } from "./sources.ts";
 
 /** The API host, and the host serving file content at a commit. */
 const API_HOST = "https://api.github.com";
@@ -244,22 +244,16 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
             `${url}: listed a file with no path, found ${JSON.stringify(path)}`,
           );
         }
-        // Every path here is joined onto a cache directory under the tree root
-        // and onto a request URL, so one that walks upward has the fetch write
-        // wherever it points — outside the tree, on the exit code of a clean
-        // run. The shape is judged where the answer arrives rather than at each
-        // place it is used: a listing is the one input to this tool nobody in
-        // the consuming repository reviews.
-        //
-        // Left out of the listing instead, the entry would be as good as
-        // absent, and a host answering with a path a repository cannot hold is
-        // exactly the thing worth stopping over.
-        if (!isTreeRelativePath(path)) {
-          throw new ConfigError(
-            `${url}: listed ${JSON.stringify(path)}, which is not a path ` +
-              `inside the repository it lists`,
-          );
-        }
+        // The path is reported, not judged, for the reason the mode below is.
+        // A path that walks upward has the fetch write wherever it points, and
+        // a path spelled in a shape that means one thing per platform cannot be
+        // vouched for — but both are facts about a path this run consumes, and
+        // a listing covers a whole repository. Judged here, one file a git
+        // repository on POSIX legitimately tracks, `tests/fixtures/windows\
+        // path.txt` among them, put every contract that source holds out of
+        // reach, with a message naming a path no contract had anything to do
+        // with. Where the path becomes a request URL or a cache site is where
+        // it is refused.
         // The mode is reported, not judged. This listing covers the whole
         // repository, so a mode refused here made one link or one vendored
         // subproject — anywhere in the source, however far from any contract —

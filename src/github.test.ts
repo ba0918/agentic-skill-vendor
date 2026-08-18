@@ -192,14 +192,11 @@ test("a body that is not JSON at all is refused as an unreadable answer", async 
   expect(error.message).toContain("unreadable JSON");
 });
 
-test("a listing naming a file outside the repository it lists is refused", async () => {
-  // The paths in this answer are joined onto cache directories and onto request
-  // URLs, so a segment that walks upward has a fetch write wherever it points.
-  // The shape is judged here, where the answer arrives, rather than left to
-  // each caller: the declaration side already holds paths to this rule, and an
-  // answer from a host is trusted less than a line in this tree, not more.
-  // Dropping the entry silently was the other way out, and it hides a host
-  // answering with something a repository cannot hold.
+test("the listing carries the path a commit gives each entry rather than judging it", async () => {
+  // The shape of a path is judged where the run consumes it — as a request
+  // URL, as a cache site, or as a position it asks about. Judged here instead,
+  // one name a git repository on POSIX legitimately tracks put every contract
+  // that source holds out of reach, over a file no run opens.
   const github = fakeGitHub({
     [REPOSITORY]: {
       defaultBranch: "main",
@@ -207,17 +204,18 @@ test("a listing naming a file outside the repository it lists is refused", async
       files: {
         [REVISION]: {
           "contracts/tdd-contract.md": "# TDD Contract\n",
-          "contracts/tdd-contract/conformance/../../../escape.md": "planted\n",
+          "tests/fixtures/windows\\path.txt": "a name a repository may hold\n",
         },
       },
     },
   });
 
-  const error = await rejectedBy(
-    () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
-    ConfigError,
-  );
-  expect(error.message).toContain("escape.md");
+  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+
+  expect(listed.map((entry) => entry.path)).toStrictEqual([
+    "contracts/tdd-contract.md",
+    "tests/fixtures/windows\\path.txt",
+  ]);
 });
 
 test("the listing carries the object id the commit gives each file", async () => {

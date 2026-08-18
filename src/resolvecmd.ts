@@ -44,6 +44,7 @@ import { emptyRecord } from "./records.ts";
 import {
   type Declaration,
   DECLARATION_FILE,
+  isTreeRelativePath,
   originPathOf,
   parseDeclaration,
   withContractMapping,
@@ -419,7 +420,9 @@ async function collectContract(
   const conformance = `${beside}/conformance`;
   const enclosing = listing.find((entry) => entry.path === beside);
   if (enclosing !== undefined) {
-    requireNothingHidingTheTests(enclosing, atCommit(pinned, beside));
+    const named = atCommit(pinned, beside);
+    requireTreeRelativePath(enclosing, named);
+    requireNothingHidingTheTests(enclosing, named);
   }
   // An entry standing at the conformance directory itself is judged too,
   // though nothing is ever taken from it. A directory never reaches this
@@ -428,7 +431,9 @@ async function collectContract(
   // at all, which is the state the whole check exists to keep out of a pin.
   const mounted = listing.find((entry) => entry.path === conformance);
   if (mounted !== undefined) {
-    requireOrdinaryFile(mounted, atCommit(pinned, conformance));
+    const named = atCommit(pinned, conformance);
+    requireTreeRelativePath(mounted, named);
+    requireOrdinaryFile(mounted, named);
   }
   for (const entry of listing
     .filter((candidate) => candidate.path.startsWith(`${conformance}/`))
@@ -439,6 +444,35 @@ async function collectContract(
     });
   }
   return files;
+}
+
+/**
+ * Refuses an entry whose own path does not stay inside the repository it is
+ * listed in, named by the caller as the entry it was consuming.
+ *
+ * Asked of the entries this run consumes rather than of the whole listing, for
+ * the reason the mode is: a listing covers a whole repository, and a git
+ * repository on POSIX legitimately tracks a name this tool cannot vouch for —
+ * `tests/fixtures/windows\path.txt` is one — so judging the listing put every
+ * contract that source holds out of reach over a file no run opens, with a
+ * message naming a path no contract had anything to do with.
+ *
+ * Consumed means fetched, written or judged. An entry that only ever gets
+ * compared against a path this run is looking for is none of the three: it
+ * reaches no URL and no cache site, and a shape it happens to carry decides
+ * nothing. Every path that does reach either passes through here — the
+ * canonical text at its mapped path and each conformance file beside it are
+ * checked in the one function every fetched byte comes through, so a future
+ * caller cannot reach a write without it.
+ */
+function requireTreeRelativePath(blob: TreeBlob, named: string): void {
+  if (isTreeRelativePath(blob.path)) return;
+  throw new ConfigError(
+    `${named}: this path does not stay inside the repository that lists it ` +
+      `— an empty segment, a "." or ".." step, or a backslash — and it is ` +
+      `joined onto both a request URL and a cache directory under the tree ` +
+      `root, so a run that took it would write wherever it points`,
+  );
 }
 
 /** The modes a whole subtree can stand hidden behind: a link, a subproject. */
@@ -482,10 +516,12 @@ function atCommit(pinned: LockSource, path: string): string {
  * One file's bytes, refused unless the commit lists it as an ordinary file and
  * they hash to the object id that same listing gives for it.
  *
- * The mode is judged here rather than where the listing arrives, and that is
- * what keeps the judgment over the files this run takes and no others: every
- * file that reaches the cache comes through this function, while a listing
- * covers a whole repository.
+ * The mode and the shape of the path are judged here rather than where the
+ * listing arrives, and that is what keeps both judgments over the files this
+ * run takes and no others: every file that reaches the cache comes through this
+ * function, while a listing covers a whole repository. The path is judged
+ * before the request goes out, since this one value becomes the request URL and
+ * the cache site alike.
  *
  * The acceptance test is the source commit, never the lock. A commit is
  * immutable and names what each of its files hashes to, so "the cache holds
@@ -504,6 +540,7 @@ async function fetchChecked(
   blob: TreeBlob,
 ): Promise<Uint8Array> {
   const named = atCommit(pinned, blob.path);
+  requireTreeRelativePath(blob, named);
   requireOrdinaryFile(blob, named);
   const bytes = await client.fileAt(
     pinned.repository,
