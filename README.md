@@ -3,7 +3,8 @@
 Vendors shared reference documents into the skills of a skill repository. Each skill carries
 its own copy of the documents it depends on, every copy is provably byte-identical to its
 canonical source, and every change to what a skill carries lands in one reviewable diff —
-nothing reaches a skill silently.
+nothing reaches a skill silently. A canonical document may live in this repository or in
+another one on GitHub; either way each skill ends up with the same byte-identical copy.
 
 Compatibility judgment is explicitly out of scope: a digest can prove a copy matches its
 source, not that a new version still suits the skills depending on it. That judgment belongs
@@ -28,9 +29,12 @@ bunx @ba0918-dev/agentic-skill-vendor@<version> <command> [--root <path>]
 deno run --allow-read --allow-write npm:@ba0918-dev/agentic-skill-vendor@<version> <command> [--root <path>]
 ```
 
-The tool runs on Node (>= 20), Bun and Deno from the same source, and reaches nothing but
-the file system: no network, no environment, no subprocess. Under Deno, the read-only
-commands (`verify`, `lint-selfcontain`, `self-test`) run on `--allow-read` alone.
+The tool runs on Node (>= 20), Bun and Deno from the same source. It reads no environment
+variable and starts no subprocess, ever. Three commands reach the network — `add`, `update`
+and `fetch`, over HTTPS to `api.github.com` and `raw.githubusercontent.com` and nowhere else
+— and the rest touch the file system alone. Under Deno the read-only commands (`verify`,
+`lint-selfcontain`, `self-test`) run on `--allow-read`, `gen` needs `--allow-write` too, and
+only the three fetching commands need `--allow-net`.
 
 ## Usage
 
@@ -41,8 +45,14 @@ contracts/<id>.md                         the canonical text of a contract
 contracts/<id>/conformance/**             its conformance tests, if any
 skills/<name>/SKILL.md                    a skill, declaring what it depends on
 skills/<name>/references/vendor/<id>.md   the copy this tool writes into that skill
-vendor-manifest.json                      the lock: the digest recorded for each contract
+vendor-manifest.yaml                      the table of origins: where each contract comes from
+vendor-lock.json                          the lock: the digest recorded for each contract
+.agentic-skill-vendor/                    the cache of fetched text — never committed
 ```
+
+The last three are the tool's own files. `vendor-manifest.yaml` and `.agentic-skill-vendor/`
+appear only once a repository takes a contract from somewhere else; a repository using
+nothing but its own contracts has the lock and the copies, as it always did.
 
 A skill declares its dependencies by id — and only by id — in its `SKILL.md` frontmatter:
 
@@ -54,12 +64,15 @@ metadata:
 
 The cycle is then:
 
-| Command | What it does |
-|---|---|
-| `gen` | Writes each contract's current text into every skill that declares it, and rewrites the lock to match |
-| `verify` | Checks the whole tree against the lock; exit `1` on any violation |
-| `lint-selfcontain` | Checks that no skill points outside its own directory |
-| `self-test` | Smoke-checks the tool against vectors embedded in it |
+| Command | What it does | Network |
+|---|---|---|
+| `add <owner/repo> [name]` | Registers another repository as a source, records the branch it hands out, resolves that branch to a commit, and takes up every declared contract it holds | yes |
+| `update` | Moves every registered source's pin to what its ref names now, and fetches what the new pin holds | yes |
+| `fetch` | Fills the cache with exactly what the lock already pins — the command a clean checkout runs | yes |
+| `gen` | Writes each contract's current text into every skill that declares it, and rewrites the lock to match | no |
+| `verify` | Checks the whole tree against the lock; exit `1` on any violation | no |
+| `lint-selfcontain` | Checks that no skill points outside its own directory | no |
+| `self-test` | Smoke-checks the tool against vectors embedded in it | no |
 
 Editing a contract is one act: change `contracts/<id>.md` and run `gen`. The canonical text is
 the authority and the lock is the snapshot of it, the relation `package.json` has to a
@@ -74,11 +87,59 @@ independently; losing the tests is reported as `retired: <id> conformance <old>`
 left the lock and nothing was taken up in its place.
 
 Until `gen` runs, `verify` reports the edit as `stale-lock`; an edited vendored copy, a
-missing or extra file, and a stale manifest fail the same run.
+missing or extra file, and a lock file that no longer matches what the tree renders to fail
+the same run.
 
 Withdrawing a contract — removing it from the skills' declarations and deleting its canonical
 text — is the same act at the other end: the next `gen` retires its resolution from the lock
 and reports it as `retired: <id>`, so the removal never happens silently.
+
+### Taking a contract from another repository
+
+A shared document belongs in the repository most responsible for it, and every other
+repository fetches it rather than keeping a copy of its own. Register the source once:
+
+```
+bunx agentic-skill-vendor add ba0918/agentic-workflow workflow
+```
+
+That writes `vendor-manifest.yaml` — the table saying where each contract comes from —
+records the branch the repository hands out as an explicit value, resolves it to a commit in
+`vendor-lock.json`, and fetches the text of every contract your skills already declare and
+that repository holds at `contracts/<id>.md`. The optional second argument names the source;
+without it the repository's own name is used. Then run `gen` as usual.
+
+The table is written by the tool. Two lines are yours to write:
+
+```yaml
+contracts:
+  writing-style:
+    source: local
+    path: docs/style/writing-style.md   # a canonical text outside contracts/
+  tdd-contract:
+    source: workflow                    # which source, when two of them hold it
+```
+
+Everything else — a `source: local` line for each contract of your own, a line for each
+contract exactly one source holds, and the removal of a line no skill declares any more — is
+derived and reported: `mapped: <id> <- <source>` when a line is written, `unmapped: <id>`
+when one is taken out, `resolved: <source> <old commit> -> <new commit>` when a pin moves (a
+first resolution names one commit and is annotated `(initial resolution)`).
+
+Fetched text is cached under `.agentic-skill-vendor/` and is never committed — add it to
+`.gitignore`, anchored to the repository root, or the fetching commands will warn on every
+run:
+
+```
+/.agentic-skill-vendor/
+```
+
+Deleting the whole directory costs one `fetch`. The lock records the commit each source is
+pinned at, so `fetch` restores exactly the bytes the tree adopted and refuses anything else.
+
+`gen` and `verify` never fetch: `gen` stops and asks for a `fetch` when the cache is missing
+rather than resolving a ref of its own, since that would take up whatever the source holds
+today with nothing in any diff saying a new version was adopted.
 
 `--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
 nothing to report, `1` violations (one per line on standard output), `2` a refusal or an
@@ -88,7 +149,12 @@ finished: whatever it leaves behind is a state `verify` reports as a violation.
 ### Where to run `verify`
 
 - CI runs `verify` and fails the build on a non-zero exit. CI never runs `gen` — its job is
-  detecting a tree that disagrees with its lock, not resolving the disagreement.
+  detecting a tree that disagrees with its lock, not resolving the disagreement. It needs no
+  network and no cache: for a contract fetched from another repository, `verify` compares the
+  copies against the lock and the lock against what the tree renders to, and silently leaves
+  out the two comparisons that need the canonical text (the text against the lock, and the
+  conformance tests against the lock) when the cache is not there. Run `fetch` before
+  `verify` where the full comparison is wanted.
 - A pre-commit hook running `verify` is an optional tightening. It reads the tree and digests
   the copies, nothing more, so it is cheap enough to run on every commit.
 
@@ -133,10 +199,11 @@ absent; writes are atomic; identity is verified byte for byte.
 **Violation kinds** — every reported line opens with a stable kind prefix: `closure` from
 `gen` and `verify` alike (a skill declares a contract whose canonical text is not there, the
 one state `gen` refuses to write over); `unresolved`, `stale-lock`, `drift`, `extra`,
-`manifest` and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
-`symlink-escape` from `lint-selfcontain`; `self-test` from `self-test`. A successful `gen`
-reports in the same shape: `adopted` for each digest it recorded a new value for, `retired` for
-a resolution it dropped and for a conformance digest it dropped with the tests behind it.
+`lock` and `conformance-mismatch` from `verify`; `parent-escape`, `absolute-path` and
+`symlink-escape` from `lint-selfcontain`; `self-test` from `self-test`. A successful run
+reports in the same shape: `adopted` and `retired` from `gen` for each digest it recorded a
+new value for or dropped, `mapped` and `unmapped` for each line it wrote into or took out of
+the table of origins, and `resolved` from `add` and `update` for each pin they moved.
 
 ## Development
 

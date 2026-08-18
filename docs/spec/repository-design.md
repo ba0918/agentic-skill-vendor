@@ -63,12 +63,16 @@ lock の git 履歴がその最低線である。
 conformance digest を更新し続ける。lock は正本から書き直す導出物であり、正本がある
 限りその契約を記録する経路は gen だからである。
 
-manifest は lock のみを持つ。ツールの版・出所・正本パスといったメタデータは
-記録しない。検証のどの判断にも使われない値であり、特にツール自身の版をバイト比較
-対象に含めると、ツールの版更新だけで全消費リポジトリの verify が落ちる。将来
-manifest の形式や digest 規則を覆す変更が必要になったときは、その breaking release
-が形式マーカーを導入し、欄の欠落自体を旧形式の印として扱う(先回りの版記録は、
-比較から除外した瞬間に検証されない自己申告になるため持たない)。
+lock ファイル vendor-lock.json は、解決結果のみを持つ。ツールの版・出所・正本パスと
+いったメタデータは記録しない。検証のどの判断にも使われない値であり、特にツール自身の
+版をバイト比較対象に含めると、ツールの版更新だけで全消費リポジトリの verify が落ちる。
+将来 lock の形式や digest 規則を覆す変更が必要になったときは、その breaking release が
+形式マーカーを導入し、欄の欠落自体を旧形式の印として扱う(先回りの版記録は、比較から
+除外した瞬間に検証されない自己申告になるため持たない)。
+
+リモート source 対応(docs/spec/remote-sources.md)で、lock は取得元 commit を記録する
+sources 節を持つようになった。source を 1 つも持たない木は従来の 2 節をそのまま描画する。
+契約の出典そのものは lock ではなく宣言ファイル vendor-manifest.yaml が持つ。
 
 ## 採用 — gen への一本化
 
@@ -99,15 +103,15 @@ verify は次の独立した照合を行う。どれか一つが失敗しても�
   報告し、宣言にも lock にも現れない contracts/ 配下の文書は照合の対象外とする
 - **配布コピー 対 lock**: 各スキル配下のコピーが、lock の digest から再構築した
   期待バイト列と一致するか。コピーの手編集・欠落・余剰はここで落ちる
-- **manifest の正規形**: vendor-manifest.json が、宣言・lock・正本の在否から機械的に
+- **lock の正規形**: vendor-lock.json が、宣言・解決結果・正本の在否から機械的に
   書き直した場合の内容とバイト一致するか。正本が消えた契約の resolution は書き直しで
   落ちるため、その状態もここで落ちる
 - **conformance 対 lock**: 契約に付属する conformance ツリーが、採用時に控えた
   digest と一致するか
 
-manifest にツールの版を含む可変なメタデータは存在しないため、ツール自身の更新は
-どの照合にも影響しない。digest の算出規則や manifest の形式を変える変更は、
-それ自体が上記の照合を落とす(fail-closed)。
+lock にツールの版を含む可変なメタデータは存在しないため、ツール自身の更新はどの照合にも
+影響しない。digest の算出規則や lock の形式を変える変更は、それ自体が上記の照合を
+落とす(fail-closed)。
 
 ## vendored copy のヘッダ
 
@@ -177,12 +181,12 @@ Node 互換 JS をビルドして同梱する(生成物はリポジトリにコ�
 verify がバイト同一比較である以上、次はすべて外部互換性そのものであり、
 安定保証面として扱う。
 
-- CLI・manifest schema・exit code
+- CLI・lock schema・宣言ファイルの schema・exit code
 - digest アルゴリズム・正規化規則
 - conformance ツリーの framing 規則
 - vendor ヘッダのバイト形式
 - violation kind
-- gen の報告行(adopted / retired)の形式
+- 報告行の形式(gen の adopted / retired / mapped / unmapped、add・update の resolved)
 
 Python API / TypeScript API の公開は、要求が観測されるまで行わない。
 

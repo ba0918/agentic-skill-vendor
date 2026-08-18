@@ -31,6 +31,11 @@ it is never committed.
 | `src/conformance.ts` | The conformance framing rules and tree collection |
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
 | `src/manifest.ts` | The lock, in one canonical rendering |
+| `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
+| `src/cache.ts` | Where fetched text is kept, how it is cleared, and whether the repository ignores it |
+| `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
+| `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
+| `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
 | `src/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
 | `src/verify.ts` | The four independent identity checks |
 | `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
@@ -38,11 +43,12 @@ it is never committed.
 | `src/{name}.test.ts` | Each module's tests, beside the module |
 | `src/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
 | `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
+| `fixtures/contracts-remote/good/` | The same, for a tree taking one contract from another repository — committed with the cache that contract's text sits in, so the offline guarantee is checked against a tree that actually has one |
 | `docs/spec/` | Design decisions (Japanese) |
 | `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
 | `biome.json` | Lint and format, and the rules this codebase turns off |
-| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over the fixture |
+| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over both fixtures |
 | `.github/workflows/release.yml` | The release: a push to main that carries a version bump is tagged and published to npm, with the checks above called rather than restated |
 
 ## Commands
@@ -65,6 +71,10 @@ it is never committed.
   same convention as the sister repositories).
 - A broken fixture tree is never committed. A test that needs one clones
   `fixtures/contracts-basic/good/` into a temporary directory and breaks the clone.
+- No test reaches a network. The transport is injected at the command boundary, and the one
+  the suite hands the entry point refuses every request, so a command that reached for a
+  network where it must not fails rather than connecting. The fetching commands are driven
+  by a fake GitHub that answers in the shapes the real service answers in.
 
 ## Constraints
 
@@ -79,17 +89,22 @@ it is never committed.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
 - The following are external compatibility and do not change without a version change: the
-  commands and their flags, the manifest schema, the exit codes, the digest algorithm and
+  commands and their flags, the lock schema, the declaration schema, the exit codes, the digest algorithm and
   its normalization rules, the conformance framing rules, the byte form of the vendored copy
   header, and the violation kinds.
-- The tool reaches the file system and nothing else — no network, no environment, no
-  subprocess. Under Deno that is enforceable with `--allow-read --allow-write`; on Node and
-  Bun there is no sandbox to enforce it with, so it is a property of the code rather than a
-  guarantee of the runtime.
-- The manifest records the lock and nothing else — no tool version, no repository URL, no
+- `gen`, `verify`, `lint-selfcontain` and `self-test` reach the file system and nothing else
+  — no network, no environment, no subprocess. Under Deno that is enforceable with
+  `--allow-read --allow-write`; on Node and Bun there is no sandbox to enforce it with, so it
+  is a property of the code rather than a guarantee of the runtime. `add`, `update` and
+  `fetch` add HTTPS to `api.github.com` and `raw.githubusercontent.com`, through a transport
+  injected at the command boundary, and read no environment variable and start no subprocess
+  either.
+- The lock records what was resolved and nothing else — no tool version, no repository URL, no
   derivable path. Every one of those was a value no check consumed, and the tool's own
   version put a byte nobody verified into a byte-for-byte comparison: releasing a new
   version made every consuming repository's `verify` fail until each tree was regenerated.
+  The one thing it gained is the `sources` section, which records the commit each source is
+  pinned at — a value the fetching commands write and every offline command reads.
   A format marker is deliberately absent too; a future breaking release introduces one, and
   the absence of the field is what marks the older form.
 - The canonical text is the authority and the lock is derived from it, so `gen` is the only

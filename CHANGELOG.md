@@ -7,6 +7,49 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking.** The lock file is now `vendor-lock.json`; it was `vendor-manifest.json`. A tree
+  still carrying the old name is refused with a message naming both files — renaming the file
+  is the whole migration, since its content is unchanged. The rename was forced by the new
+  declaration file `vendor-manifest.yaml`: two files a letter apart in spelling and opposite
+  in authorship, one written by hand and one written only by the tool, is a confusion no
+  message can undo.
+- **Breaking.** The `verify` finding for a lock file that no longer matches what the tree
+  renders to is now `lock:`; it was `manifest:`. The word manifest names the declaration file
+  from here on, and a finding carrying it would send a reader to the file that check never
+  opens.
+- The lock gains a `sources` section recording the commit each source is pinned at. A tree
+  with no source at all renders the two sections it always had, byte for byte, so a
+  repository using only its own contracts migrates by renaming the file and nothing else.
+
+### Added
+
+- Canonical documents may live in another public GitHub repository. `add <owner/repo> [name]`
+  registers a source, records the branch that repository hands out as an explicit value,
+  resolves it to a commit and takes up every declared contract it holds; `update` moves every
+  pin to what its ref names now; `fetch` restores the cache from what the lock already pins.
+  Those three are the only commands that reach a network, over HTTPS to `api.github.com` and
+  `raw.githubusercontent.com` and nowhere else. `gen`, `verify`, `lint-selfcontain` and
+  `self-test` still read and write the tree and nothing else — no network, no environment, no
+  subprocess.
+- `vendor-manifest.yaml`, the table of where each contract comes from. The tool is its scribe:
+  `gen` writes a line for every declared contract this repository holds itself and takes out
+  the lines no skill declares any more, while `add` and `update` write a line for every
+  contract exactly one registered source holds. A person writes only the two things no
+  derivation can decide — which source wins when several hold one contract, and where a
+  canonical text sits when it is not at the conventional position. A repository with no
+  source registered keeps no table and behaves exactly as before.
+- Three report lines, on the same stability footing as `adopted` and `retired`:
+  `mapped: <id> <- <source>`, `unmapped: <id>`, and `resolved: <source> <old> -> <new>`
+  (a first resolution names one commit, annotated `(initial resolution)`).
+- Fetched text is cached under `.agentic-skill-vendor/`, which is never committed: add
+  `/.agentic-skill-vendor/` to `.gitignore` — anchored to the repository root — or the
+  fetching commands warn. Deleting the whole directory costs one `fetch`. `verify` needs no
+  cache at all: for a fetched contract it compares the copies against the lock and the lock
+  against what the tree renders to, and silently leaves out the comparisons that need the
+  canonical text.
+
 ### Fixed
 
 - The package manifest no longer carries a `prepare` script running `lefthook install`.

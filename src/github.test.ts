@@ -156,3 +156,38 @@ test("an answer far larger than a shared document is refused", async () => {
   );
   expect(error.message).toContain("too large");
 });
+
+test("an answer that is not shaped like the API's own is refused, never guessed at", async () => {
+  // A body that parses but says nothing the caller asked for is not an
+  // absence: read as one, the run would record an empty revision or a
+  // repository with no branches as though the service had said so.
+  const shapes = [
+    `{"message":"Moved Permanently"}`,
+    `{"sha":"not-a-commit-sha"}`,
+    `[]`,
+  ];
+  for (const body of shapes) {
+    const transport = (async () =>
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+    await rejectedBy(
+      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      ConfigError,
+    );
+  }
+});
+
+test("a body that is not JSON at all is refused as an unreadable answer", async () => {
+  const transport = (async () =>
+    new Response("<html>rate limited</html>", {
+      status: 200,
+      headers: { "content-type": "text/html" },
+    })) as unknown as typeof fetch;
+  const error = await rejectedBy(
+    () => gitHubOver(transport).pathsAt(REPOSITORY, REVISION),
+    ConfigError,
+  );
+  expect(error.message).toContain("unreadable JSON");
+});
