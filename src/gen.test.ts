@@ -1280,6 +1280,24 @@ test("gen asks for a fetch rather than distributing a contract whose cache is go
   });
 });
 
+test("gen asks for an update where the lock pins no commit for a source", async () => {
+  await withFetchedTree(async (root) => {
+    // A fetch is of no use to this tree: it reproduces a pin rather than
+    // deciding one, and answers with a request for an update. Sent to fetch
+    // first, a person walks two hops where one would do, and the first of them
+    // is a command that cannot move this tree at all.
+    const lock = await readLockFile(root);
+    delete lock.sources;
+    await writeLockFile(root, lock);
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(REMOTE.id);
+    expect(result.stderr.join("\n")).toContain("run update");
+  });
+});
+
 test("gen writes the origin of a declared contract this repository holds itself", async () => {
   await withFetchedTree(async (root) => {
     // Once a tree keeps a table of origins, the table has to be complete:

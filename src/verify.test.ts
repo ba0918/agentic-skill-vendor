@@ -378,6 +378,28 @@ test("a copy of a fetched contract that was edited is still reported as drift wi
   });
 });
 
+test("a fetched contract the lock no longer matches is sent to fetch, not to gen", async () => {
+  await withFetchedTree(async (root) => {
+    // The canonical text of a fetched contract is in the repository it was
+    // fetched from, and what stands in this tree is a throwaway copy. Told to
+    // run gen, a person adopts whatever sits in that copy — bytes no reviewer
+    // can see in the diff the adoption lands in, since the cache is never
+    // committed.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    await append(
+      `${root}/.agentic-skill-vendor/cache/workflow/${REMOTE.revision}/contracts/${REMOTE.id}.md`,
+      "\nEdited inside the cache.\n",
+    );
+
+    const result = await verify(root);
+
+    expect(result.code).toStrictEqual(1);
+    const stale = result.stdout.find((line) => line.startsWith("stale-lock:"));
+    expect(stale).toBeDefined();
+    expect(stale).toContain("fetch");
+  });
+});
+
 test("the committed tree that fetches a contract verifies and lints clean offline", async () => {
   await withRemoteFixture(async (root) => {
     // The state a consuming repository is in after add and gen: one contract

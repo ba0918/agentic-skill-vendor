@@ -423,14 +423,42 @@ export function lockViolations(
       continue;
     }
     if (resolution.digest !== contract.digest) {
-      const site = locations.get(id)?.site ?? contractPath(id);
+      const location = locations.get(id);
+      const site = location?.site ?? contractPath(id);
       violations.push(
         `stale-lock: ${id} is recorded as ${resolution.digest} but ${site} ` +
-          `is ${contract.digest}; run gen to record the current text`,
+          `is ${contract.digest}; ${staleLockRemedy(location)}`,
       );
     }
   }
   return violations;
+}
+
+/**
+ * The way back out of a stale lock, which depends on who is authority over the
+ * text.
+ *
+ * A local contract's text was edited by a person in this tree, so recording it
+ * is the whole of the answer. A fetched contract's canonical text is in another
+ * repository, and what stands here is a copy this tool throws away: told to run
+ * gen, a person adopts whatever sits in that copy, and the cache is never
+ * committed, so the bytes being adopted appear in no diff anybody reviews. The
+ * fetch named instead rebuilds that copy from the commit the lock pins, judged
+ * against the object ids the commit itself gives its files.
+ *
+ * The fetch is not named alone. The ordinary way into this state is an update
+ * that moved the pin with no gen behind it yet, where the cache already holds
+ * exactly what the commit does — a fetch changes nothing and the finding stands,
+ * which would send the reader round the same loop for good.
+ */
+function staleLockRemedy(location: ContractLocation | undefined): string {
+  if (location?.local === false) {
+    return (
+      `run fetch to rebuild the cache from the commit the lock pins, then ` +
+      `gen to record what that commit holds`
+    );
+  }
+  return "run gen to record the current text";
 }
 
 /**
@@ -636,22 +664,41 @@ function rewrittenValues(
  * run writes `retired: <id> conformance <digest>` for the digest that went, and
  * the lock's own diff loses the key beside it: the two lines a reviewer reads,
  * over a state one fetch restores.
+ *
+ * Two states reach this refusal and they take different ways out. Text absent
+ * from a cache the lock already pins is put back by a fetch. Text whose source
+ * the lock pins no commit for is not: a fetch reproduces a pin rather than
+ * deciding one, and answers with a request for an update — two hops where one
+ * would do, the first of them a command that cannot move this tree at all.
+ *
+ * A tree in both states is named the first way only. An update resolves every
+ * pin and takes up what it holds, so the one command named there puts both
+ * states right; naming a fetch beside it would send the reader to a command the
+ * first already covers.
  */
 function assertCacheHolds(
   skills: SkillDeclaration[],
   locations: Map<string, ContractLocation>,
   declaration: Declaration,
+  sources: LockSources,
 ): void {
   const missing = declaredIds(skills).filter((id) => {
     const location = locations.get(id);
     return location !== undefined && !location.local && location.site === null;
   });
   if (missing.length === 0) return;
-  const named = missing
-    .map((id) => `${id} (from ${declaration.contracts[id]?.source})`)
-    .join(", ");
+  const sourceOf = (id: string) => declaration.contracts[id]?.source;
+  const named = (ids: string[]) =>
+    ids.map((id) => `${id} (from ${sourceOf(id)})`).join(", ");
+  const unpinned = missing.filter((id) => sources[sourceOf(id)] === undefined);
+  if (unpinned.length > 0) {
+    throw new ConfigError(
+      `${LOCK_FILE} pins no commit for the source of ${named(unpinned)}; ` +
+        `run update to resolve one`,
+    );
+  }
   throw new ConfigError(
-    `the cache holds no text for ${named}; run fetch to put it back`,
+    `the cache holds no text for ${named(missing)}; run fetch to put it back`,
   );
 }
 
@@ -675,7 +722,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     for (const violation of violations) out(violation);
     return 1;
   }
-  assertCacheHolds(skills, locations, state.declaration);
+  assertCacheHolds(skills, locations, state.declaration, sources);
   const derived = await deriveResolutions(root, contracts, locations);
   const plan = await planExpansion(
     root,
