@@ -387,9 +387,15 @@ export function closureViolations(
  * never run over — the edit landed, the lock still records the text before it —
  * which is the state continuous integration exists to fail on.
  *
- * A contract whose canonical text is absent is passed over rather than reported
- * twice: it is already named as a closure gap, and the lock cannot be judged
- * against text the tree does not hold.
+ * A local contract whose canonical text is absent is passed over rather than
+ * reported twice: it is already named as a closure gap, and the lock cannot be
+ * judged against text the tree does not hold. A contract fetched from another
+ * repository is not passed over, because nothing else speaks for it: the
+ * closure check stays deliberately silent there — a clean checkout holds no
+ * cache — and the tree an `add` leaves behind, with the mapping and the pin
+ * written and no `gen` behind them, then passed every check while the copy the
+ * skill declares had never been generated. What the lock records for a declared
+ * contract is a fact about the lock, and it is decidable without the text.
  *
  * Stated here rather than in verify.ts, its one caller, because it and the
  * closure check are two halves of one answer — whether the lock agrees with the
@@ -411,18 +417,24 @@ export function lockViolations(
   // digest with nothing having said the text moved.
   for (const id of lockedOrDeclared(skills, resolutions)) {
     const contract = contracts.get(id) ?? null;
-    if (contract === null) continue;
     const resolution = resolutions[id];
     // Only a declaration can be unresolved: it is the declaration that asks for
     // a pin, and an id reached through the lock has one by definition. Reported
     // for a contract nothing declares, every stray document under contracts/
     // would become a violation.
     if (resolution === undefined) {
+      // Asked before the missing text is passed over, and that order is the
+      // whole finding: a local contract with no text is already a closure gap,
+      // while a remote one is a state the closure check keeps silent about, so
+      // ordered the other way round the lock recording nothing for it was
+      // reported by no check at all.
+      if (contract === null && locations.get(id)?.local !== false) continue;
       violations.push(
         `unresolved: ${id} has no entry in ${LOCK_FILE}; run gen to record one`,
       );
       continue;
     }
+    if (contract === null) continue;
     if (resolution.digest !== contract.digest) {
       const location = locations.get(id);
       const site = location?.site ?? contractPath(id);

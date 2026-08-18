@@ -365,6 +365,28 @@ test("a clean checkout with no cache verifies the copies and the lock without co
   });
 });
 
+test("a fetched contract the lock resolves nothing for is unresolved with no cache", async () => {
+  await withFetchedTree(async (root) => {
+    // The tree an add leaves behind and no gen ever finished: the mapping and
+    // the pin are written, the lock resolves nothing, and the copy the skill
+    // declares was never generated. Continuous integration checks out exactly
+    // this and holds no cache, so every check that needs the canonical text
+    // declines — and the skill shipped without its document on a clean exit.
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+    const copy = `skills/release-notes/references/vendor/${REMOTE.id}.md`;
+    expect(await fs.exists(`${root}/${copy}`)).toStrictEqual(false);
+
+    const result = await verify(root);
+
+    expect(result.code).toStrictEqual(1);
+    const finding = result.stdout.find((line) =>
+      line.startsWith("unresolved:"),
+    );
+    expect(finding, result.stdout.join("\n")).toBeDefined();
+    expect(finding).toContain(REMOTE.id);
+  });
+});
+
 test("a copy of a fetched contract that was edited is still reported as drift with no cache", async () => {
   await withFetchedTree(async (root) => {
     // The skip is narrow on purpose: what cannot be checked without the cache
@@ -377,6 +399,25 @@ test("a copy of a fetched contract that was edited is still reported as drift wi
     );
 
     expect(kindsOf((await verify(root)).stdout)).toStrictEqual(["drift"]);
+  });
+});
+
+test("a deleted copy of a fetched contract is still reported as missing with no cache", async () => {
+  await withFetchedTree(async (root) => {
+    // The one finding a tree that was generated and then lost a copy must keep
+    // producing without a cache. It is what tells that state apart from the
+    // tree the lock resolves nothing for: there the copy was never written and
+    // the lock says so, here the lock pins the text and the copy is gone.
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+    const copy = `skills/release-notes/references/vendor/${REMOTE.id}.md`;
+    await fs.rm(`${root}/${copy}`);
+
+    const result = await verify(root);
+
+    expect(result.code).toStrictEqual(1);
+    expect(kindsOf(result.stdout)).toStrictEqual(["drift"]);
+    expect(result.stdout[0]).toStrictEqual(`drift: ${copy} is missing`);
   });
 });
 

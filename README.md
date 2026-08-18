@@ -177,7 +177,10 @@ finished: whatever it leaves behind is a state `verify` reports as a violation.
   copies against the lock and the lock against what the tree renders to, and silently leaves
   out the two comparisons that need the canonical text (the text against the lock, and the
   conformance tests against the lock) when the cache is not there. Run `fetch` before
-  `verify` where the full comparison is wanted.
+  `verify` where the full comparison is wanted. What is never left out is the lock recording
+  nothing at all for a declared contract: that is reported as `unresolved` with a cache or
+  without one, so the tree an `add` wrote the mapping for and no `gen` ever finished fails the
+  build instead of shipping a skill without the document it declares.
 - A pre-commit hook running `verify` is an optional tightening. It reads the tree and digests
   the copies, nothing more, so it is cheap enough to run on every commit.
 

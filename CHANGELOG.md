@@ -54,7 +54,11 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fetching commands warn. Deleting the whole directory costs one `fetch`. `verify` needs no
   cache at all: for a fetched contract it compares the copies against the lock and the lock
   against what the tree renders to, and silently leaves out the comparisons that need the
-  canonical text.
+  canonical text. What it never leaves out is the lock recording nothing at all for a declared
+  contract, which is reported as `unresolved` with a cache or without one: the tree an `add`
+  wrote the mapping and the pin for, with no `gen` behind them, holds no vendored copy, and
+  every check declining for a reason of its own left continuous integration passing a skill
+  that ships without the document it declares.
 - Every downloaded file is judged against the object id the pinned commit's own tree listing
   gives it, and never against the lock. A commit is immutable and says what each of its files
   hashes to, so "the cache holds what this commit holds" is established without the lock —
