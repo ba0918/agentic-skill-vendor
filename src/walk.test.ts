@@ -196,17 +196,17 @@ test("a write that fails leaves no temporary file behind", async () => {
 
 test("a write refuses a symlink pre-planted at its temporary path", async () => {
   await withGoodTree(async (root) => {
-    const secret = await plantOutsideFile(root, "manifest-target.json");
+    const secret = await plantOutsideFile(root, "lock-target.json");
     const outside = outsideOf(root);
     const before = await snapshotTree(outside);
     const treeBefore = await snapshotTree(root);
-    await replaceWithSymlink(`${root}/vendor-manifest.json.tmp`, secret);
+    await replaceWithSymlink(`${root}/vendor-lock.json.tmp`, secret);
     await expect(
-      atomicWriteFile(root, "vendor-manifest.json", encoder.encode("{}\n")),
+      atomicWriteFile(root, "vendor-lock.json", encoder.encode("{}\n")),
     ).rejects.toThrow(ConfigError);
     expect(await snapshotTree(outside)).toStrictEqual(before);
     const treeAfter = await snapshotTree(root);
-    treeAfter.delete("vendor-manifest.json.tmp");
+    treeAfter.delete("vendor-lock.json.tmp");
     expect(treeAfter).toStrictEqual(treeBefore);
   });
 });
@@ -438,7 +438,7 @@ const WRONG_KIND_SITES: {
     expected: "file",
     refusal: "contracts/verdict-format.md: not a regular file",
   },
-  { site: "vendor-manifest.json", expected: "file", refusal: null },
+  { site: "vendor-lock.json", expected: "file", refusal: null },
   {
     site: "skills/review-writer/references/vendor/verdict-format.md",
     expected: "file",
@@ -492,12 +492,12 @@ test("a tree holding none of the optional paths is a tree, not a refusal", async
     // What every one of these refusals must not touch. A tree with no skills/
     // at all is where a repository starts, and the answers below are what let
     // it be adopted: nothing is declared, so nothing is vendored, and the
-    // manifest that gets written says exactly that.
+    // lock that gets written says exactly that.
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
     const verified = await runCli(["verify", "--root", root]);
     expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);
     expect(
-      JSON.parse(await fs.readFile(`${root}/vendor-manifest.json`, "utf8")),
+      JSON.parse(await fs.readFile(`${root}/vendor-lock.json`, "utf8")),
     ).toStrictEqual({ dependencies: {}, resolutions: {} });
   });
 });

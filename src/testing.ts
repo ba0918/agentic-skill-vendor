@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
 import { compareStrings, sha256Hex } from "./digest.ts";
 
-const MANIFEST_FILE = "vendor-manifest.json";
+const LOCK_FILE = "vendor-lock.json";
 
 /**
- * The manifest, read and written as arbitrary JSON. The tests address the
- * fields they need by name, and a recursive JSON type would put a cast at
- * every one of those sites for nothing.
+ * The lock, read and written as arbitrary JSON. The tests address the fields
+ * they need by name, and a recursive JSON type would put a cast at every one
+ * of those sites for nothing.
  */
 // biome-ignore lint/suspicious/noExplicitAny: manifests are arbitrary JSON.
 export type Json = any;
@@ -225,19 +225,16 @@ export function kindsOf(lines: string[]): string[] {
   return lines.map((line) => line.slice(0, line.indexOf(":"))).sort();
 }
 
-/** The manifest as read back from disk, as the shape tests hand to the tool. */
-export async function readManifest(root: string): Promise<Json> {
-  return JSON.parse(await fs.readFile(`${root}/${MANIFEST_FILE}`, "utf8"));
+/** The lock as read back from disk, as the shape tests hand to the tool. */
+export async function readLockFile(root: string): Promise<Json> {
+  return JSON.parse(await fs.readFile(`${root}/${LOCK_FILE}`, "utf8"));
 }
 
-/** Writes `manifest` as the tree's manifest, in the canonical rendering. */
-export async function writeManifest(
-  root: string,
-  manifest: Json,
-): Promise<void> {
+/** Writes `lock` as the tree's lock file, in the canonical rendering. */
+export async function writeLockFile(root: string, lock: Json): Promise<void> {
   await fs.writeFile(
-    `${root}/${MANIFEST_FILE}`,
-    JSON.stringify(manifest, null, 2) + "\n",
+    `${root}/${LOCK_FILE}`,
+    JSON.stringify(lock, null, 2) + "\n",
   );
 }
 

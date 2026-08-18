@@ -5,18 +5,19 @@ import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { canonicalJson, readLock, type Resolutions } from "./manifest.ts";
 import {
-  readManifest,
+  readLockFile,
   runCli,
   snapshotTree,
   withEmptyDir,
   withGoodTree,
+  writeLockFile,
 } from "./testing.ts";
 
-const MANIFEST = "vendor-manifest.json";
+const LOCK = "vendor-lock.json";
 
-test("the manifest keeps dependencies and resolutions apart", async () => {
+test("the lock keeps dependencies and resolutions apart", async () => {
   await withGoodTree(async (root) => {
-    const lock = await readManifest(root);
+    const lock = await readLockFile(root);
     expect(lock.dependencies["review-writer"]).toStrictEqual([
       "changelog-entry",
       "verdict-format",
@@ -30,9 +31,9 @@ test("the manifest keeps dependencies and resolutions apart", async () => {
   });
 });
 
-test("the manifest locks a conformance digest only for a contract shipping tests", async () => {
+test("the lock records a conformance digest only for a contract shipping tests", async () => {
   await withGoodTree(async (root) => {
-    const resolutions = (await readManifest(root)).resolutions;
+    const resolutions = (await readLockFile(root)).resolutions;
     expect(resolutions["changelog-entry"].conformance).toMatch(
       /^sha256:[0-9a-f]{64}$/,
     );
@@ -40,9 +41,9 @@ test("the manifest locks a conformance digest only for a contract shipping tests
   });
 });
 
-test("the manifest records no wall-clock timestamp", async () => {
+test("the lock records no wall-clock timestamp", async () => {
   await withGoodTree(async (root) => {
-    const text = await fs.readFile(`${root}/${MANIFEST}`, "utf8");
+    const text = await fs.readFile(`${root}/${LOCK}`, "utf8");
     expect(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(text)).toStrictEqual(false);
   });
 });
@@ -74,7 +75,7 @@ test("a withdrawn contract's resolution is pruned when gen rewrites the lock", a
     // resolution it removed along with the copy removal.
     expect(gen.stdout.join("\n")).toContain("retired: changelog-entry");
     expect(
-      "changelog-entry" in (await readManifest(root)).resolutions,
+      "changelog-entry" in (await readLockFile(root)).resolutions,
     ).toStrictEqual(false);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
@@ -97,7 +98,7 @@ test("the lock records only the contracts whose canonical text is present", asyn
       result.code,
       result.stdout.concat(result.stderr).join("\n"),
     ).toStrictEqual(0);
-    const resolutions = (await readManifest(root)).resolutions;
+    const resolutions = (await readLockFile(root)).resolutions;
     expect("verdict-format" in resolutions).toStrictEqual(false);
     expect(resolutions["changelog-entry"].digest).toMatch(
       /^sha256:[0-9a-f]{64}$/,
@@ -140,11 +141,11 @@ test("a tree whose skills declare nothing still refuses a contracts directory sy
   });
 });
 
-test("rendering the manifest refuses a contract's own directory symlinked outside the tree", async () => {
+test("rendering the lock refuses a contract's own directory symlinked outside the tree", async () => {
   await withGoodTree(async (root) => {
     // The contract that no skill declares any more: reading the canonical text
     // never reaches it, so the lock is the one thing still naming it and the
-    // manifest render is the only route left to contracts/. Refused for the same
+    // lock render is the only route left to contracts/. Refused for the same
     // contract still declared, the link stopped every command; refused only
     // there, this one shape went on answering three different ways.
     for (const name of ["release-notes", "review-writer"]) {
@@ -180,21 +181,21 @@ test("rendering the manifest refuses a contract's own directory symlinked outsid
 // The lock is read back from a file anyone can edit, and a resolution key
 // becomes a path under contracts/. These state what the reader refuses.
 
-/** Writes `manifest` as the tree's manifest and reads the resolutions back. */
-async function readWritten(manifest: string): Promise<Resolutions> {
+/** Writes `lock` as the tree's lock and reads the resolutions back. */
+async function readWritten(lock: string): Promise<Resolutions> {
   return await withEmptyDir(async (root) => {
-    await fs.writeFile(`${root}/${MANIFEST}`, manifest);
+    await fs.writeFile(`${root}/${LOCK}`, lock);
     return (await readLock(root)).resolutions;
   });
 }
 
-function manifestWith(resolutions: string): string {
+function lockWith(resolutions: string): string {
   return `{"dependencies":{},"resolutions":${resolutions}}`;
 }
 
 const DIGEST = `sha256:${"0".repeat(64)}`;
 
-test("a tree with no manifest has no resolutions", async () => {
+test("a tree with no lock has no resolutions", async () => {
   expect(
     await withEmptyDir(async (root) => (await readLock(root)).resolutions),
   ).toStrictEqual({});
@@ -203,7 +204,7 @@ test("a tree with no manifest has no resolutions", async () => {
 test("a recorded resolution is read back whole", async () => {
   expect(
     await readWritten(
-      manifestWith(
+      lockWith(
         `{"verdict-format":{"conformance":"${DIGEST}","digest":"${DIGEST}"}}`,
       ),
     ),
@@ -214,23 +215,23 @@ test("a recorded resolution is read back whole", async () => {
 
 test("a resolution key that would escape the contracts directory is refused", async () => {
   await expect(
-    readWritten(manifestWith(`{"../../etc/passwd":{"digest":"${DIGEST}"}}`)),
+    readWritten(lockWith(`{"../../etc/passwd":{"digest":"${DIGEST}"}}`)),
   ).rejects.toThrow(ConfigError);
 });
 
 test("a resolution whose digest is not a sha256 digest is refused", async () => {
   await expect(
-    readWritten(manifestWith(`{"verdict-format":{"digest":"notadigest"}}`)),
+    readWritten(lockWith(`{"verdict-format":{"digest":"notadigest"}}`)),
   ).rejects.toThrow(ConfigError);
 });
 
-test("a manifest that is not an object is refused", async () => {
+test("a lock that is not an object is refused", async () => {
   await expect(readWritten(`"oops"`)).rejects.toThrow(ConfigError);
   await expect(readWritten(`[]`)).rejects.toThrow(ConfigError);
 });
 
-test("a manifest missing its dependencies is refused, not read as empty", async () => {
-  // A hand-corrupted manifest that dropped a half would otherwise be read as
+test("a lock missing its dependencies is refused, not read as empty", async () => {
+  // A hand-corrupted lock that dropped a half would otherwise be read as
   // "no skills recorded", and the next gen would silently rewrite over it —
   // forgetting every skill the tree records a dependency list for. The one
   // empty lock is the whole file being absent, which is answered before JSON
@@ -239,20 +240,20 @@ test("a manifest missing its dependencies is refused, not read as empty", async 
   await expect(readWritten(`{"resolutions":{}}`)).rejects.toThrow(ConfigError);
 });
 
-test("a manifest whose dependencies are null is refused, not read as empty", async () => {
+test("a lock whose dependencies are null is refused, not read as empty", async () => {
   await expect(
     readWritten(`{"dependencies":null,"resolutions":{}}`),
   ).rejects.toThrow(ConfigError);
 });
 
-test("a manifest missing its resolutions is refused, not read as empty", async () => {
-  // The other half of the same corruption: a manifest that dropped its
+test("a lock missing its resolutions is refused, not read as empty", async () => {
+  // The other half of the same corruption: a lock that dropped its
   // resolutions, read as "nothing resolved yet", would let the next gen
   // rewrite the file with the memory of every recorded contract dropped.
   await expect(readWritten(`{"dependencies":{}}`)).rejects.toThrow(ConfigError);
 });
 
-test("a manifest whose resolutions are null is refused, not read as empty", async () => {
+test("a lock whose resolutions are null is refused, not read as empty", async () => {
   await expect(
     readWritten(`{"dependencies":{},"resolutions":null}`),
   ).rejects.toThrow(ConfigError);
@@ -260,14 +261,14 @@ test("a manifest whose resolutions are null is refused, not read as empty", asyn
 
 test("a resolution that is not an object is refused", async () => {
   await expect(
-    readWritten(manifestWith(`{"verdict-format":"oops"}`)),
+    readWritten(lockWith(`{"verdict-format":"oops"}`)),
   ).rejects.toThrow(ConfigError);
 });
 
 test("a resolution whose conformance digest is not a sha256 digest is refused", async () => {
   await expect(
     readWritten(
-      manifestWith(
+      lockWith(
         `{"verdict-format":{"conformance":"notadigest","digest":"${DIGEST}"}}`,
       ),
     ),
@@ -275,19 +276,19 @@ test("a resolution whose conformance digest is not a sha256 digest is refused", 
 });
 
 test("resolutions written as a list are refused", async () => {
-  await expect(readWritten(manifestWith(`["verdict-format"]`))).rejects.toThrow(
+  await expect(readWritten(lockWith(`["verdict-format"]`))).rejects.toThrow(
     ConfigError,
   );
 });
 
-test("a manifest that is not readable JSON is refused", async () => {
+test("a lock that is not readable JSON is refused", async () => {
   await expect(readWritten(`{"dependencies":{`)).rejects.toThrow(ConfigError);
 });
 
-test("rendering the manifest refuses a contract file that is there but is not a regular file", async () => {
+test("rendering the lock refuses a contract file that is there but is not a regular file", async () => {
   await withGoodTree(async (root) => {
     // The contract no skill declares any more: reading canonical text never
-    // reaches it, so the manifest render is the only route left to it. A
+    // reaches it, so the lock render is the only route left to it. A
     // directory standing where its text belongs answered exactly as text that
     // is not there does, and the contract dropped out of the lock without a
     // word — gen finished at 0 and verify called the result clean.
@@ -313,21 +314,21 @@ test("rendering the manifest refuses a contract file that is there but is not a 
   });
 });
 
-test("a manifest that is a named pipe is refused rather than opened", async () => {
+test("a lock that is a named pipe is refused rather than opened", async () => {
   await withGoodTree(async (root) => {
     // The lock is read before anything else a command does, and it was read
     // without asking what stands at the path. Opening a pipe to read blocks
     // until something on the other side writes: measured before this was
     // closed, all three commands ran on without ever returning.
-    await fs.rm(`${root}/${MANIFEST}`);
-    await promisify(execFile)("mkfifo", [`${root}/${MANIFEST}`]);
+    await fs.rm(`${root}/${LOCK}`);
+    await promisify(execFile)("mkfifo", [`${root}/${LOCK}`]);
 
     for (const command of [["gen"], ["verify"]]) {
       const result = await runCli([...command, "--root", root]);
       expect(result.code, command[0]).toStrictEqual(2);
       expect(result.stdout, command[0]).toStrictEqual([]);
       expect(result.stderr.join("\n"), command[0]).toContain(
-        `${MANIFEST}: not a regular file`,
+        `${LOCK}: not a regular file`,
       );
     }
   });
@@ -336,7 +337,7 @@ test("a manifest that is a named pipe is refused rather than opened", async () =
 test("the canonical rendering keeps a key that names a prototype", async () => {
   // Sorting rebuilds every object it renders, and rebuilding is where the key
   // is lost: assigned into a plain object it writes the prototype instead. A
-  // manifest read back and rendered again would silently shed the entry.
+  // lock read back and rendered again would silently shed the entry.
   const parsed = JSON.parse('{"dependencies":{"__proto__":["a"],"z":["b"]}}');
   const rendered = canonicalJson(parsed);
   expect(rendered).toContain('"__proto__"');
@@ -348,10 +349,10 @@ test("the canonical rendering keeps a key that names a prototype", async () => {
   ).toStrictEqual(["a"]);
 });
 
-test("a manifest recording a skill named for a prototype key reads it back", async () => {
+test("a lock recording a skill named for a prototype key reads it back", async () => {
   await withEmptyDir(async (root) => {
     await fs.writeFile(
-      `${root}/${MANIFEST}`,
+      `${root}/${LOCK}`,
       '{"dependencies":{"__proto__":["verdict-format"]},"resolutions":{}}',
     );
     expect([...(await readLock(root)).recordedSkills]).toStrictEqual([
@@ -360,42 +361,106 @@ test("a manifest recording a skill named for a prototype key reads it back", asy
   });
 });
 
-test("a manifest whose dependencies are not an object is refused", async () => {
+test("a lock whose dependencies are not an object is refused", async () => {
   await expect(readWritten('{"dependencies":123}')).rejects.toThrow(
     ConfigError,
   );
 });
 
 test("every empty resolutions map is made without a prototype", async () => {
-  // Stated directly because the two paths that produce one — no manifest yet,
+  // Stated directly because the two paths that produce one — no lock yet,
   // and a lock recording an empty map — are reached before anything has been
   // resolved, which is exactly when a tree is being adopted.
   const absent = await withEmptyDir(async (root) => await readLock(root));
   expect(Object.getPrototypeOf(absent.resolutions)).toBeNull();
 
-  const recordedEmpty = await readWritten(manifestWith("{}"));
+  const recordedEmpty = await readWritten(lockWith("{}"));
   expect(Object.getPrototypeOf(recordedEmpty)).toBeNull();
 });
 
-test("the manifest records nothing but the dependencies and the resolutions", async () => {
+test("the lock records nothing but the dependencies and the resolutions", async () => {
   await withGoodTree(async (root) => {
-    expect(Object.keys(await readManifest(root)).sort()).toStrictEqual([
+    expect(Object.keys(await readLockFile(root)).sort()).toStrictEqual([
       "dependencies",
       "resolutions",
     ]);
   });
 });
 
-test("the manifest records no version for a resolved contract", async () => {
+test("a recorded source survives a run that rewrites the lock", async () => {
   await withGoodTree(async (root) => {
-    const resolutions = (await readManifest(root)).resolutions;
+    // The revision a source was pinned at is written by the commands that
+    // reach the network, and gen reaches none. Rewritten from the tree alone,
+    // the lock would drop the pin every time a contract's text changed, and
+    // the next fetch would have nothing left to restore the cache from.
+    const lock = await readLockFile(root);
+    lock.sources = {
+      workflow: {
+        repository: "ba0918/agentic-workflow",
+        revision: "0".repeat(40),
+      },
+    };
+    await writeLockFile(root, lock);
+
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    expect((await readLockFile(root)).sources).toStrictEqual({
+      workflow: {
+        repository: "ba0918/agentic-workflow",
+        revision: "0".repeat(40),
+      },
+    });
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a source pinned at something other than a commit SHA is refused", async () => {
+  // A branch name recorded here would make the lock answer "which bytes were
+  // adopted" differently on two days with nothing having been adopted between
+  // them, which is the one thing a lock exists to rule out.
+  await expect(
+    readWritten(
+      `{"dependencies":{},"resolutions":{},` +
+        `"sources":{"workflow":{"repository":"ba0918/agentic-workflow","revision":"main"}}}`,
+    ),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("a source recorded against something other than an owner/repo pair is refused", async () => {
+  // The repository reaches a URL. A value that was never checked is a value a
+  // hand edit can steer the fetch with.
+  await expect(
+    readWritten(
+      `{"dependencies":{},"resolutions":{},` +
+        `"sources":{"workflow":{"repository":"https://example.invalid/x","revision":"${"a".repeat(40)}"}}}`,
+    ),
+  ).rejects.toThrow(ConfigError);
+});
+
+test("the lock records no version for a resolved contract", async () => {
+  await withGoodTree(async (root) => {
+    const resolutions = (await readLockFile(root)).resolutions;
     expect("version" in resolutions["verdict-format"]).toStrictEqual(false);
     expect("version" in resolutions["changelog-entry"]).toStrictEqual(false);
   });
 });
 
-test("a manifest written in the superseded wrapped form is refused", async () => {
+test("a lock written in the superseded wrapped form is refused", async () => {
   await expect(
     readWritten(`{"lock":{"dependencies":{},"resolutions":{}}}`),
   ).rejects.toThrow(ConfigError);
+});
+
+test("a tree still holding the old lock file is refused with both filenames named", async () => {
+  await withGoodTree(async (root) => {
+    // The lock used to be called vendor-manifest.json, a name that now differs
+    // from the declaration file — vendor-manifest.yaml — in its extension
+    // alone. A tree carrying the old name is not read as a tree with no lock at
+    // all: that would retire every resolution it records. The refusal names
+    // both files, since renaming the one into the other is the whole migration.
+    await fs.rename(`${root}/${LOCK}`, `${root}/vendor-manifest.json`);
+    const result = await runCli(["verify", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("vendor-lock.json");
+    expect(result.stderr.join("\n")).toContain("vendor-lock.json");
+  });
 });

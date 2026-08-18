@@ -469,10 +469,7 @@ test("a name the lock records must be a directory, whatever now stands there", a
       } else {
         await promisify(execFile)("mkfifo", [`${root}/${CLOBBERED}`]);
       }
-      const manifestBefore = await fs.readFile(
-        `${root}/vendor-manifest.json`,
-        "utf8",
-      );
+      const lockBefore = await fs.readFile(`${root}/vendor-lock.json`, "utf8");
 
       for (const command of [["gen"], ["verify"]]) {
         const where = `${plant} / ${command[0]}`;
@@ -484,8 +481,8 @@ test("a name the lock records must be a directory, whatever now stands there", a
         );
       }
       expect(
-        await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
-      ).toStrictEqual(manifestBefore);
+        await fs.readFile(`${root}/vendor-lock.json`, "utf8"),
+      ).toStrictEqual(lockBefore);
     });
   }
 });
@@ -514,10 +511,10 @@ test("a skill directory removed altogether is still a removal", async () => {
     await fs.rm(`${root}/${CLOBBERED}`, { recursive: true });
 
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
-    const manifest = JSON.parse(
-      await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
+    const lock = JSON.parse(
+      await fs.readFile(`${root}/vendor-lock.json`, "utf8"),
     );
-    expect(Object.keys(manifest.dependencies)).toStrictEqual(["release-notes"]);
+    expect(Object.keys(lock.dependencies)).toStrictEqual(["release-notes"]);
   });
 });
 
@@ -540,7 +537,7 @@ test("a skill whose name is a prototype key survives the whole round trip", asyn
 
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
 
-    const raw = await fs.readFile(`${root}/vendor-manifest.json`, "utf8");
+    const raw = await fs.readFile(`${root}/vendor-lock.json`, "utf8");
     const dependencies = JSON.parse(raw).dependencies;
     expect(raw).toContain('"__proto__"');
     expect(Object.hasOwn(dependencies, "__proto__")).toStrictEqual(true);
@@ -550,7 +547,7 @@ test("a skill whose name is a prototype key survives the whole round trip", asyn
       "review-writer",
     ]);
     // Read through the descriptor: the accessor of that name would answer with
-    // the prototype rather than the key the manifest actually carries.
+    // the prototype rather than the key the lock actually carries.
     expect(
       Object.getOwnPropertyDescriptor(dependencies, "__proto__")?.value,
     ).toStrictEqual(["verdict-format"]);
@@ -559,8 +556,8 @@ test("a skill whose name is a prototype key survives the whole round trip", asyn
     expect(verified.code, verified.stdout.join("\n")).toStrictEqual(0);
 
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
-    expect(
-      await fs.readFile(`${root}/vendor-manifest.json`, "utf8"),
-    ).toStrictEqual(raw);
+    expect(await fs.readFile(`${root}/vendor-lock.json`, "utf8")).toStrictEqual(
+      raw,
+    );
   });
 });

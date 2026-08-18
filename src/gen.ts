@@ -39,9 +39,10 @@ import {
 } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
 import {
-  MANIFEST_FILE,
+  LOCK_FILE,
+  type LockSources,
   readLock,
-  renderExpectedManifest,
+  renderExpectedLock,
   type Resolution,
   type Resolutions,
 } from "./manifest.ts";
@@ -163,7 +164,7 @@ export async function listVendorEntries(
  */
 interface WritePlan {
   files: { site: string; content: Uint8Array }[];
-  manifest: { site: string; content: Uint8Array };
+  lock: { site: string; content: Uint8Array };
   removals: string[];
 }
 
@@ -177,6 +178,7 @@ export async function planExpansion(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
+  sources: LockSources,
 ): Promise<WritePlan> {
   const encoder = new TextEncoder();
   const files: WritePlan["files"] = [];
@@ -215,10 +217,10 @@ export async function planExpansion(
   }
   return {
     files,
-    manifest: {
-      site: MANIFEST_FILE,
+    lock: {
+      site: LOCK_FILE,
       content: encoder.encode(
-        await renderExpectedManifest(root, skills, resolutions),
+        await renderExpectedLock(root, skills, resolutions, sources),
       ),
     },
     removals,
@@ -226,7 +228,7 @@ export async function planExpansion(
 }
 
 /**
- * Copies first, then the manifest, then the removals.
+ * Copies first, then the lock, then the removals.
  *
  * A run stopped part way therefore never loses a file it had not yet replaced,
  * and the state it leaves is one verify reports as a violation rather than one
@@ -246,7 +248,7 @@ export async function executePlan(
   for (const file of plan.files) {
     await atomicWriteFile(root, file.site, file.content);
   }
-  await atomicWriteFile(root, plan.manifest.site, plan.manifest.content);
+  await atomicWriteFile(root, plan.lock.site, plan.lock.content);
   const failures: { site: string; cause: unknown }[] = [];
   for (const site of plan.removals) {
     try {
@@ -337,7 +339,7 @@ export function lockViolations(
     // would become a violation.
     if (resolution === undefined) {
       violations.push(
-        `unresolved: ${id} has no entry in ${MANIFEST_FILE}; run gen to record one`,
+        `unresolved: ${id} has no entry in ${LOCK_FILE}; run gen to record one`,
       );
       continue;
     }
@@ -363,13 +365,14 @@ export function lockViolations(
 export interface TreeState {
   resolutions: Resolutions;
   skills: SkillDeclaration[];
+  sources: LockSources;
 }
 
 export async function readTreeState(root: string): Promise<TreeState> {
   await assertTreeRoot(root);
-  const { recordedSkills, resolutions } = await readLock(root);
+  const { recordedSkills, resolutions, sources } = await readLock(root);
   const skills = await readSkills(root, recordedSkills);
-  return { resolutions, skills };
+  return { resolutions, skills, sources };
 }
 
 /**
@@ -518,7 +521,7 @@ function rewrittenValues(
  * is to make that diff exist and to say in one line what it changed.
  */
 export async function commandGen(root: string, out: Sink): Promise<number> {
-  const { resolutions: recorded, skills } = await readTreeState(root);
+  const { resolutions: recorded, skills, sources } = await readTreeState(root);
   const contracts = await readTreeContracts(root, skills, recorded);
   const violations = closureViolations(skills, contracts);
   if (violations.length > 0) {
@@ -526,7 +529,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     return 1;
   }
   const derived = await deriveResolutions(root, contracts);
-  const plan = await planExpansion(root, skills, contracts, derived);
+  const plan = await planExpansion(root, skills, contracts, derived, sources);
   await executePlan(root, plan);
   for (const line of rewriteReport(recorded, derived)) out(line);
   return 0;

@@ -12,7 +12,7 @@ import {
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const CONTRACT = "contracts/verdict-format.md";
-const MANIFEST = "vendor-manifest.json";
+const LOCK = "vendor-lock.json";
 const CONFORMANCE = "contracts/changelog-entry/conformance/cases/minimal.md";
 
 async function verify(root: string) {
@@ -149,48 +149,38 @@ test("a copy edited while the canonical text also moved is reported on both coun
 
 test("a contract with no resolution is reported as unresolved", async () => {
   await withGoodTree(async (root) => {
-    const manifest = JSON.parse(
-      await fs.readFile(`${root}/${MANIFEST}`, "utf8"),
-    );
-    delete manifest.resolutions["verdict-format"];
-    await fs.writeFile(
-      `${root}/${MANIFEST}`,
-      JSON.stringify(manifest, null, 2) + "\n",
-    );
+    const lock = JSON.parse(await fs.readFile(`${root}/${LOCK}`, "utf8"));
+    delete lock.resolutions["verdict-format"];
+    await fs.writeFile(`${root}/${LOCK}`, JSON.stringify(lock, null, 2) + "\n");
     const kinds = kindsOf((await verify(root)).stdout);
     expect(kinds.includes("unresolved"), kinds.join(",")).toStrictEqual(true);
   });
 });
 
-test("a hand-edited manifest is reported as a manifest mismatch", async () => {
+test("a hand-edited lock is reported as a lock mismatch", async () => {
   await withGoodTree(async (root) => {
-    const manifest = JSON.parse(
-      await fs.readFile(`${root}/${MANIFEST}`, "utf8"),
-    );
+    const lock = JSON.parse(await fs.readFile(`${root}/${LOCK}`, "utf8"));
     // A key the reader consumes nothing of, so nothing but the byte comparison
-    // against what the tree renders to can notice it. The manifest used to
+    // against what the tree renders to can notice it. The lock used to
     // record the tool's own version in exactly this position, and it is gone
     // for the same reason this edit is a finding: a value in the compared bytes
     // that no check reads.
-    manifest.generator = { version: "9.9.9" };
-    await fs.writeFile(
-      `${root}/${MANIFEST}`,
-      JSON.stringify(manifest, null, 2) + "\n",
-    );
-    expect(kindsOf((await verify(root)).stdout)).toStrictEqual(["manifest"]);
+    lock.generator = { version: "9.9.9" };
+    await fs.writeFile(`${root}/${LOCK}`, JSON.stringify(lock, null, 2) + "\n");
+    expect(kindsOf((await verify(root)).stdout)).toStrictEqual(["lock"]);
   });
 });
 
-test("a missing manifest is reported rather than treated as an empty tree", async () => {
+test("a missing lock is reported rather than treated as an empty tree", async () => {
   await withGoodTree(async (root) => {
-    await fs.rm(`${root}/${MANIFEST}`);
+    await fs.rm(`${root}/${LOCK}`);
     const kinds = kindsOf((await verify(root)).stdout);
-    expect(kinds.includes("manifest"), kinds.join(",")).toStrictEqual(true);
+    expect(kinds.includes("lock"), kinds.join(",")).toStrictEqual(true);
     expect(kinds.includes("unresolved"), kinds.join(",")).toStrictEqual(true);
   });
 });
 
-test("a declaration added without regenerating is reported as a manifest mismatch", async () => {
+test("a declaration added without regenerating is reported as a lock mismatch", async () => {
   await withGoodTree(async (root) => {
     const skill = `${root}/skills/release-notes/SKILL.md`;
     await fs.writeFile(
@@ -201,7 +191,7 @@ test("a declaration added without regenerating is reported as a manifest mismatc
       ),
     );
     const kinds = kindsOf((await verify(root)).stdout);
-    expect(kinds.includes("manifest"), kinds.join(",")).toStrictEqual(true);
+    expect(kinds.includes("lock"), kinds.join(",")).toStrictEqual(true);
     expect(kinds.includes("drift"), kinds.join(",")).toStrictEqual(true);
   });
 });
@@ -211,8 +201,8 @@ test("an edited conformance test is reported as a conformance mismatch", async (
     await append(`${root}/${CONFORMANCE}`, "\nAn extra expectation.\n");
     const result = await verify(root);
     expect(result.code).toStrictEqual(1);
-    // Reported once. The locked value stays in the manifest comparison, so the
-    // same divergence is not counted a second time as a stale manifest.
+    // Reported once. The locked value stays in the lock comparison, so the
+    // same divergence is not counted a second time as a stale lock.
     expect(kindsOf(result.stdout)).toStrictEqual(["conformance-mismatch"]);
   });
 });

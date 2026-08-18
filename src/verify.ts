@@ -14,8 +14,9 @@ import {
 import { conformanceDigest } from "./conformance.ts";
 import type { SkillDeclaration } from "./declaration.ts";
 import {
-  MANIFEST_FILE,
-  renderExpectedManifest,
+  LOCK_FILE,
+  type LockSources,
+  renderExpectedLock,
   type Resolutions,
 } from "./manifest.ts";
 import {
@@ -95,29 +96,34 @@ async function copyViolations(
 }
 
 /**
- * Compares the manifest against what the declarations and the recorded
+ * Compares the lock file against what the declarations and the recorded
  * resolutions render to.
  *
  * The resolutions are carried across as the lock records them rather than
  * recomputed, so a divergence already reported as a stale lock or a conformance
- * mismatch is not reported a second time here as a stale manifest.
+ * mismatch is not reported a second time here as a badly rendered file.
+ *
+ * The finding is `lock`, not `manifest`. The word manifest now names the
+ * declaration file — `vendor-manifest.yaml`, written by hand — and a finding
+ * carrying it would send a reader to the file this check never opens.
  */
-async function manifestViolations(
+async function lockFileViolations(
   root: string,
   skills: SkillDeclaration[],
   resolutions: Resolutions,
+  sources: LockSources,
 ): Promise<string[]> {
-  if (!(await isRegularFileOrAbsent(root, MANIFEST_FILE))) {
-    return [`manifest: ${MANIFEST_FILE} is missing`];
+  if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
+    return [`lock: ${LOCK_FILE} is missing`];
   }
-  const expected = await renderExpectedManifest(root, skills, resolutions);
+  const expected = await renderExpectedLock(root, skills, resolutions, sources);
   const actual = decodeUtf8(
-    await readBytes(`${root}/${MANIFEST_FILE}`, MANIFEST_FILE),
-    MANIFEST_FILE,
+    await readBytes(`${root}/${LOCK_FILE}`, LOCK_FILE),
+    LOCK_FILE,
   );
   if (actual === expected) return [];
   return [
-    `manifest: ${MANIFEST_FILE} differs from what the declarations and the lock render to`,
+    `lock: ${LOCK_FILE} differs from what the declarations and the lock render to`,
   ];
 }
 
@@ -146,13 +152,14 @@ async function conformanceViolations(
 
 /**
  * Four checks that do not depend on one another: the lock against the canonical
- * text, the copies against the lock, the manifest against what the tree renders
- * to, and each conformance tree against the digest the lock records for it.
+ * text, the copies against the lock, the lock file against what the tree
+ * renders to, and each conformance tree against the digest the lock records for
+ * it.
  * Keeping them separate is what lets any one of them stay meaningful while
  * another is failing.
  */
 export async function commandVerify(root: string, out: Sink): Promise<number> {
-  const { resolutions, skills } = await readTreeState(root);
+  const { resolutions, skills, sources } = await readTreeState(root);
   const contracts = await readTreeContracts(root, skills, resolutions);
 
   // The three file-system checks are independent of one another and of the
@@ -162,7 +169,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   // whichever settled first.
   const settled = await Promise.allSettled([
     copyViolations(root, skills, resolutions),
-    manifestViolations(root, skills, resolutions),
+    lockFileViolations(root, skills, resolutions, sources),
     conformanceViolations(root, resolutions),
   ]);
   const violations = [
