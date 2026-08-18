@@ -140,9 +140,13 @@ listing gives it — the lock takes no part in the check, which is what lets the
 from whatever state the tree is in. A revision's directory is placed in a single move once every
 file of it has arrived, so a directory standing at its place means that revision was fetched
 whole and a fetch stopped part way leaves no revision behind at all. Three answers stop a
-fetching run with nothing written: a listing naming anything but an ordinary file (a symlink, a
-submodule), a redirect, and a value that would not read back as itself — the default branch
-`add` records is checked exactly as a ref read from the table is.
+fetching run with nothing written: a file the run was about to take — the canonical text at its
+mapped path, or one of the conformance tests beside it — listed as anything but an ordinary file
+(a symlink, a submodule), a redirect, and a value that would not read back as itself — the
+default branch `add` records is checked exactly as a ref read from the table is. Everything else
+a source holds is ignored whatever its mode, and never fetched: what the refusal keeps out is a
+file being dropped from a fetch and read back afterwards as one upstream does not hold, which a
+file no run opens cannot cause.
 
 The repository each source is pinned to is the one `vendor-manifest.yaml` registers. Edit that
 line and the tree disagrees with itself until `update` runs: `verify` reports the source as

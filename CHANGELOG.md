@@ -64,11 +64,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rename. A directory standing at its place therefore means that revision was fetched whole,
   and a fetching run stopped part way leaves no revision behind for a later command to read as
   a fetch that finished.
-- Three answers stop a fetching run with nothing written: a tree listing naming anything but an
-  ordinary file (a symlink, a submodule), a redirect — the fixed set of hosts would otherwise
-  hold for the first request of a run only — and a value that would not read back as itself,
-  the default branch `add` records included, which passes the same character check as a ref
-  read from the table of origins.
+- Three answers stop a fetching run with nothing written: a file the run was about to take —
+  the canonical text at its mapped path, or one of the conformance tests beside it — listed as
+  anything but an ordinary file (a symlink, a submodule), a redirect — the fixed set of hosts
+  would otherwise hold for the first request of a run only — and a value that would not read
+  back as itself, the default branch `add` records included, which passes the same character
+  check as a ref read from the table of origins. The refusal names the path and the mode, since
+  what it keeps out is a file dropped from a fetch and read back as one upstream does not
+  hold — a conformance tree pinned as absent while the source has one. Everything else a
+  source holds is ignored whatever its mode: judged over the whole listing instead, one link
+  or one vendored subproject standing anywhere in a repository put every contract that
+  repository holds out of reach.
 - `source-mismatch`, a violation kind: the lock pins a source to a repository
   `vendor-manifest.yaml` does not register it at. The expected lock now takes that field from
   the table rather than carrying the lock's own value, which is what makes the divergence
