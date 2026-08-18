@@ -384,11 +384,13 @@ function contractsOf(declaration: Declaration, source: string): string[] {
  * what the pinned commit holds — a fact established without the lock, which
  * records adoption rather than what a transfer is allowed to be.
  *
- * That selection is also the whole range an entry's mode is judged over.
- * Everything else a listing names is passed over whatever its mode: a file no
- * run opens cannot be dropped and read back afterwards as one upstream does
- * not hold, and judging the listing as a whole put every contract a source
- * holds out of reach over one link standing anywhere in it.
+ * That selection, together with the two positions the tests can stand hidden
+ * behind — the conformance directory itself, and the directory it sits in —
+ * is the whole range an entry's mode is judged over. Everything else a listing
+ * names is passed over whatever its mode: a file no run opens cannot be
+ * dropped and read back afterwards as one upstream does not hold, and judging
+ * the listing as a whole put every contract a source holds out of reach over
+ * one link standing anywhere in it.
  */
 async function collectContract(
   client: GitHubClient,
@@ -413,7 +415,12 @@ async function collectContract(
   // repository tracks — its own rules already decided that — while this tree's
   // rules exclude the whole cache on purpose, and applying them here would
   // fetch no conformance tree at all.
-  const conformance = `${dirNameOf(path)}/${id}/conformance`;
+  const beside = `${dirNameOf(path)}/${id}`;
+  const conformance = `${beside}/conformance`;
+  const enclosing = listing.find((entry) => entry.path === beside);
+  if (enclosing !== undefined) {
+    requireNothingHidingTheTests(enclosing, atCommit(pinned, beside));
+  }
   // An entry standing at the conformance directory itself is judged too,
   // though nothing is ever taken from it. A directory never reaches this
   // listing, so a path listed here is the tests mounted through a link or a
@@ -432,6 +439,38 @@ async function collectContract(
     });
   }
   return files;
+}
+
+/** The modes a whole subtree can stand hidden behind: a link, a subproject. */
+const HIDING_MODES = ["120000", "160000"];
+
+/**
+ * Refuses an entry standing where the conformance tree's own directory would
+ * be, in one of the modes that hide whatever is under it.
+ *
+ * A link and a subproject are each a single blob, and nothing beneath a blob
+ * is listed at all: the tests a source keeps under one never reach the refusal
+ * that guards the conformance position itself, and the run pins the contract
+ * as carrying no tests while the source has them. That is the confusion that
+ * refusal exists to prevent, occurring one level above where it looks.
+ *
+ * An ordinary file standing there is passed over rather than refused, which is
+ * why the two modes are named instead of every mode but a file's. A tree
+ * cannot hold anything under a path a blob already occupies, so "this contract
+ * has no conformance tests" is a fact about the source rather than something
+ * this run dropped, and refusing would stop every run over a source that is
+ * simply shaped that way. A directory at that place is the ordinary case, and
+ * never reaches this listing.
+ */
+function requireNothingHidingTheTests(blob: TreeBlob, named: string): void {
+  if (!HIDING_MODES.includes(blob.mode)) return;
+  throw new ConfigError(
+    `${named}: listed as ${JSON.stringify(blob.mode)}, and nothing under a ` +
+      `link or a subproject is listed at the commit at all; the conformance ` +
+      `tests beside a contract are taken as the listing gives them, so a ` +
+      `tree standing behind this entry would be pinned as absent rather than ` +
+      `fetched`,
+  );
 }
 
 /** One file of one commit, named the way a refusal about it reads. */

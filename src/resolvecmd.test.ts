@@ -931,6 +931,110 @@ test("a subproject standing where the conformance tree does is refused rather th
   });
 });
 
+test("a link standing where the conformance tree's own directory does is refused, named with its mode", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // Git holds a link as one blob, so a listing names it and nothing beneath
+    // it. The tests the source does keep there are never listed at all, and
+    // neither is the conformance position the refusal above watches — passed
+    // over, the pin records "this contract has no tests" about a contract
+    // that has them, and every later verify agrees with the pin.
+    const beside = "contracts/tdd-contract";
+    const github = fakeGitHub({
+      [REPOSITORY]: {
+        ...workflow({
+          "contracts/tdd-contract.md": CONTRACT,
+          [beside]: "../shared/tdd-contract\n",
+        })[REPOSITORY],
+        modes: { [beside]: "120000" },
+      },
+    });
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain(beside);
+    expect(error.message).toContain("120000");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("a subproject standing where the conformance tree's own directory does is refused, named with its mode", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // A source that carries the contract and its tests as a subproject lists
+    // one entry at that place and nothing under it, exactly as a link does.
+    // What the two share is the thing worth stopping over: the tests are
+    // there, the listing cannot reach them, and a run that carried on would
+    // pin the contract as having none.
+    const beside = "contracts/tdd-contract";
+    const github = fakeGitHub({
+      [REPOSITORY]: {
+        ...workflow({
+          "contracts/tdd-contract.md": CONTRACT,
+          [beside]: "the commit a subproject is pinned at\n",
+        })[REPOSITORY],
+        modes: { [beside]: "160000" },
+      },
+    });
+
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+
+    expect(error.message).toContain(beside);
+    expect(error.message).toContain("160000");
+    expect(await fs.exists(`${root}/${CACHE_DIR}`)).toStrictEqual(false);
+  });
+});
+
+test("an ordinary file standing where the conformance tree's own directory does leaves the contract fetched with no tests", async () => {
+  await withRemoteTree(async (root, lines) => {
+    // Nothing can stand under a path a blob already occupies, so a source
+    // shaped this way has no tests to hide: "this contract carries none" is
+    // what it holds, not something the fetch dropped. Refused alongside the
+    // two modes that do hide a subtree, every run over such a source would
+    // stop over a shape there was never anything to take from.
+    const beside = "contracts/tdd-contract";
+    const github = fakeGitHub(
+      workflow({
+        "contracts/tdd-contract.md": CONTRACT,
+        [beside]: "notes nobody vendors\n",
+      }),
+    );
+
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+
+    expect(code, lines.join("\n")).toStrictEqual(0);
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md")}`,
+        "utf8",
+      ),
+    ).toStrictEqual(CONTRACT);
+    expect(
+      await fs.readdir(
+        `${root}/${cacheRevisionDirOf("workflow", REVISION)}/contracts`,
+      ),
+    ).toStrictEqual(["tdd-contract.md"]);
+  });
+});
+
 test("a source holding the contract path as a link is still counted as holding it, and the run stops before the mapping is written", async () => {
   await withGoodTree(async (root) => {
     // The two halves have to answer the same question the same way. The
