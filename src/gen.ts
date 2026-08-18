@@ -616,6 +616,26 @@ function rewrittenValues(
  * would take up whatever the source repository holds today, with no line in
  * any diff saying a new version had been adopted — the moving target the lock
  * exists to pin down.
+ *
+ * Only the canonical text is asked about. The conformance tests beside it are
+ * not, and the asymmetry is the decision rather than an oversight: the obvious
+ * symmetric guard — refuse where the lock records a conformance digest and the
+ * cache holds no tests — is a refusal with no way out of itself. The only
+ * remedy it could name is a fetch, and a source that genuinely dropped its
+ * tests upstream rebuilds a cache that still holds none, so the run would stop
+ * for good over a state nothing in the tree can put right.
+ *
+ * Nor could such a guard tell the two apart. A revision directory standing at
+ * its place means that revision was fetched whole, so "the source holds no
+ * tests at this commit" and "someone deleted them out of the cache" leave the
+ * same file system behind — and the second now costs a deliberate edit inside
+ * a directory this tool documents as disposable, since a fetch stopped part
+ * way no longer leaves a revision behind at all.
+ *
+ * The evidence leaving the lock is therefore reported rather than refused. The
+ * run writes `retired: <id> conformance <digest>` for the digest that went, and
+ * the lock's own diff loses the key beside it: the two lines a reviewer reads,
+ * over a state one fetch restores.
  */
 function assertCacheHolds(
   skills: SkillDeclaration[],
