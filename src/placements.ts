@@ -666,9 +666,7 @@ export async function placementViolations(
   // A declared id whose table row is gone is already a closure gap; its
   // placements are left to that report rather than named a second time.
   const rowless = new Set(
-    declaredIds(skills).filter(
-      (id) => declaration.contracts[id]?.files === undefined,
-    ),
+    declaredIds(skills).filter((id) => declaration.contracts[id] === undefined),
   );
   const skillNames = new Set([...expected.keys(), ...Object.keys(placements)]);
   for (const skill of [...skillNames].sort(compareStrings)) {
