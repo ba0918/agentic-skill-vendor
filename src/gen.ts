@@ -55,8 +55,10 @@ import {
 } from "./manifest.ts";
 import {
   assertKindsAgree,
+  assertRawCacheHolds,
   deriveRawResolutions,
   planPlacements,
+  presentRawIds,
   rawClosureViolations,
   type RawContracts,
   rawMappingsOf,
@@ -325,11 +327,6 @@ export async function planExpansion(
     removals,
     report: placed.report,
   };
-}
-
-/** The raw-byte contracts whose material the tree holds. */
-export function presentRawIds(raws: RawContracts): string[] {
-  return [...raws.keys()].filter((id) => raws.get(id) !== null);
 }
 
 /**
@@ -804,6 +801,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const raws = await readRawContracts(
     root,
     state.declaration,
+    sources,
     lockedOrDeclared(skills, recorded),
   );
   const violations = [
@@ -815,6 +813,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
     return 1;
   }
   assertCacheHolds(skills, locations, state.declaration, sources);
+  assertRawCacheHolds(skills, raws, state.declaration, sources);
   const derived = {
     ...(await deriveResolutions(root, contracts, locations)),
     ...(await deriveRawResolutions(raws)),

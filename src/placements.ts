@@ -9,7 +9,14 @@
 
 import { ConfigError } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
-import type { Placement, Placements, Resolution } from "./manifest.ts";
+import type {
+  LockSources,
+  Placement,
+  Placements,
+  Resolution,
+} from "./manifest.ts";
+import { cacheRevisionDirOf } from "./cache.ts";
+import { LOCAL_SOURCE } from "./sources.ts";
 import {
   MARKER_FILE,
   placedPathOf,
@@ -30,7 +37,9 @@ import {
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
 import {
+  assertPlainChain,
   displayName,
+  isDirectoryOrAbsent,
   kindAt,
   type PlacedFile,
   readBytes,
@@ -44,8 +53,20 @@ import {
 import { framedDigest } from "./raw.ts";
 import type { RawKind } from "./sources.ts";
 
+/**
+ * What one raw-byte contract's material is, and who answers for it.
+ *
+ * `materials` is null where the tree does not hold it: for a local contract a
+ * closure gap, for a remote one a cache not yet fetched — a state a clean
+ * checkout is in, which is why the two are told apart here.
+ */
+export interface RawReading {
+  local: boolean;
+  materials: RawMaterial[] | null;
+}
+
 /** Every raw-byte contract a run has to look at, and what the tree holds for it. */
-export type RawContracts = Map<string, RawMaterial[] | null>;
+export type RawContracts = Map<string, RawReading>;
 
 /** The ids the table declares as raw-byte contracts. */
 export function rawMappingsOf(
@@ -60,15 +81,19 @@ export function rawMappingsOf(
 }
 
 /**
- * Reads the canonical side of every raw-byte contract among `ids`.
+ * Reads the canonical side of every raw-byte contract among `ids`: from
+ * this tree for a local one, from the cache at the pinned commit for a
+ * remote one. A remote contract whose source the lock pins no commit for,
+ * or whose revision the cache does not hold, reads as not held.
  *
- * Only this repository's own material is read here: a remote raw-byte
- * contract is a later concern, and until then a row naming another source is
- * refused rather than silently read as absent.
+ * The tree's own ignore rules apply to local material only. For fetched
+ * material the source repository's rules already decided what the listing
+ * held, and this tree's rules exclude the whole cache on purpose.
  */
 export async function readRawContracts(
   root: string,
   declaration: Declaration,
+  sources: LockSources,
   ids: string[],
 ): Promise<RawContracts> {
   const mappings = rawMappingsOf(declaration);
@@ -76,13 +101,43 @@ export async function readRawContracts(
   for (const id of ids) {
     const rows = mappings.get(id);
     if (rows === undefined) continue;
-    if (declaration.contracts[id].source !== "local") {
-      throw new ConfigError(
-        `${id}: a raw-byte contract from another repository is not ` +
-          `supported yet`,
-      );
+    const source = declaration.contracts[id].source;
+    if (source === LOCAL_SOURCE) {
+      contracts.set(id, {
+        local: true,
+        materials: await readRawMaterials(root, id, rows, true),
+      });
+      continue;
     }
-    contracts.set(id, await readRawMaterials(root, id, rows, true));
+    const pinned = sources[source];
+    if (pinned === undefined) {
+      contracts.set(id, { local: false, materials: null });
+      continue;
+    }
+    const revision = cacheRevisionDirOf(source, pinned.revision);
+    await assertPlainChain(root, revision);
+    if (!(await isDirectoryOrAbsent(root, revision))) {
+      contracts.set(id, { local: false, materials: null });
+      continue;
+    }
+    const inCache = rows.map((mapping) => ({
+      ...mapping,
+      src: `${revision}/${mapping.src}`,
+    }));
+    const materials = await readRawMaterials(root, id, inCache, false);
+    contracts.set(id, {
+      local: false,
+      // The src the material is framed under is the source's own path, not
+      // the cache site it was read from: the cache is where the bytes sit,
+      // not what the contract is.
+      materials:
+        materials === null
+          ? null
+          : materials.map((material, index) => ({
+              ...material,
+              mapping: rows[index],
+            })),
+    });
   }
   return contracts;
 }
@@ -96,7 +151,11 @@ export function rawClosureViolations(
   const violations: string[] = [];
   const dependentsOfId = dependentIndex(skills);
   for (const id of declaredIds(skills)) {
-    if (!raws.has(id) || raws.get(id) !== null) continue;
+    const reading = raws.get(id);
+    // A remote contract's missing material is a fetch away, not a closure
+    // gap: a clean checkout is in that state.
+    if (reading === undefined || reading.materials !== null || !reading.local)
+      continue;
     const dependents = (dependentsOfId.get(id) ?? [])
       .map(displayName)
       .join(", ");
@@ -116,8 +175,8 @@ export async function deriveRawResolutions(
 ): Promise<Record<string, Resolution>> {
   const resolutions = emptyRecord<Resolution>();
   for (const id of [...raws.keys()].sort(compareStrings)) {
-    const materials = raws.get(id);
-    if (materials === null || materials === undefined) continue;
+    const materials = raws.get(id)?.materials ?? null;
+    if (materials === null) continue;
     resolutions[id] = {
       digest: await rawContractDigest(materials),
       kind: "raw",
@@ -250,8 +309,8 @@ export async function planPlacements(
   const report: string[] = [];
   for (const skill of skills) {
     for (const id of [...skill.contracts].sort(compareStrings)) {
-      const materials = raws.get(id);
-      if (materials === null || materials === undefined) continue;
+      const materials = raws.get(id)?.materials ?? null;
+      if (materials === null) continue;
       for (const material of materials) {
         const key = placementKeyOf(material.mapping);
         const site = `${SKILLS_DIR}/${skill.name}/${material.mapping.dest}`;
@@ -642,6 +701,8 @@ export function rawLockViolations(
       continue;
     }
     const now = derived[id];
+    // Material not held — a remote contract with no cache — is not compared:
+    // the lock cannot be judged against files the tree does not have.
     if (now === undefined) continue;
     if (resolution.digest !== now.digest) {
       violations.push(
@@ -651,4 +712,47 @@ export function rawLockViolations(
     }
   }
   return violations;
+}
+
+/**
+ * Refuses a gen whose declared remote raw-byte contracts are not in the
+ * cache, naming the one command that completes the tree — a fetch where the
+ * lock pins a commit, an update where it pins none. The document-contract
+ * refusal says the same about its own ids; the two are not folded because
+ * the material they ask about is read by different modules.
+ */
+export function assertRawCacheHolds(
+  skills: SkillDeclaration[],
+  raws: RawContracts,
+  declaration: Declaration,
+  sources: LockSources,
+): void {
+  const missing = declaredIds(skills).filter((id) => {
+    const reading = raws.get(id);
+    return (
+      reading !== undefined && !reading.local && reading.materials === null
+    );
+  });
+  if (missing.length === 0) return;
+  const sourceOf = (id: string) => declaration.contracts[id].source;
+  const named = (ids: string[]) =>
+    ids.map((id) => `${id} (from ${sourceOf(id)})`).join(", ");
+  const unpinned = missing.filter((id) => sources[sourceOf(id)] === undefined);
+  if (unpinned.length > 0) {
+    throw new ConfigError(
+      `vendor-lock.json pins no commit for the source of ${named(unpinned)}; ` +
+        `run update to resolve one`,
+    );
+  }
+  throw new ConfigError(
+    `the cache holds no files for ${named(missing)}; run fetch to put them back`,
+  );
+}
+
+/** The raw-byte contracts the lock keeps a resolution for: local ones the tree holds, remote ones by their row. */
+export function presentRawIds(raws: RawContracts): string[] {
+  return [...raws.keys()].filter((id) => {
+    const reading = raws.get(id) as RawReading;
+    return !reading.local || reading.materials !== null;
+  });
 }

@@ -42,12 +42,15 @@ import {
   renderExpectedLock,
 } from "./manifest.ts";
 import { emptyRecord } from "./records.ts";
+import { MARKER_FILE, srcKeyOf } from "./raw.ts";
+import { IGNORE_FILE } from "./ignore.ts";
 import {
   type Declaration,
   DECLARATION_FILE,
   isTreeRelativePath,
   originPathOf,
   parseDeclaration,
+  type RawMapping,
   withContractMapping,
 } from "./sources.ts";
 import {
@@ -195,6 +198,10 @@ async function mapDeclaredContracts(
     (id) => state.declaration.contracts[id] === undefined,
   );
   if (unmapped.length === 0) return unchanged;
+  // The ids this search finds nowhere, reported whether or not the table
+  // changes: a raw-byte contract has no conventional position, so the line
+  // that says "write a files row" is the one thing this run can say about it.
+  const unlocated: string[] = [];
   const listings = new Map<string, string[]>();
   for (const name of Object.keys(state.declaration.sources).sort(
     compareStrings,
@@ -231,7 +238,12 @@ async function mapDeclaredContracts(
     const holders = [...listings]
       .filter(([, paths]) => paths.includes(contractPath(id)))
       .map(([name]) => name);
-    if (holders.length === 0) continue;
+    if (holders.length === 0) {
+      unlocated.push(
+        `unlocated: ${id} (no canonical text at any conventional location)`,
+      );
+      continue;
+    }
     // Letting one of them win quietly is how a document ends up maintained in
     // two places with nothing recording which copy the tree distributes. The
     // refusal is the moment that duplication becomes visible, and writing the
@@ -251,8 +263,12 @@ async function mapDeclaredContracts(
   // no table at all — every repository whose contracts are all its own — got
   // one holding no document, which this tool's own reader refuses: one update
   // and every later gen and verify stopped on a file that update had made.
-  if (text === before) return unchanged;
-  return { declaration: parseDeclaration(text), text, report };
+  if (text === before) return { ...unchanged, report: unlocated };
+  return {
+    declaration: parseDeclaration(text),
+    text,
+    report: [...report, ...unlocated],
+  };
 }
 
 /** The declaration as it stands, or an empty document where there is none. */
@@ -351,13 +367,22 @@ async function collectSources(
     const listing = await client.blobsAt(pinned.repository, pinned.revision);
     const files: PlacedFile[] = [];
     for (const id of contracts) {
+      const origin = declaration.contracts[id];
+      if (origin.files !== undefined) {
+        for (const mapping of origin.files) {
+          files.push(
+            ...(await collectRawMapping(client, pinned, listing, id, mapping)),
+          );
+        }
+        continue;
+      }
       files.push(
         ...(await collectContract(
           client,
           pinned,
           listing,
           id,
-          originPathOf(id, declaration.contracts[id]),
+          originPathOf(id, origin),
           name,
         )),
       );
@@ -440,6 +465,71 @@ async function collectContract(
   for (const entry of listing
     .filter((candidate) => candidate.path.startsWith(`${conformance}/`))
     .sort((a, b) => compareStrings(a.path, b.path))) {
+    files.push({
+      path: entry.path,
+      content: await fetchChecked(client, pinned, entry),
+    });
+  }
+  return files;
+}
+
+/**
+ * The files one raw-byte mapping takes from a commit: the one file at a file
+ * src, or everything under a directory src, selected by separator-terminated
+ * prefix so `tools/rt/` never takes `tools/rt-old/`.
+ *
+ * A src the commit does not hold stops the run, and the refusal names what
+ * moves the tree on — a new pin, or a different src — never a fetch, which
+ * would only arrive back here. The two names refused inside a local directory
+ * src are refused here too, before anything reaches the cache, and an entry
+ * standing at the directory src's own position in a hiding mode is refused
+ * for the reason the conformance position is.
+ */
+async function collectRawMapping(
+  client: GitHubClient,
+  pinned: LockSource,
+  listing: TreeBlob[],
+  id: string,
+  mapping: RawMapping,
+): Promise<PlacedFile[]> {
+  const entries =
+    mapping.kind === "file"
+      ? listing.filter((entry) => entry.path === mapping.src)
+      : listing.filter((entry) => entry.path.startsWith(`${mapping.src}/`));
+  const mounted = listing.find((entry) => entry.path === mapping.src);
+  if (mapping.kind === "directory" && mounted !== undefined) {
+    requireNothingHidingTheTests(mounted, atCommit(pinned, mapping.src));
+  }
+  if (entries.length === 0) {
+    throw new ConfigError(
+      `${pinned.repository} does not hold ${srcKeyOf(mapping)} at the ` +
+        `commit the lock pins it to; ${DECLARATION_FILE} maps ${id} to it. ` +
+        `Run update to move the pin, or edit the files line to a src the ` +
+        `commit holds`,
+    );
+  }
+  const files: PlacedFile[] = [];
+  for (const entry of [...entries].sort((a, b) =>
+    compareStrings(a.path, b.path),
+  )) {
+    const inside = entry.path.slice(mapping.src.length + 1);
+    if (mapping.kind === "directory") {
+      if (inside === IGNORE_FILE || inside.endsWith(`/${IGNORE_FILE}`)) {
+        throw new ConfigError(
+          `${atCommit(pinned, entry.path)}: a ${IGNORE_FILE} inside a ` +
+            `directory ${id} distributes would govern what git tracks in ` +
+            `every skill it lands in; edit the files line to a src without ` +
+            `one, or have the source move it`,
+        );
+      }
+      if (inside === MARKER_FILE) {
+        throw new ConfigError(
+          `${atCommit(pinned, entry.path)}: ${MARKER_FILE} at the top of a ` +
+            `directory ${id} distributes is the marker gen writes, and a copy ` +
+            `carrying one of its own could never verify`,
+        );
+      }
+    }
     files.push({
       path: entry.path,
       content: await fetchChecked(client, pinned, entry),

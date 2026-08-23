@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
+  fakeGitHub,
   readLockFile,
   runCli,
   withGoodTree,
@@ -464,5 +465,112 @@ test("two dests that nest, or a dest over the vendor directory, are refused by t
     const over = await runCli(["gen", "--root", root]);
     expect(over.code).toStrictEqual(2);
     expect(over.stderr.join("\n")).toContain("references/vendor");
+  });
+});
+
+const REMOTE_RAW = {
+  repository: "ba0918/agentic-workflow",
+  revision: "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d",
+};
+
+/** A fake upstream holding a runtime directory and nothing at any conventional position. */
+function remoteRuntime(files: Record<string, string>) {
+  return fakeGitHub({
+    [REMOTE_RAW.repository]: {
+      defaultBranch: "main",
+      refs: { main: REMOTE_RAW.revision },
+      files: { [REMOTE_RAW.revision]: { "README.md": "# up\n", ...files } },
+    },
+  });
+}
+
+async function withRemoteRawTree<T>(
+  files: Record<string, string>,
+  fn: (root: string, github: ReturnType<typeof fakeGitHub>) => Promise<T>,
+): Promise<T> {
+  return await withGoodTree(async (root) => {
+    await writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
+    const github = remoteRuntime(files);
+    const added = await runCli(
+      ["add", REMOTE_RAW.repository, "workflow", "--root", root],
+      github.fetch,
+    );
+    expect(added.code, added.stderr.join("\n")).toStrictEqual(0);
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "contracts:\n  workflow-runtime:\n    source: workflow\n    files:\n      tools/rt/: scripts/_runtime/\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - changelog-entry\n",
+        "    - changelog-entry\n    - workflow-runtime\n",
+      ),
+    );
+    return await fn(root, github);
+  });
+}
+
+test("a raw-byte contract from another repository is fetched under its src, placed, and verifies without the cache", async () => {
+  await withRemoteRawTree(
+    {
+      "tools/rt/a.py": "A\n",
+      "tools/rt/sub/b.py": "B\n",
+      "tools/rt-old/c.py": "C\n",
+    },
+    async (root, github) => {
+      const fetched = await runCli(["fetch", "--root", root], github.fetch);
+      expect(fetched.code, fetched.stderr.join("\n")).toStrictEqual(0);
+      const gen = await runCli(["gen", "--root", root]);
+      expect(gen.code, gen.stderr.join("\n")).toStrictEqual(0);
+      expect(await fs.readFile(`${root}/${DEST}/sub/b.py`, "utf8")).toBe("B\n");
+      await expect(fs.stat(`${root}/${DEST}/c.py`)).rejects.toThrow();
+      expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+      await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+      const offline = await runCli(["verify", "--root", root]);
+      expect(offline.stdout).toStrictEqual([]);
+      expect(offline.code).toStrictEqual(0);
+      const blocked = await runCli(["gen", "--root", root]);
+      expect(blocked.code).toStrictEqual(2);
+      expect(blocked.stderr.join("\n")).toContain("fetch");
+    },
+  );
+});
+
+test("a src the pinned commit does not hold stops the fetch and names the way out", async () => {
+  await withRemoteRawTree(
+    { "tools/elsewhere/a.py": "A\n" },
+    async (root, github) => {
+      const fetched = await runCli(["fetch", "--root", root], github.fetch);
+      expect(fetched.code).toStrictEqual(2);
+      expect(fetched.stderr.join("\n")).toContain("tools/rt/");
+      expect(fetched.stderr.join("\n")).toContain("update");
+    },
+  );
+});
+
+test("add and update name a declared id that no conventional position anywhere holds", async () => {
+  await withGoodTree(async (root) => {
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - changelog-entry\n",
+        "    - changelog-entry\n    - workflow-runtime\n",
+      ),
+    );
+    const github = remoteRuntime({ "tools/rt/a.py": "A\n" });
+    const added = await runCli(
+      ["add", REMOTE_RAW.repository, "workflow", "--root", root],
+      github.fetch,
+    );
+    expect(added.stdout).toContain(
+      "unlocated: workflow-runtime (no canonical text at any conventional location)",
+    );
+    const updated = await runCli(["update", "--root", root], github.fetch);
+    expect(updated.stdout).toContain(
+      "unlocated: workflow-runtime (no canonical text at any conventional location)",
+    );
   });
 });

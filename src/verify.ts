@@ -223,6 +223,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   const raws = await readRawContracts(
     root,
     state.declaration,
+    sources,
     declaredIds(skills),
   );
 
