@@ -224,6 +224,7 @@ interface WritePlan {
   directories: { site: string; files: PlacedFile[] }[];
   lock: { site: string; content: Uint8Array };
   removals: string[];
+  report: string[];
 }
 
 /**
@@ -246,7 +247,13 @@ export async function planExpansion(
   const files: WritePlan["files"] = [];
   const directories: WritePlan["directories"] = [];
   const removals: string[] = [];
-  const placed = await planPlacements(root, skills, raws, resolutions);
+  const placed = await planPlacements(
+    root,
+    skills,
+    raws,
+    resolutions,
+    placements,
+  );
   for (const dest of placed.dests) {
     if (dest.mapping.kind === "directory") {
       directories.push({ site: dest.site, files: dest.files });
@@ -306,6 +313,7 @@ export async function planExpansion(
       ),
     },
     removals,
+    report: placed.report,
   };
 }
 
@@ -796,6 +804,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   }
   await executePlan(root, plan);
   for (const line of table.report) out(line);
+  for (const line of plan.report) out(line);
   for (const line of rewriteReport(recorded, derived)) out(line);
   return 0;
 }

@@ -29,7 +29,20 @@ import {
 } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
-import { displayName, kindAt, type PlacedFile } from "./walk.ts";
+import {
+  displayName,
+  kindAt,
+  type PlacedFile,
+  readBytes,
+  walkFiles,
+} from "./walk.ts";
+import {
+  ancestorDirectories,
+  joinRelative,
+  readIgnoreRules,
+} from "./ignore.ts";
+import { framedDigest } from "./raw.ts";
+import type { RawKind } from "./sources.ts";
 
 /** Every raw-byte contract a run has to look at, and what the tree holds for it. */
 export type RawContracts = Map<string, RawMaterial[] | null>;
@@ -126,20 +139,113 @@ export interface PlannedDest {
 export interface PlacementPlan {
   dests: PlannedDest[];
   placements: Placements;
+  report: string[];
+}
+
+/** What stands at a dest right now: its kind and every file under it. */
+interface ObservedDest {
+  kind: RawKind;
+  /** Every file, the ignored ones included; "" names a file dest itself. */
+  entries: { path: string; content: Uint8Array }[];
+  /** The paths the tree's ignore rules exclude, as a checkout would. */
+  ignored: Set<string>;
 }
 
 /**
- * Every dest the declared raw-byte contracts land at, with the gate applied:
- * a dest is written only where nothing stands yet.
+ * Reads what stands at a dest, or null where nothing does. A link at the
+ * site or on the way to it is refused by the primitives underneath.
+ */
+async function observeDest(
+  root: string,
+  site: string,
+): Promise<ObservedDest | null> {
+  const info = await kindAt(root, site);
+  if (info === null) return null;
+  if (info.isFile()) {
+    return {
+      kind: "file",
+      entries: [
+        { path: "", content: await readBytes(`${root}/${site}`, site) },
+      ],
+      ignored: new Set(),
+    };
+  }
+  if (!info.isDirectory()) {
+    throw new ConfigError(`${displayName(site)}: not a regular file`);
+  }
+  const found = await walkFiles(`${root}/${site}`, site);
+  const rules = await readIgnoreRules(root, ancestorDirectories(site));
+  const ignored = new Set(
+    found.filter((path) => rules.excludes(joinRelative(site, path))),
+  );
+  const entries = [];
+  for (const path of found) {
+    entries.push({
+      path,
+      content: await readBytes(
+        `${root}/${site}/${path}`,
+        joinRelative(site, path),
+      ),
+    });
+  }
+  return { kind: "directory", entries, ignored };
+}
+
+/**
+ * The placement digest of what stands at a dest: the ignored files and the
+ * marker left out, a file dest named by its own name.
+ */
+async function observedDigest(
+  observed: ObservedDest,
+  site: string,
+): Promise<string> {
+  if (observed.kind === "file") {
+    return await framedDigest([
+      {
+        path: site.slice(site.lastIndexOf("/") + 1),
+        content: observed.entries[0].content,
+      },
+    ]);
+  }
+  return await framedDigest(
+    observed.entries.filter(
+      (entry) =>
+        entry.path !== MARKER_FILE && !observed.ignored.has(entry.path),
+    ),
+  );
+}
+
+/** True when the dest holds exactly the files this run writes, nothing else. */
+function holdsExactly(observed: ObservedDest, files: PlacedFile[]): boolean {
+  if (observed.entries.length !== files.length) return false;
+  const planned = new Map(files.map((file) => [file.path, file.content]));
+  return observed.entries.every((entry) => {
+    const content = planned.get(entry.path);
+    return content !== undefined && sameBytes(content, entry.content);
+  });
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((byte, index) => byte === b[index]);
+}
+
+/**
+ * Every dest the declared raw-byte contracts land at, with the gate applied
+ * in order: the dest is absent; or the lock records a placement at that path
+ * for this skill and the dest still digests to it; or the dest already holds
+ * exactly what the run writes, ignored files included — the recovery path,
+ * which the run reports as a claim.
  */
 export async function planPlacements(
   root: string,
   skills: SkillDeclaration[],
   raws: RawContracts,
   resolutions: Record<string, Resolution>,
+  recorded: Placements,
 ): Promise<PlacementPlan> {
   const dests: PlannedDest[] = [];
   const placements: Placements = emptyRecord();
+  const report: string[] = [];
   for (const skill of skills) {
     for (const id of [...skill.contracts].sort(compareStrings)) {
       const materials = raws.get(id);
@@ -147,13 +253,20 @@ export async function planPlacements(
       for (const material of materials) {
         const key = placementKeyOf(material.mapping);
         const site = `${SKILLS_DIR}/${skill.name}/${material.mapping.dest}`;
-        await assertWritableDest(root, site);
         const files = placedFilesOf(material, id, resolutions[id].digest);
         const placement: Placement = {
           contract: id,
           src: srcKeyOf(material.mapping),
           digest: await placementDigest(material),
         };
+        const claimed = await assertWritableDest(
+          root,
+          site,
+          recorded[skill.name] ?? emptyRecord(),
+          material.mapping,
+          files,
+        );
+        if (claimed) report.push(`claimed: ${displayName(site)} (${id})`);
         dests.push({
           skill: skill.name,
           key,
@@ -167,15 +280,44 @@ export async function planPlacements(
       }
     }
   }
-  return { dests, placements };
+  return { dests, placements, report };
 }
 
-/** Gate condition 1: the dest holds nothing. */
-async function assertWritableDest(root: string, site: string): Promise<void> {
-  if ((await kindAt(root, site)) === null) return;
+/**
+ * The gate. Returns true when the dest was taken over by condition 3 — a
+ * claim the run reports — and refuses where no condition holds.
+ */
+async function assertWritableDest(
+  root: string,
+  site: string,
+  recordedForSkill: Record<string, Placement>,
+  mapping: RawMapping,
+  files: PlacedFile[],
+): Promise<boolean> {
+  const observed = await observeDest(root, site);
+  if (observed === null) return false;
+  const remembered =
+    recordedForSkill[`${mapping.dest}/`] ?? recordedForSkill[mapping.dest];
+  const rememberedKind: RawKind | null =
+    recordedForSkill[`${mapping.dest}/`] !== undefined
+      ? "directory"
+      : recordedForSkill[mapping.dest] !== undefined
+        ? "file"
+        : null;
+  if (
+    remembered !== undefined &&
+    rememberedKind === observed.kind &&
+    (await observedDigest(observed, site)) === remembered.digest
+  ) {
+    return false;
+  }
+  if (observed.kind === mapping.kind && holdsExactly(observed, files)) {
+    return true;
+  }
   throw new ConfigError(
     `refusing to write ${displayName(site)}: something stands there that ` +
-      `the lock does not record as this tool's`,
+      `the lock does not record as this tool's, and it is not what this run ` +
+      `would write; move it aside or delete it by hand`,
   );
 }
 
@@ -197,3 +339,144 @@ function placedFilesOf(
   }
   return files;
 }
+
+/** True for an id the table or the lock knows as a raw-byte contract. */
+export function isRawId(
+  id: string,
+  declaration: Declaration,
+  resolutions: Record<string, Resolution>,
+): boolean {
+  return (
+    declaration.contracts[id]?.files !== undefined ||
+    resolutions[id]?.kind === "raw"
+  );
+}
+
+/**
+ * The placements the declarations and the table say each skill should have:
+ * dest → contract and src, without a digest, since the digest is the lock's.
+ */
+function expectedPlacements(
+  skills: SkillDeclaration[],
+  declaration: Declaration,
+): Map<string, Map<string, { contract: string; src: string }>> {
+  const mappings = rawMappingsOf(declaration);
+  const expected = new Map<
+    string,
+    Map<string, { contract: string; src: string }>
+  >();
+  for (const skill of skills) {
+    const dests = new Map<string, { contract: string; src: string }>();
+    for (const id of skill.contracts) {
+      const rows = mappings.get(id);
+      if (rows === undefined) continue;
+      for (const mapping of rows) {
+        dests.set(placementKeyOf(mapping), {
+          contract: id,
+          src: srcKeyOf(mapping),
+        });
+      }
+    }
+    if (dests.size > 0) expected.set(skill.name, dests);
+  }
+  return expected;
+}
+
+/**
+ * verify's two checks over raw-byte contracts: the lock's placements against
+ * what the declarations and the table derive, and each recorded dest against
+ * the digest recorded for it.
+ *
+ * A (skill, dest) the first check reports is left out of the second, so one
+ * withdrawn skill is not named twice. The second check walks the lock's
+ * placements, not the table's: what was written is what the lock remembers.
+ */
+export async function placementViolations(
+  root: string,
+  skills: SkillDeclaration[],
+  declaration: Declaration,
+  placements: Placements,
+  resolutions: Record<string, Resolution>,
+): Promise<string[]> {
+  const violations: string[] = [];
+  const expected = expectedPlacements(skills, declaration);
+  const disputed = new Set<string>();
+  const skillNames = new Set([...expected.keys(), ...Object.keys(placements)]);
+  for (const skill of [...skillNames].sort(compareStrings)) {
+    const want = expected.get(skill) ?? new Map();
+    const have = placements[skill] ?? emptyRecord();
+    const keys = new Set([...want.keys(), ...Object.keys(have)]);
+    for (const key of [...keys].sort(compareStrings)) {
+      const site = displayName(`${SKILLS_DIR}/${skill}/${key}`);
+      const w = want.get(key);
+      const h = have[key];
+      if (w === undefined) {
+        violations.push(
+          `placement: ${LOCK_PREFIX} records ${site} for ${h.contract}, which ` +
+            `no declaration places there any more; run gen to clear it`,
+        );
+        disputed.add(`${skill}\0${key}`);
+      } else if (h === undefined) {
+        violations.push(
+          `placement: ${site} is declared for ${w.contract} but ${LOCK_PREFIX} ` +
+            `records nothing there; run gen to place it`,
+        );
+      } else if (h.contract !== w.contract || h.src !== w.src) {
+        violations.push(
+          `placement: ${LOCK_PREFIX} records ${site} as ${h.contract} from ` +
+            `${h.src}, the table places ${w.contract} from ${w.src}; run gen`,
+        );
+        disputed.add(`${skill}\0${key}`);
+      }
+    }
+  }
+  for (const skill of Object.keys(placements).sort(compareStrings)) {
+    for (const key of Object.keys(placements[skill]).sort(compareStrings)) {
+      if (disputed.has(`${skill}\0${key}`)) continue;
+      const placement = placements[skill][key];
+      const kind: RawKind = key.endsWith("/") ? "directory" : "file";
+      const dest = kind === "directory" ? key.slice(0, -1) : key;
+      const site = `${SKILLS_DIR}/${skill}/${dest}`;
+      const observed = await observeDest(root, site);
+      if (observed === null) {
+        violations.push(`drift: ${displayName(site)} is missing`);
+        continue;
+      }
+      if (observed.kind !== kind) {
+        throw new ConfigError(
+          `${displayName(site)}: ${LOCK_PREFIX} records a ${kind} there, ` +
+            `found a ${observed.kind}`,
+        );
+      }
+      const digest = await observedDigest(observed, site);
+      if (digest !== placement.digest) {
+        violations.push(
+          `drift: ${displayName(site)} holds files digesting to ${digest}, ` +
+            `the lock pins ${placement.digest}`,
+        );
+      }
+      if (kind === "directory") {
+        const contract = resolutions[placement.contract];
+        const marker = observed.entries.find((e) => e.path === MARKER_FILE);
+        const wanted =
+          contract === undefined
+            ? null
+            : new TextEncoder().encode(
+                vendorHeader(placement.contract, contract.digest),
+              );
+        if (
+          wanted !== null &&
+          (marker === undefined || !sameBytes(marker.content, wanted))
+        ) {
+          violations.push(
+            `drift: ${displayName(`${site}/${MARKER_FILE}`)} does not carry ` +
+              `the marker generated for ${contract.digest}`,
+          );
+        }
+      }
+    }
+  }
+  return violations;
+}
+
+const LOCK_PREFIX = "vendor-lock.json";
