@@ -727,3 +727,15 @@ test("a run stopped between the copies and the sweep converges on the next gen",
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
+
+test("a .gitignore placed inside a directory dest hides nothing: the extra files are drift", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/${DEST}/.gitignore`, ".gitignore\nevil.py\n");
+    await writeFile(`${root}/${DEST}/evil.py`, "EVIL\n");
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toStrictEqual(1);
+    expect(verify.stdout.join("\n")).toContain(`drift: ${DEST}`);
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(2);
+  });
+});

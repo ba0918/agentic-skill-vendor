@@ -43,6 +43,7 @@ import {
   kindAt,
   type PlacedFile,
   readBytes,
+  dirNameOf,
   walkFiles,
 } from "./walk.ts";
 import {
@@ -240,7 +241,7 @@ async function observeDest(
     throw new ConfigError(`${displayName(site)}: not a regular file`);
   }
   const found = await walkFiles(`${root}/${site}`, site);
-  const rules = await readIgnoreRules(root, ancestorDirectories(site));
+  const rules = await readIgnoreRules(root, destIgnoreLevels(site));
   const ignored = new Set(
     found.filter((path) => rules.excludes(joinRelative(site, path))),
   );
@@ -422,6 +423,16 @@ async function planSweep(
 }
 
 /**
+ * The .gitignore levels that have a say over a dest: the root down to the
+ * dest's parent. A .gitignore inside the dest is not one of them — the tool
+ * never distributes one there, so one standing there is a foreign file, and
+ * reading it would let that file hide itself and anything beside it.
+ */
+function destIgnoreLevels(site: string): string[] {
+  return ancestorDirectories(dirNameOf(site));
+}
+
+/**
  * Refuses a dest the tree's own ignore rules would hide, and a file that
  * would be hidden once placed there.
  *
@@ -437,7 +448,7 @@ async function assertNotIgnored(
   kind: RawKind,
   files: PlacedFile[],
 ): Promise<void> {
-  const rules = await readIgnoreRules(root, ancestorDirectories(site));
+  const rules = await readIgnoreRules(root, destIgnoreLevels(site));
   if (rules.excludes(site, kind === "directory")) {
     throw new ConfigError(
       `${displayName(site)} is excluded by a .gitignore of this repository; ` +
