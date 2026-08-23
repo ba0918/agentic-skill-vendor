@@ -222,6 +222,8 @@ export async function listVendorEntries(
 interface WritePlan {
   files: { site: string; content: Uint8Array }[];
   directories: { site: string; files: PlacedFile[] }[];
+  /** Raw-byte dests to clear: before the lock, which is their only memory. */
+  sweeps: string[];
   lock: { site: string; content: Uint8Array };
   removals: string[];
   report: string[];
@@ -307,11 +309,12 @@ export async function planExpansion(
           sources,
           locations,
           declaration,
-          placed.dests.length > 0 ? placed.placements : placements,
+          placed.placements,
           presentRawIds(raws),
         ),
       ),
     },
+    sweeps: placed.sweeps,
     removals,
     report: placed.report,
   };
@@ -346,26 +349,43 @@ export async function executePlan(
   for (const directory of plan.directories) {
     await atomicWriteDirectory(root, directory.site, directory.files);
   }
+  // The raw-byte sweeps go before the lock, unlike the document removals
+  // below. The lock is the only memory of a raw-byte dest: written first, a
+  // sweep that then failed would leave a directory nothing remembers. What
+  // the sweep can lose is only what the gate confirmed this tool wrote.
+  const swept = await removeEach(root, plan.sweeps);
+  if (swept !== null) throw swept;
   await atomicWriteFile(root, plan.lock.site, plan.lock.content);
+  const failed = await removeEach(root, plan.removals);
+  if (failed !== null) throw failed;
+}
+
+/**
+ * Removes every site, attempting each before reporting any, so one file that
+ * cannot be cleared does not leave the rest standing behind it. The refusal
+ * names the first failure, or null where all went.
+ */
+async function removeEach(
+  root: string,
+  sites: string[],
+): Promise<ConfigError | null> {
   const failures: { site: string; cause: unknown }[] = [];
-  for (const site of plan.removals) {
+  for (const site of sites) {
     try {
+      await assertPlainChain(root, site);
       // A path already gone is the state this asks for, not a failure: `force`
       // is what separates "there is nothing to remove" from "this could not be
       // removed", and only the second is worth stopping over.
       await fs.rm(`${root}/${site}`, { recursive: true, force: true });
     } catch (cause) {
-      // Every removal is attempted before any of them is reported, so one file
-      // that cannot be cleared does not leave the rest standing behind it.
       failures.push({ site, cause });
     }
   }
-  if (failures.length > 0) {
-    const [first] = failures;
-    throw new ConfigError(
-      `cannot remove ${displayName(first.site)}: ${describeCause(first.cause)}`,
-    );
-  }
+  if (failures.length === 0) return null;
+  const [first] = failures;
+  return new ConfigError(
+    `cannot remove ${displayName(first.site)}: ${describeCause(first.cause)}`,
+  );
 }
 
 /**

@@ -139,6 +139,8 @@ export interface PlannedDest {
 export interface PlacementPlan {
   dests: PlannedDest[];
   placements: Placements;
+  /** The dests the run clears, as tree-relative sites; all gate-checked. */
+  sweeps: string[];
   report: string[];
 }
 
@@ -280,7 +282,78 @@ export async function planPlacements(
       }
     }
   }
-  return { dests, placements, report };
+  const sweeps = await planSweep(root, recorded, dests, report);
+  return { dests, placements, sweeps, report };
+}
+
+/**
+ * The dests the lock remembers that this run does not write: each one of
+ * them is cleared, and only when it still holds what the lock says it does.
+ *
+ * Compared as (skill, dest) pairs, never as dest strings alone — two skills
+ * sharing a dest string must not excuse each other's sweep. A remembered dest
+ * that nests with one this run writes is refused: whichever of copy and sweep
+ * went first would destroy the other's work, so the table asks for two steps.
+ * A dest already gone is the state the sweep asks for, reported as such so
+ * the lock forgetting it leaves a line in the output.
+ */
+async function planSweep(
+  root: string,
+  recorded: Placements,
+  dests: PlannedDest[],
+  report: string[],
+): Promise<string[]> {
+  const written = new Set(dests.map((dest) => `${dest.skill}\0${dest.key}`));
+  const sweeps: string[] = [];
+  for (const skill of Object.keys(recorded).sort(compareStrings)) {
+    for (const key of Object.keys(recorded[skill]).sort(compareStrings)) {
+      if (written.has(`${skill}\0${key}`)) continue;
+      const kind: RawKind = key.endsWith("/") ? "directory" : "file";
+      const dest = kind === "directory" ? key.slice(0, -1) : key;
+      const site = `${SKILLS_DIR}/${skill}/${dest}`;
+      const placement = recorded[skill][key];
+      for (const planned of dests) {
+        if (planned.skill !== skill) continue;
+        const other = planned.mapping.dest;
+        if (other.startsWith(`${dest}/`) || dest.startsWith(`${other}/`)) {
+          throw new ConfigError(
+            `${displayName(site)} is recorded in the lock and nests with ` +
+              `${displayName(planned.site)}, which this run writes; withdraw ` +
+              `the declaration from every skill, run gen, then place the new ` +
+              `dest`,
+          );
+        }
+      }
+      const observed = await observeDest(root, site);
+      if (observed === null) {
+        report.push(
+          `cleared: ${displayName(site)}${kind === "directory" ? "/" : ""} ` +
+            `(${placement.contract}; already absent)`,
+        );
+        continue;
+      }
+      if (observed.kind !== kind) {
+        throw new ConfigError(
+          `${displayName(site)}: the lock records a ${kind} there, found a ` +
+            `${observed.kind}; it is not this tool's to clear`,
+        );
+      }
+      const digest = await observedDigest(observed, site);
+      if (digest !== placement.digest) {
+        throw new ConfigError(
+          `refusing to clear ${displayName(site)}: it no longer holds what ` +
+            `the lock recorded this tool wrote there; delete it by hand if ` +
+            `it is not yours`,
+        );
+      }
+      sweeps.push(site);
+      report.push(
+        `cleared: ${displayName(site)}${kind === "directory" ? "/" : ""} ` +
+          `(${placement.contract})`,
+      );
+    }
+  }
+  return sweeps;
 }
 
 /**

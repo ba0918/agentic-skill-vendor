@@ -150,3 +150,105 @@ test("a lock whose placement digest was hand-edited passes the shape check and s
     expect(result.stdout.join("\n")).toContain(`drift: ${DEST} holds files`);
   });
 });
+
+/** Declares the runtime in a second skill too. */
+async function alsoDeclareIn(root: string, skill: string): Promise<void> {
+  const file = `${root}/skills/${skill}/SKILL.md`;
+  await fs.writeFile(
+    file,
+    (await fs.readFile(file, "utf8")).replace(
+      "  contracts:\n",
+      "  contracts:\n    - workflow-runtime\n",
+    ),
+  );
+}
+
+async function undeclareIn(root: string, skill: string): Promise<void> {
+  const file = `${root}/skills/${skill}/SKILL.md`;
+  await fs.writeFile(
+    file,
+    (await fs.readFile(file, "utf8")).replace("    - workflow-runtime\n", ""),
+  );
+}
+
+test("a skill that stops declaring a raw-byte contract has its dest swept and reported", async () => {
+  await withRawTree(async (root) => {
+    await alsoDeclareIn(root, "review-writer");
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "review-writer");
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "cleared: skills/review-writer/scripts/_runtime/ (workflow-runtime)",
+    );
+    await expect(
+      fs.stat(`${root}/skills/review-writer/scripts/_runtime`),
+    ).rejects.toThrow();
+    // The other skill's copy at the same dest string is untouched.
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    expect((await readLockFile(root)).placements["review-writer"]).toBe(
+      undefined,
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a dest renamed in the table is written anew and the old dest swept in one gen", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "scripts/_runtime/",
+        "scripts/runtime/",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime)",
+    );
+    expect(result.stdout.filter((l) => l.startsWith("adopted:"))).toStrictEqual(
+      [],
+    );
+    expect(
+      await fs.readFile(
+        `${root}/skills/release-notes/scripts/runtime/runtime.py`,
+        "utf8",
+      ),
+    ).toBe("print('run')\r\n");
+    await expect(fs.stat(`${root}/${DEST}`)).rejects.toThrow();
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a dest due to be swept that the user edited is refused before anything is written", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "release-notes");
+    await fs.writeFile(`${root}/${DEST}/runtime.py`, "mine now\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(DEST);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "mine now\n",
+    );
+  });
+});
+
+test("a sweep target that is already gone is reported as absent and forgotten", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.rm(`${root}/skills/release-notes`, { recursive: true });
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime; already absent)",
+    );
+    expect((await readLockFile(root)).placements).toBe(undefined);
+  });
+});
