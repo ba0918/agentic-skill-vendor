@@ -5,6 +5,22 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Raw-byte contracts.** A `files` line in `vendor-manifest.yaml` maps canonical files and
+  directories (in this repository or a registered source) to a dest of your choosing inside
+  every skill declaring the contract. The bytes are copied as they are — no header, no
+  normalization — and a directory copy carries a `.vendored` marker. The lock gains
+  `placements` (what was written where, per skill and dest) and marks such a resolution
+  `"kind": "raw"`; `gen` writes a dest only where nothing stands, where the lock remembers
+  writing it, or where it already holds exactly what would be written (`claimed`), clears the
+  dests no skill declares any more (`cleared`), and refuses the rest. `verify` checks each
+  dest against the digest recorded for it and the record against the table (`placement`),
+  without the canonical files or a network. `add` and `update` report a declared id found at
+  no conventional position as `unlocated`.
+
 ## [0.2.0] - 2026-08-18
 
 ### Added

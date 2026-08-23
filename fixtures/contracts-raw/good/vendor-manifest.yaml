@@ -1,0 +1,11 @@
+contracts:
+  report-format:
+    source: local
+  workflow-runtime:
+    source: local
+    files:
+      tools/workflow-runtime/: scripts/_runtime/
+  check-script:
+    source: local
+    files:
+      tools/scripts/check.sh: scripts/check.sh

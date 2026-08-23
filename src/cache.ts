@@ -16,7 +16,12 @@ import { compareStrings } from "./digest.ts";
 import { ancestorDirectories, readIgnoreRules } from "./ignore.ts";
 import type { LockSources } from "./manifest.ts";
 import { TOOL_DIR } from "./sources.ts";
-import { displayName, isDirectoryOrAbsent, listEntries } from "./walk.ts";
+import {
+  assertPlainChain,
+  displayName,
+  isDirectoryOrAbsent,
+  listEntries,
+} from "./walk.ts";
 
 /** Where fetched material is kept, relative to the tree root. */
 export const CACHE_DIR = `${TOOL_DIR}/cache`;
@@ -61,12 +66,15 @@ export function cacheSiteOf(
  * Only names the directory listing itself supplies are removed, and the listing
  * refuses a symlink before it hands one over. A name read off disk cannot carry
  * a separator, so nothing here can be steered into removing a path outside the
- * cache.
+ * cache — except through the chain above it: the removal is recursive, and a
+ * link at the tool directory itself would resolve every name outside the tree,
+ * so the chain is refused first.
  */
 export async function pruneCache(
   root: string,
   sources: LockSources,
 ): Promise<string[]> {
+  await assertPlainChain(root, CACHE_DIR);
   const removed: string[] = [];
   for (const source of await cacheEntries(root, CACHE_DIR)) {
     const pinned = sources[source]?.revision;
@@ -115,6 +123,27 @@ async function cacheEntries(root: string, relative: string): Promise<string[]> {
  * be a copy of a rule set, and a copy diverges silently.
  */
 export async function cacheIsIgnored(root: string): Promise<boolean> {
-  const rules = await readIgnoreRules(root, ancestorDirectories(CACHE_DIR));
-  return rules.excludes(CACHE_DIR);
+  return await isIgnored(root, CACHE_DIR);
+}
+
+/** True when the tree's ignore rules exclude `relative`. */
+export async function isIgnored(
+  root: string,
+  relative: string,
+): Promise<boolean> {
+  const rules = await readIgnoreRules(root, ancestorDirectories(relative));
+  return rules.excludes(relative);
+}
+
+/**
+ * The line a command prints over a tool directory the repository tracks. One
+ * wording for the cache and the staging directory alike: the remedy is the
+ * same line in .gitignore.
+ */
+export function unignoredWarning(relative: string): string {
+  return (
+    `warning: ${relative} is not ignored by this repository; add ` +
+    `/${relative.split("/")[0]}/ to .gitignore so the tool's working ` +
+    `files are never committed`
+  );
 }

@@ -88,6 +88,7 @@ contracts/<id>.md                         the canonical text of a contract
 contracts/<id>/conformance/**             its conformance tests, if any
 skills/<name>/SKILL.md                    a skill, declaring what it depends on
 skills/<name>/references/vendor/<id>.md   the copy this tool writes into that skill
+skills/<name>/<dest>                      a raw-byte contract's copy, where the table says
 vendor-manifest.yaml                      the table of origins: where each contract comes from
 vendor-lock.json                          the lock: the digest recorded for each contract
 .agentic-skill-vendor/                    the cache of fetched text — never committed
@@ -123,6 +124,72 @@ or extra file, and a lock that no longer matches what the tree renders to fail t
 Withdrawing a contract — removing it from the skills' declarations and deleting its canonical
 text — is the same act at the other end: the next `gen` retires its resolution and reports
 `retired: <id>`, so the removal never happens silently.
+
+## Distributing files and directories as they are
+
+A contract need not be a document. Scripts several skills share — a runtime every workflow
+skill drives, a helper a few of them call — are distributed as raw bytes, from one canonical
+place to a position of your choosing inside each skill, by a `files` line in the table of
+origins:
+
+```yaml
+contracts:
+  workflow-runtime:
+    source: local
+    files:
+      tools/workflow-runtime/: scripts/_runtime/    # a directory, whole
+  check-script:
+    source: local
+    files:
+      tools/scripts/check.sh: scripts/check.sh      # one file
+```
+
+The left side is where the canonical files are (in this repository, or in a registered source);
+the right side is where each copy lands, relative to the skill. A trailing slash on both sides
+names a directory, on neither a file. The bytes are copied exactly — no header, no line-ending
+normalization — and a directory copy carries one extra file, `.vendored`, saying where it came
+from. Skills declare the contract by id, as they declare every contract:
+
+```yaml
+metadata:
+  contracts:
+    - workflow-runtime
+```
+
+`files` lines are yours to write, always: there is no conventional position for a set of files,
+so nothing derives them, and `gen` never takes one out. `add` and `update` report a declared id
+they find at no conventional position as `unlocated: <id>`, which is the cue to write one.
+
+The copies land wherever you pointed them, so the lock records what was written where —
+`placements`, skill by skill and dest by dest — and `gen` reads that record before it touches a
+path:
+
+- A dest that holds nothing is written. A dest the lock remembers, still holding what was
+  written there, is replaced. A dest that already holds exactly what `gen` would write — a hand
+  copy from before, or a tree whose lock was lost — is taken over and reported as
+  `claimed: skills/<skill>/<dest> (<id>)`. Anything else standing at a dest stops the run: the
+  tool never replaces what it cannot show it wrote.
+- A dest the lock remembers that no skill declares any more — the skill withdrew, the table
+  moved the dest, the skill directory went — is cleared and reported as
+  `cleared: skills/<skill>/<dest> (<id>)`, or `(<id>; already absent)` where nothing was left
+  to clear. Only a dest still holding what the lock recorded is cleared; one you have edited
+  since is refused.
+- Inside a directory dest, files the repository's `.gitignore` rules exclude — `__pycache__/`
+  after a run, an editor's leavings — are neither checked nor protected: they go with the next
+  replacement. A directory dest is the tool's; keep local files out of it. A dest, or a file
+  being placed in one, that those rules would exclude outright is refused instead, since a copy
+  `verify` cannot see is not one `gen` may write.
+
+`verify` compares each recorded dest with the digest recorded for it, and the record itself
+with what the declarations and the table say it should be (`placement`), and needs neither the
+canonical files nor a network to do so. Moving a dest in the table changes no contract digest
+and produces no `adopted` line; moving the canonical files themselves does, since where the
+files sit is part of what a raw-byte contract is.
+
+A contract cannot change kind in place: a row rewritten from `files` to a document, or back, is
+refused while the lock remembers the other kind. Withdraw it from every skill, run `gen`, take
+the row out, run `gen` again, then write the new row. Executable bits are not copied and not
+checked; invoke a distributed script through its interpreter.
 
 ## Taking a contract from another repository
 
@@ -220,6 +287,19 @@ change.
 No source path and no time of generation appear anywhere in the file, so two runs over
 unchanged input produce the same bytes.
 
+**A raw-byte contract's digests** — the same framing as a conformance digest (below), twice.
+The contract's own digest names each file by its canonical path (the `files` key, expanded for
+a directory), so it says what the canonical side is and nothing about where copies land. Each
+placement's digest names the files relative to the dest — a file dest by its own name — and
+leaves out the `.vendored` marker, so a copy can be judged from the copy alone. The marker
+itself is the four-line header above as a file of its own, carrying the contract's digest.
+
+**The lock** — `dependencies` (skill → ids), `resolutions` (id → digest, with `conformance`
+where tests exist and `"kind": "raw"` for a raw-byte contract), `sources` (pins, only where a
+source is registered) and `placements` (skill → dest → `contract`, `src`, `digest`, only where
+raw bytes are distributed). `placements` is written by `gen` alone and carried unchanged by
+every other command; directory dests and srcs keep their trailing slash.
+
 **A conformance digest** — the contract's conformance tree hashed as one sequence, each file
 framed as `<relative posix path> NUL <byte length in decimal> NUL <bytes>`, in path order, raw
 bytes, never canonicalized. Files excluded by the tree's own `.gitignore` rules are left out —
@@ -245,9 +325,10 @@ looks finished: whatever it leaves behind is a state `verify` reports as a viola
 | `closure` | `gen`, `verify` | a skill declares a contract whose canonical text is not there — the one state `gen` refuses to write over |
 | `unresolved` | `verify` | the lock records nothing for a declared contract |
 | `stale-lock` | `verify` | the lock records a digest the canonical text no longer has |
-| `drift` | `verify` | a vendored copy is missing, or is not what the lock pins |
+| `drift` | `verify` | a vendored copy, a raw-byte dest or its `.vendored` marker is missing, or is not what the lock pins |
 | `extra` | `verify` | a file under a skill's vendor directory answers to no declaration |
 | `lock` | `verify` | the lock file differs from what the tree renders to |
+| `placement` | `verify` | the lock's record of what was placed where disagrees with what the declarations and the table say |
 | `source-mismatch` | `verify` | the lock pins a source to a repository the table of origins does not register it at |
 | `conformance-mismatch` | `verify` | a conformance tree differs from the digest the lock records |
 | `parent-escape` | `lint-selfcontain` | something inside a skill points above its own directory |
@@ -255,9 +336,9 @@ looks finished: whatever it leaves behind is a state `verify` reports as a viola
 | `symlink-escape` | `lint-selfcontain` | a symlink inside a skill resolves outside it |
 | `self-test` | `self-test` | the tool disagrees with a vector embedded in it |
 
-A successful run reports in the same shape, and on the same stability footing: `adopted` and
-`retired` from `gen`, `mapped` and `unmapped` for the table of origins, and `resolved` from
-`add` and `update` for each pin they moved.
+A successful run reports in the same shape, and on the same stability footing: `adopted`,
+`retired`, `claimed` and `cleared` from `gen`, `mapped` and `unmapped` for the table of origins,
+and `resolved` and `unlocated` from `add` and `update`.
 
 ## Design notes
 

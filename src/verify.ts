@@ -16,12 +16,14 @@ import type { SkillDeclaration } from "./declaration.ts";
 import {
   LOCK_FILE,
   type LockSources,
+  type Placements,
   renderExpectedLock,
   type Resolutions,
   sourceViolations,
 } from "./manifest.ts";
 import {
   closureViolations,
+  conformanceDirectoriesOf,
   listVendorEntries,
   locateTreeContracts,
   lockViolations,
@@ -31,6 +33,17 @@ import {
   vendorHeader,
 } from "./gen.ts";
 import type { ContractLocation, Declaration } from "./sources.ts";
+import {
+  assertKindsAgree,
+  assertSrcsClearOfConformance,
+  deriveRawResolutions,
+  isRawId,
+  placementViolations,
+  rawClosureViolations,
+  rawLockViolations,
+  readRawContracts,
+} from "./placements.ts";
+import { declaredIds } from "./declaration.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the
@@ -49,18 +62,24 @@ async function copyViolations(
   root: string,
   skills: SkillDeclaration[],
   resolutions: Resolutions,
+  declaration: Declaration,
 ): Promise<string[]> {
   const encoder = new TextEncoder();
   const violations: string[] = [];
   for (const skill of skills) {
     const dir = vendorDirOf(skill.name);
-    const accountedFor = new Set(skill.contracts.map((id) => `${id}.md`));
+    // A raw-byte contract lands where the table says, never here; the
+    // placements check answers for it.
+    const documents = skill.contracts.filter(
+      (id) => !isRawId(id, declaration, resolutions),
+    );
+    const accountedFor = new Set(documents.map((id) => `${id}.md`));
     // What the vendor directory holds is read before any copy inside it is
     // asked about. Asked the other way round, a tree where that path is not a
     // directory at all is refused for whichever copy happened to be looked up
     // first, naming a file below a directory that is not one.
     const present = await listVendorEntries(root, skill.name);
-    for (const id of [...skill.contracts].sort(compareStrings)) {
+    for (const id of [...documents].sort(compareStrings)) {
       const resolution = resolutions[id];
       if (resolution === undefined) continue;
       const site = `${dir}/${id}.md`;
@@ -127,6 +146,7 @@ async function lockFileViolations(
   sources: LockSources,
   locations: Map<string, ContractLocation>,
   declaration: Declaration,
+  placements: Placements,
 ): Promise<string[]> {
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     return [`lock: ${LOCK_FILE} is missing`];
@@ -140,6 +160,7 @@ async function lockFileViolations(
     sources,
     locations,
     declaration,
+    placements,
   );
   const actual = decodeUtf8(
     await readBytes(`${root}/${LOCK_FILE}`, LOCK_FILE),
@@ -198,8 +219,19 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
+  assertKindsAgree(state.declaration, resolutions);
   const locations = await locateTreeContracts(root, state);
+  assertSrcsClearOfConformance(
+    state.declaration,
+    conformanceDirectoriesOf(locations),
+  );
   const contracts = await readContracts(root, locations);
+  const raws = await readRawContracts(
+    root,
+    state.declaration,
+    sources,
+    declaredIds(skills),
+  );
 
   // The three file-system checks are independent of one another and of the
   // check against the canonical text, so they overlap; their findings are
@@ -207,7 +239,14 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   // refusal names the first failing check in that fixed order rather than
   // whichever settled first.
   const settled = await Promise.allSettled([
-    copyViolations(root, skills, resolutions),
+    copyViolations(root, skills, resolutions, state.declaration),
+    placementViolations(
+      root,
+      skills,
+      state.declaration,
+      state.placements,
+      resolutions,
+    ),
     lockFileViolations(
       root,
       skills,
@@ -215,12 +254,20 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
       sources,
       locations,
       state.declaration,
+      state.placements,
     ),
     conformanceViolations(root, resolutions, locations),
   ]);
   const violations = [
     ...closureViolations(skills, contracts, locations),
+    ...rawClosureViolations(skills, raws),
     ...lockViolations(skills, contracts, resolutions, locations),
+    ...rawLockViolations(
+      skills,
+      raws,
+      resolutions,
+      await deriveRawResolutions(raws),
+    ),
   ];
   for (const result of settled) {
     if (result.status === "fulfilled") {

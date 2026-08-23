@@ -109,3 +109,28 @@ test("a temporary a stopped fetch left behind is cleared out of the cache", asyn
     ]);
   });
 });
+
+test("pruning refuses a tool directory that is a symlink and leaves what it points at untouched", async () => {
+  await withEmptyDir(async (outside) => {
+    await withEmptyDir(async (root) => {
+      // The prune removes whole directories by name under the cache. With the
+      // tool directory itself a link, those names resolve outside the tree,
+      // and a recursive removal there would take someone else's files.
+      await writeFile(
+        `${outside}/cache/withdrawn/${REVISION}/contracts/a.md`,
+        "not ours\n",
+      );
+      await fs.symlink(outside, `${root}/.agentic-skill-vendor`);
+
+      await expect(pruneCache(root, SOURCES)).rejects.toThrow(
+        "symlink is not allowed inside the tree: .agentic-skill-vendor",
+      );
+      expect(
+        await fs.readFile(
+          `${outside}/cache/withdrawn/${REVISION}/contracts/a.md`,
+          "utf8",
+        ),
+      ).toStrictEqual("not ours\n");
+    });
+  });
+});

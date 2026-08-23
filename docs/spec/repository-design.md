@@ -72,7 +72,12 @@ lock ファイル vendor-lock.json は、解決結果のみを持つ。ツール
 
 リモート source 対応(docs/spec/remote-sources.md)で、lock は取得元 commit を記録する
 sources 節を持つようになった。source を 1 つも持たない木は従来の 2 節をそのまま描画する。
-契約の出典そのものは lock ではなく宣言ファイル vendor-manifest.yaml が持つ。
+契約の出典そのものは lock ではなく表 vendor-manifest.yaml が持つ。
+
+生バイト契約(docs/spec/raw-contracts.md)で、lock はさらに placements 節(スキル →
+dest → 契約 id・src・配置の digest)を持ち、生バイト契約の resolution は `kind: raw` を
+持つ。placements は gen だけが書き、他のコマンドの描画は鍵ごと無条件に持ち越す。
+生バイト契約を配らない木は節ごと描画しない。
 
 ## 採用 — gen への一本化
 
@@ -108,6 +113,9 @@ verify は次の独立した照合を行う。どれか一つが失敗しても�
   落ちるため、その状態もここで落ちる
 - **conformance 対 lock**: 契約に付属する conformance ツリーが、採用時に控えた
   digest と一致するか
+- **配置 対 表**(生バイト契約): 宣言と表から導いた「各スキルが持つべき配置」と lock の
+  placements が一致するか。placements は持ち越しで描画されるため、lock の正規形照合では
+  表との食い違いが見えない
 
 lock にツールの版を含む可変なメタデータは存在しないため、ツール自身の更新はどの照合にも
 影響しない。digest の算出規則や lock の形式を変える変更は、それ自体が上記の照合を
@@ -169,8 +177,13 @@ Node 互換 JS をビルドして同梱する(生成物はリポジトリにコ�
 - 期待する種別と異なるファイルシステム上の実体(ディレクトリの位置にファイル、
   通常ファイルの位置にディレクトリや FIFO 等)を、読み書きどちらの側でも
   「不在」や既定値として黙って扱わず、拒否して止まる
-- 生成物の書き込みは原子的に行う
+- 生成物の書き込みは原子的に行う。生バイト契約のディレクトリ dest の置き換えだけは、
+  rename が空でないディレクトリを置き換えられないため、旧 dest の削除と rename の間に
+  不在の瞬間がある。dest は丸ごと在るか丸ごと無いかのどちらかであり、半分だけ書かれた
+  ディレクトリは存在しない
 - 同一性検証はバイトレベルの走査で行う
+- 検査と使用の間の入れ替えは受容する。生バイト契約が持ち込む再帰削除(ディレクトリ
+  dest の置き換えと掃除)にも同じ範囲で及ぶ
 
 (これらを TDD で先行して固める進め方や、agentic-meta で試作された旧 Python 実装の
 テスト群を互換性契約ではなく境界条件チェックリストとして参照する規律は、
@@ -181,12 +194,14 @@ Node 互換 JS をビルドして同梱する(生成物はリポジトリにコ�
 verify がバイト同一比較である以上、次はすべて外部互換性そのものであり、
 安定保証面として扱う。
 
-- CLI・lock schema・宣言ファイルの schema・exit code
+- CLI・lock schema(placements 節、resolution の kind 欄を含む)・表の schema(files 欄を
+  含む)・exit code
 - digest アルゴリズム・正規化規則
-- conformance ツリーの framing 規則
-- vendor ヘッダのバイト形式
-- violation kind
-- 報告行の形式(gen の adopted / retired / mapped / unmapped、add・update の resolved)
+- framing 規則(conformance ツリー、生バイト契約の契約 digest と配置 digest が共有する)
+- vendor ヘッダのバイト形式(ディレクトリ dest の .vendored も同じ)
+- violation kind(placement を含む)
+- 報告行の形式(gen の adopted / retired / claimed / cleared / mapped / unmapped、
+  add・update の resolved / unlocated)
 
 Python API / TypeScript API の公開は、要求が観測されるまで行わない。
 

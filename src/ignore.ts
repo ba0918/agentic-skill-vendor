@@ -17,9 +17,13 @@ interface IgnoreLevel {
   matcher: Ignore;
 }
 
-interface IgnoreRules {
-  /** True when the rules exclude this tree-relative path. */
-  excludes(relative: string): boolean;
+export interface IgnoreRules {
+  /**
+   * True when the rules exclude this tree-relative path. The path is a file
+   * unless said otherwise: a `name/` rule matches a directory and nothing
+   * else, so what stands at the end has to be stated to be judged.
+   */
+  excludes(relative: string, isDirectory?: boolean): boolean;
 }
 
 /** The directory a tree-relative path sits in; "" for one at the tree root. */
@@ -70,7 +74,10 @@ export async function readIgnoreRules(
       matcher: ignore().add(await readTextFile(`${root}/${site}`, site)),
     });
   }
-  return { excludes: (relative) => excludedBy(levels, relative) };
+  return {
+    excludes: (relative, isDirectory = false) =>
+      excludedBy(levels, relative, isDirectory),
+  };
 }
 
 /**
@@ -82,11 +89,16 @@ export async function readIgnoreRules(
  * bring a file back; deciding per path component reproduces that instead of
  * letting the deepest rule re-include what its own directory already lost.
  */
-function excludedBy(levels: IgnoreLevel[], relative: string): boolean {
+function excludedBy(
+  levels: IgnoreLevel[],
+  relative: string,
+  isDirectory: boolean,
+): boolean {
   const parts = relative.split("/");
   for (let depth = 0; depth < parts.length; depth++) {
     const candidate = parts.slice(0, depth + 1).join("/");
-    if (verdictFor(levels, candidate, depth < parts.length - 1)) return true;
+    const directory = depth < parts.length - 1 || isDirectory;
+    if (verdictFor(levels, candidate, directory)) return true;
   }
   return false;
 }

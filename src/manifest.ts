@@ -26,6 +26,9 @@ import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
+  destsCollide,
+  isTreeRelativePath,
+  reservedDestRefusal,
 } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
@@ -53,9 +56,29 @@ const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
 export interface Resolution {
   digest: string;
   conformance?: string;
+  /** Present on a raw-byte contract; a document contract carries no kind. */
+  kind?: "raw";
 }
 
 export type Resolutions = Record<string, Resolution>;
+
+/**
+ * What the tool wrote at one dest of one skill: which contract, from which src,
+ * and what the dest's own content digests to.
+ *
+ * Recorded per skill and per dest rather than per contract. The gate that
+ * keeps gen from replacing a person's directory is a fact about one skill's
+ * one path, and a record keyed by contract would call skill B's untouched
+ * directory "already written" the moment skill A's was.
+ */
+export interface Placement {
+  contract: string;
+  src: string;
+  digest: string;
+}
+
+/** skill → dest → what stands there. Directory dests keep their trailing slash. */
+export type Placements = Record<string, Record<string, Placement>>;
 
 /**
  * Where one source's contracts were taken from, and at which commit.
@@ -127,6 +150,7 @@ export function buildLock(
   resolutions: Resolutions,
   present: string[],
   sources: LockSources,
+  placements: Placements,
 ): unknown {
   const resolved: Resolutions = emptyRecord();
   for (const id of [...present].sort(compareStrings)) {
@@ -142,6 +166,11 @@ export function buildLock(
   // never asks — and the absence of the key is what lets such a tree be
   // migrated by renaming the file and nothing else.
   if (Object.keys(sources).length > 0) lock["sources"] = sources;
+  // The same rule for the placements: a tree distributing no raw bytes renders
+  // no key for them. Carried as the lock holds them, never pruned here — the
+  // record is gen's memory of what it wrote, and a rendering that dropped an
+  // entry would make every other command forget a dest before gen swept it.
+  if (Object.keys(placements).length > 0) lock["placements"] = placements;
   return lock;
 }
 
@@ -160,13 +189,16 @@ export async function renderExpectedLock(
   sources: LockSources,
   locations: Map<string, ContractLocation>,
   declaration: Declaration,
+  placements: Placements,
+  rawPresent?: string[],
 ): Promise<string> {
   return canonicalJson(
     buildLock(
       dependenciesOf(skills),
       resolutions,
-      await presentContractIds(root, resolutions, locations),
+      await presentContractIds(root, resolutions, locations, rawPresent),
       registeredSources(sources, declaration),
+      placements,
     ),
   );
 }
@@ -327,9 +359,18 @@ async function presentContractIds(
   root: string,
   resolutions: Resolutions,
   locations: Map<string, ContractLocation>,
+  rawPresent: string[] | undefined,
 ): Promise<string[]> {
   const present: string[] = [];
+  const raw = rawPresent === undefined ? null : new Set(rawPresent);
   for (const id of Object.keys(resolutions).sort(compareStrings)) {
+    // A raw-byte contract answers "is the material there" through the module
+    // that reads it, since it has no single site to ask about here. A caller
+    // that read no material — update, add — carries every raw resolution.
+    if (resolutions[id].kind === "raw") {
+      if (raw === null || raw.has(id)) present.push(id);
+      continue;
+    }
     const location = locations.get(id);
     if (location === undefined) {
       throw new ConfigError(
@@ -362,6 +403,8 @@ interface Lock {
    */
   recordedSkills: ReadonlySet<string>;
   resolutions: Resolutions;
+  /** What gen wrote where, for raw-byte contracts. Empty where none exist. */
+  placements: Placements;
   /**
    * The commit each source was pinned at. Written only by the commands that
    * reach the network, and carried across by every command that does not, so
@@ -393,6 +436,7 @@ export async function readLock(root: string): Promise<Lock> {
     return {
       recordedSkills: new Set(),
       resolutions: emptyResolutions(),
+      placements: emptyPlacements(),
       sources: emptySources(),
     };
   }
@@ -431,8 +475,92 @@ export async function readLock(root: string): Promise<Lock> {
       Object.keys(pickObject(rawDependencies, "dependencies")),
     ),
     resolutions: validateResolutions(document),
+    placements: validatePlacements(document),
     sources: validateSources(document),
   };
+}
+
+/** An empty map of placements, and the only place one is made. */
+function emptyPlacements(): Placements {
+  return emptyRecord();
+}
+
+/**
+ * The placements the lock records, or none where it carries no key.
+ *
+ * Every value here is a path the next gen may remove recursively, so each is
+ * held to a shape before it is believed — the skill name to the shape of one
+ * directory name, the dest to the shape of a path inside a skill — for the
+ * reason a revision is: text that was never checked is text an edit can steer
+ * into a deletion outside the tree.
+ */
+function validatePlacements(document: Record<string, unknown>): Placements {
+  const raw = document["placements"];
+  if (raw === undefined) return emptyPlacements();
+  const skills = pickObject(raw, "placements");
+  const placements: Placements = emptyPlacements();
+  for (const skill of Object.keys(skills)) {
+    if (!isPlainSkillName(skill)) {
+      throw new ConfigError(
+        `${LOCK_FILE}: placements names a skill that is not one directory ` +
+          `name: ${JSON.stringify(skill)}`,
+      );
+    }
+    const dests = pickObject(skills[skill], `placements.${skill}`);
+    const entries: Record<string, Placement> = emptyRecord();
+    for (const dest of Object.keys(dests)) {
+      const path = `placements.${skill}.${dest}`;
+      const bare = dest.replace(/\/$/, "");
+      if (!isTreeRelativePath(bare)) {
+        throw new ConfigError(
+          `${LOCK_FILE}: ${path} is not a path inside the skill`,
+        );
+      }
+      const reserved = reservedDestRefusal(bare);
+      if (reserved !== null) {
+        throw new ConfigError(`${LOCK_FILE}: ${path} names ${reserved}`);
+      }
+      for (const other of Object.keys(entries)) {
+        if (destsCollide(other.replace(/\/$/, ""), bare)) {
+          throw new ConfigError(
+            `${LOCK_FILE}: ${path} is the same as or nests with ` +
+              `placements.${skill}.${other}; two distributions cannot share ` +
+              `a place`,
+          );
+        }
+      }
+      const entry = pickObject(dests[dest], path);
+      const contract = requireText(entry["contract"], `${path}.contract`);
+      assertValidContractId(contract, `${LOCK_FILE}: ${path}.contract`);
+      entries[dest] = {
+        contract,
+        src: requireText(entry["src"], `${path}.src`),
+        digest: requireDigest(entry["digest"], `${path}.digest`),
+      };
+    }
+    placements[skill] = entries;
+  }
+  return placements;
+}
+
+/** True for a name that is exactly one directory segment. */
+function isPlainSkillName(name: string): boolean {
+  return (
+    name !== "" &&
+    name !== "." &&
+    name !== ".." &&
+    !name.includes("/") &&
+    !name.includes("\\")
+  );
+}
+
+function requireText(value: unknown, path: string): string {
+  if (typeof value !== "string") {
+    throw new ConfigError(
+      `${LOCK_FILE}: ${path} must be text, found ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
 }
 
 /** An empty map of sources, and the only place one is made. */
@@ -515,6 +643,15 @@ function validateResolutions(document: Record<string, unknown>): Resolutions {
         entry["conformance"],
         `resolutions.${id}.conformance`,
       );
+    }
+    if (entry["kind"] !== undefined) {
+      if (entry["kind"] !== "raw") {
+        throw new ConfigError(
+          `${LOCK_FILE}: resolutions.${id}.kind must be "raw" where present, ` +
+            `found ${JSON.stringify(entry["kind"])}`,
+        );
+      }
+      resolution.kind = "raw";
     }
     resolutions[id] = resolution;
   }

@@ -6,7 +6,7 @@
 // ever recorded, so it is stated once, here, and tested against a vector that
 // was framed and hashed by hand outside this code.
 
-import { compareStrings, concatBytes, digestOfBytes } from "./digest.ts";
+import { framedDigest } from "./raw.ts";
 import {
   assertPlainChain,
   dirNameOf,
@@ -72,24 +72,15 @@ export async function assertPlainContractPaths(
 }
 
 /**
- * Digest over a conformance tree. Files are fed in path order, each framed as
- * `relative-posix-path NUL byte-length NUL content`, so no arrangement of file
- * names and contents can be confused with another one.
- *
- * Content is hashed as raw bytes and never canonicalized: conformance tests run
- * byte-exactly, so a line ending is part of what was pinned.
+ * Digest over a conformance tree: the shared framing, over the files as they
+ * sit under the conformance directory. Content is hashed as raw bytes and
+ * never canonicalized: conformance tests run byte-exactly, so a line ending
+ * is part of what was pinned.
  */
 export async function conformanceDigestOfEntries(
   entries: ConformanceEntry[],
 ): Promise<string> {
-  const ordered = [...entries].sort((a, b) => compareStrings(a.path, b.path));
-  const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
-  for (const entry of ordered) {
-    chunks.push(encoder.encode(`${entry.path}\0${entry.content.length}\0`));
-    chunks.push(entry.content);
-  }
-  return await digestOfBytes(concatBytes(chunks));
+  return await framedDigest(entries);
 }
 
 /**

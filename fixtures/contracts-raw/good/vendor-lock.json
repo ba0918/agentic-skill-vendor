@@ -1,0 +1,46 @@
+{
+  "dependencies": {
+    "implement": [
+      "check-script",
+      "workflow-runtime"
+    ],
+    "plan": [
+      "report-format",
+      "workflow-runtime"
+    ]
+  },
+  "placements": {
+    "implement": {
+      "scripts/_runtime/": {
+        "contract": "workflow-runtime",
+        "digest": "sha256:899c91fa3f00cb34ec9f229132446eeb2cfa4f9496128a4e8de03e6c7ce72ed8",
+        "src": "tools/workflow-runtime/"
+      },
+      "scripts/check.sh": {
+        "contract": "check-script",
+        "digest": "sha256:73d8b92e87a09d10308ffc2378e11004ff5ca6fbd99c6ab714f4069585463c73",
+        "src": "tools/scripts/check.sh"
+      }
+    },
+    "plan": {
+      "scripts/_runtime/": {
+        "contract": "workflow-runtime",
+        "digest": "sha256:899c91fa3f00cb34ec9f229132446eeb2cfa4f9496128a4e8de03e6c7ce72ed8",
+        "src": "tools/workflow-runtime/"
+      }
+    }
+  },
+  "resolutions": {
+    "check-script": {
+      "digest": "sha256:6635043ba99f2aeef10589a6614344a1fb44432cca3835c0bc57f219a4df650c",
+      "kind": "raw"
+    },
+    "report-format": {
+      "digest": "sha256:d394d15e09c3bda558945f3ed8199463c01da1077b9883f416ac0e87493f5032"
+    },
+    "workflow-runtime": {
+      "digest": "sha256:cf590e04742b1129c5379e10ed5368f2ed17e4ab0cddbbe0c3a6c1b88752b57e",
+      "kind": "raw"
+    }
+  }
+}
