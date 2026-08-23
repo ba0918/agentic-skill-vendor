@@ -298,13 +298,16 @@ test("ignored files that appear inside a directory dest neither fail verify nor 
   });
 });
 
-test("a dest the tree's ignore rules exclude is refused rather than written into the dark", async () => {
+test("a dest the tree's ignore rules exclude is refused by gen and verify alike", async () => {
   await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
     await fs.appendFile(`${root}/.gitignore`, "_runtime/\n");
-    const gen = await runCli(["gen", "--root", root]);
-    expect(gen.code).toStrictEqual(2);
-    expect(gen.stderr.join("\n")).toContain("_runtime");
-    expect(gen.stderr.join("\n")).toContain(".gitignore");
+    for (const command of ["gen", "verify"]) {
+      const result = await runCli([command, "--root", root]);
+      expect(result.code, command).toStrictEqual(2);
+      expect(result.stderr.join("\n")).toContain("_runtime");
+      expect(result.stderr.join("\n")).toContain(".gitignore");
+    }
   });
 });
 

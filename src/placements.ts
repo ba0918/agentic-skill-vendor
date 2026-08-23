@@ -49,6 +49,7 @@ import {
 } from "./walk.ts";
 import {
   ancestorDirectories,
+  type IgnoreRules,
   joinRelative,
   readIgnoreRules,
 } from "./ignore.ts";
@@ -453,14 +454,7 @@ async function assertNotIgnored(
   kind: RawKind,
   files: PlacedFile[],
 ): Promise<void> {
-  const rules = await readIgnoreRules(root, destIgnoreLevels(site));
-  if (rules.excludes(site, kind === "directory")) {
-    throw new ConfigError(
-      `${displayName(site)} is excluded by a .gitignore of this repository; ` +
-        `a dest verify cannot see is not one gen may write — change the rule ` +
-        `or the dest`,
-    );
-  }
+  const rules = await assertDestNotIgnored(root, site, kind);
   if (kind !== "directory") return;
   for (const file of files) {
     const path = joinRelative(site, file.path);
@@ -472,6 +466,26 @@ async function assertNotIgnored(
       );
     }
   }
+}
+
+/**
+ * Refuses a dest the tree's own ignore rules would hide, for gen and verify
+ * alike, and hands back the rules for the caller's own further questions.
+ */
+async function assertDestNotIgnored(
+  root: string,
+  site: string,
+  kind: RawKind,
+): Promise<IgnoreRules> {
+  const rules = await readIgnoreRules(root, destIgnoreLevels(site));
+  if (rules.excludes(site, kind === "directory")) {
+    throw new ConfigError(
+      `${displayName(site)} is excluded by a .gitignore of this repository; ` +
+        `a dest verify cannot see is not one gen may write — change the rule ` +
+        `or the dest`,
+    );
+  }
+  return rules;
 }
 
 /**
@@ -628,6 +642,7 @@ export async function placementViolations(
       const kind: RawKind = key.endsWith("/") ? "directory" : "file";
       const dest = kind === "directory" ? key.slice(0, -1) : key;
       const site = `${SKILLS_DIR}/${skill}/${dest}`;
+      await assertDestNotIgnored(root, site, kind);
       const observed = await observeDest(root, site);
       if (observed === null) {
         violations.push(`drift: ${displayName(site)} is missing`);

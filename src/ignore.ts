@@ -17,7 +17,7 @@ interface IgnoreLevel {
   matcher: Ignore;
 }
 
-interface IgnoreRules {
+export interface IgnoreRules {
   /**
    * True when the rules exclude this tree-relative path. The path is a file
    * unless said otherwise: a `name/` rule matches a directory and nothing
