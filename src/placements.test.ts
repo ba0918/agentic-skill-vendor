@@ -100,6 +100,7 @@ test("a hand-edited file inside a directory dest is reported as drift and refuse
     const verify = await runCli(["verify", "--root", root]);
     expect(verify.code).toStrictEqual(1);
     expect(verify.stdout.join("\n")).toContain(`drift: ${DEST}`);
+    expect(verify.stdout.join("\n")).toContain(`${DEST}/runtime.py differs`);
 
     const gen = await runCli(["gen", "--root", root]);
     expect(gen.code).toStrictEqual(2);
@@ -271,12 +272,18 @@ test("gen builds a dest outside the skill, so a neighbour named like a temporary
   });
 });
 
-test("gen warns when the tool directory its staging lives under is not ignored", async () => {
+test("gen warns when the tool directory is not ignored, on a run that places and on one that only sweeps", async () => {
   await withRawTree(async (root) => {
     await fs.rm(`${root}/.gitignore`);
     const result = await runCli(["gen", "--root", root]);
     expect(result.stdout.join("\n")).toContain(
-      "warning: .agentic-skill-vendor/staging is not ignored",
+      "warning: .agentic-skill-vendor is not ignored",
+    );
+    await undeclareIn(root, "release-notes");
+    const sweeping = await runCli(["gen", "--root", root]);
+    expect(sweeping.stdout.join("\n")).toContain("cleared:");
+    expect(sweeping.stdout.join("\n")).toContain(
+      "warning: .agentic-skill-vendor is not ignored",
     );
     await fs.writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
     const quiet = await runCli(["gen", "--root", root]);
@@ -306,7 +313,7 @@ test("a dest the tree's ignore rules exclude is refused by gen and verify alike"
       const result = await runCli([command, "--root", root]);
       expect(result.code, command).toStrictEqual(2);
       expect(result.stderr.join("\n")).toContain("_runtime");
-      expect(result.stderr.join("\n")).toContain(".gitignore");
+      expect(result.stderr.join("\n")).toContain("by .gitignore");
     }
   });
 });
@@ -317,6 +324,9 @@ test("a distributed file that would be ignored at its dest is refused at plannin
     const gen = await runCli(["gen", "--root", root]);
     expect(gen.code).toStrictEqual(2);
     expect(gen.stderr.join("\n")).toContain("helpers.py");
+    expect(gen.stderr.join("\n")).toContain(
+      "by skills/release-notes/.gitignore",
+    );
     await expect(fs.stat(`${root}/${DEST}`)).rejects.toThrow();
   });
 });
@@ -624,7 +634,7 @@ test("a tree whose lock was lost is recorded anew by claiming every dest it stil
     await fs.rm(`${root}/vendor-lock.json`);
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect(result.stdout).toContain(`claimed: ${DEST}/ (workflow-runtime)`);
     expect((await readLockFile(root)).placements).toStrictEqual(
       before.placements,
     );
@@ -722,7 +732,7 @@ test("a run stopped between the copies and the sweep converges on the next gen",
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
     expect(result.stdout).toContain(
-      "claimed: skills/release-notes/scripts/runtime (workflow-runtime)",
+      "claimed: skills/release-notes/scripts/runtime/ (workflow-runtime)",
     );
     expect(result.stdout).toContain(
       "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime)",
@@ -816,7 +826,7 @@ test("a directory copied by hand before the tool owned it is claimed without a m
     await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect(result.stdout).toContain(`claimed: ${DEST}/ (workflow-runtime)`);
     expect(await fs.exists(`${root}/${DEST}/.vendored`)).toStrictEqual(true);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
@@ -904,6 +914,127 @@ test("a closure names the src that is actually absent, not the first row of the 
     expect(result.code).toStrictEqual(1);
     expect(result.stdout.join("\n")).toContain(
       "closure: workflow-runtime is declared by release-notes but tools/absent.py does not exist",
+    );
+  });
+});
+
+test("a .vendored at the top of a remote directory src is refused with the way out named", async () => {
+  await withRemoteRawTree(
+    { "tools/rt/a.py": "A\n", "tools/rt/.vendored": "x" },
+    async (root, github) => {
+      const fetched = await runCli(["fetch", "--root", root], github.fetch);
+      expect(fetched.code).toStrictEqual(2);
+      expect(fetched.stderr.join("\n")).toContain("tools/rt/.vendored");
+      expect(fetched.stderr.join("\n")).toContain("edit the files line");
+    },
+  );
+});
+
+test("a declared id whose table row vanished is reported as closure once, not as a placement too", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        / {2}workflow-runtime:\n( {4}.*\n)*/,
+        "",
+      ),
+    );
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toStrictEqual(1);
+    const lines = verify.stdout.join("\n");
+    expect(lines).toContain("closure: workflow-runtime");
+    expect(lines).not.toContain("placement:");
+  });
+});
+
+test("a dest the lock remembers but the ignore rules now hide is refused by the sweep rather than walked", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "release-notes");
+    await fs.appendFile(`${root}/.gitignore`, "_runtime/\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(".gitignore");
+    await expect(fs.stat(`${root}/${DEST}`)).resolves.toBeDefined();
+  });
+});
+
+test("a file dest named .vendored is refused: the name is the marker and could never verify", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/.vendored\n",
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("scripts/.vendored");
+  });
+});
+
+test("the gate names the file that keeps a dest from being claimed", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${DEST}/runtime.py`, "print('run')\r\n");
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
+    await writeFile(`${root}/${DEST}/.env`, "SECRET=1\n");
+    const extra = await runCli(["gen", "--root", root]);
+    expect(extra.code).toStrictEqual(2);
+    expect(extra.stderr.join("\n")).toContain(`${DEST}/.env`);
+
+    await fs.rm(`${root}/${DEST}/.env`);
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 2\n");
+    const differing = await runCli(["gen", "--root", root]);
+    expect(differing.code).toStrictEqual(2);
+    expect(differing.stderr.join("\n")).toContain(`${DEST}/lib/helpers.py`);
+  });
+});
+
+test("a file dest holding someone else's bytes is refused, not claimed", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/run.py\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - helper-scripts\n",
+      ),
+    );
+    await writeFile(`${root}/skills/release-notes/scripts/run.py`, "MINE\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(
+      "refusing to write skills/release-notes/scripts/run.py",
+    );
+    expect(result.stderr.join("\n")).not.toContain("run.py/run.py");
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/scripts/run.py`, "utf8"),
+    ).toBe("MINE\n");
+  });
+});
+
+test("with several srcs absent, the closure names the first in path order", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/: scripts/_runtime/\n" +
+          "      tools/zeta.py: scripts/zeta.py\n" +
+          "      tools/alpha.py: scripts/alpha.py\n",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(result.stdout.join("\n")).toContain(
+      "but tools/alpha.py does not exist",
     );
   });
 });

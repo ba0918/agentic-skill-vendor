@@ -19,6 +19,7 @@ import { ConfigError, describeCause } from "./errors.ts";
 import { assertValidContractId, contractPath } from "./digest.ts";
 import { emptyRecord } from "./records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
+import { MARKER_FILE } from "./raw.ts";
 import {
   assertPlainChain,
   isRegularFileOrAbsent,
@@ -538,6 +539,13 @@ function readDestPath(dest: string, id: string): string {
  */
 export function reservedDestRefusal(dest: string): string | null {
   if (dest === "SKILL.md") return "SKILL.md as a dest";
+  if (dest === MARKER_FILE || dest.endsWith(`/${MARKER_FILE}`)) {
+    return (
+      `${MARKER_FILE} as a dest: ${JSON.stringify(dest)} is the name of the ` +
+      `marker gen writes, and a file by that name is left out of every ` +
+      `digest, so it could never verify`
+    );
+  }
   if (destsCollide(dest, VENDOR_SUBPATH)) {
     return (
       `a dest at, under or over ${VENDOR_SUBPATH}/, which the document ` +

@@ -246,6 +246,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
       state.declaration,
       state.placements,
       resolutions,
+      raws,
     ),
     lockFileViolations(
       root,

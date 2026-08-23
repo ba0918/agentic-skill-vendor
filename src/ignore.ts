@@ -24,6 +24,11 @@ export interface IgnoreRules {
    * else, so what stands at the end has to be stated to be judged.
    */
   excludes(relative: string, isDirectory?: boolean): boolean;
+  /**
+   * The .gitignore whose rule excludes this path — the one that had the last
+   * word — as a tree-relative path, or null where nothing excludes it.
+   */
+  exclusionOf(relative: string, isDirectory?: boolean): string | null;
 }
 
 /** The directory a tree-relative path sits in; "" for one at the tree root. */
@@ -76,6 +81,8 @@ export async function readIgnoreRules(
   }
   return {
     excludes: (relative, isDirectory = false) =>
+      excludedBy(levels, relative, isDirectory) !== null,
+    exclusionOf: (relative, isDirectory = false) =>
       excludedBy(levels, relative, isDirectory),
   };
 }
@@ -93,22 +100,24 @@ function excludedBy(
   levels: IgnoreLevel[],
   relative: string,
   isDirectory: boolean,
-): boolean {
+): string | null {
   const parts = relative.split("/");
   for (let depth = 0; depth < parts.length; depth++) {
     const candidate = parts.slice(0, depth + 1).join("/");
     const directory = depth < parts.length - 1 || isDirectory;
-    if (verdictFor(levels, candidate, directory)) return true;
+    const verdict = verdictFor(levels, candidate, directory);
+    if (verdict !== null) return joinRelative(verdict.directory, IGNORE_FILE);
   }
-  return false;
+  return null;
 }
 
+/** The level whose rule excludes the candidate with the last word, or null. */
 function verdictFor(
   levels: IgnoreLevel[],
   candidate: string,
   isDirectory: boolean,
-): boolean {
-  let excluded = false;
+): IgnoreLevel | null {
+  let excluded: IgnoreLevel | null = null;
   for (const level of levels) {
     // A .gitignore inside the candidate directory, or beside it in a sibling
     // one, has no say about the candidate itself.
@@ -122,8 +131,8 @@ function verdictFor(
     // A directory is probed with a trailing slash: that is what tells a
     // `name/` rule apart from a `name` one.
     const verdict = level.matcher.test(isDirectory ? `${local}/` : local);
-    if (verdict.ignored) excluded = true;
-    else if (verdict.unignored) excluded = false;
+    if (verdict.ignored) excluded = level;
+    else if (verdict.unignored) excluded = null;
   }
   return excluded;
 }

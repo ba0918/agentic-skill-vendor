@@ -395,7 +395,7 @@ async function readCapped(
       if (total > limit) {
         throw new ConfigError(
           `${url}: answered with more than ${limit} bytes, which is too large ` +
-            `for a shared document`,
+            `for a file a contract distributes`,
         );
       }
       chunks.push(value);

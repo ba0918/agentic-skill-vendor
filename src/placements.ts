@@ -276,20 +276,28 @@ async function observedDigest(observed: ObservedDest): Promise<string> {
 }
 
 /**
- * True when the dest holds exactly the files this run writes, nothing else.
+ * The first file, in the dest's own order, that keeps it from holding exactly
+ * what this run writes — one it holds that the run would not write, one whose
+ * bytes differ, or one the run writes that it lacks — or null where none does.
  * The marker alone may be missing: a directory copied by hand before the tool
  * owned it has none, and claiming it is what the recovery path is for.
  */
-function holdsExactly(observed: ObservedDest, files: PlacedFile[]): boolean {
+function firstDisagreement(
+  observed: ObservedDest,
+  files: PlacedFile[],
+): string | null {
   const planned = new Map(files.map((file) => [file.path, file.content]));
   const held = new Set(observed.entries.map((entry) => entry.path));
-  return (
-    observed.entries.every((entry) => {
-      const content = planned.get(entry.path);
-      return content !== undefined && sameBytes(content, entry.content);
-    }) &&
-    files.every((file) => held.has(file.path) || file.path === MARKER_FILE)
-  );
+  for (const entry of observed.entries) {
+    const content = planned.get(entry.path);
+    if (content === undefined || !sameBytes(content, entry.content)) {
+      return entry.path;
+    }
+  }
+  for (const file of files) {
+    if (!held.has(file.path) && file.path !== MARKER_FILE) return file.path;
+  }
+  return null;
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -334,7 +342,10 @@ export async function planPlacements(
           material.mapping,
           files,
         );
-        if (claimed) report.push(`claimed: ${displayName(site)} (${id})`);
+        if (claimed) {
+          const suffix = material.mapping.kind === "directory" ? "/" : "";
+          report.push(`claimed: ${displayName(site)}${suffix} (${id})`);
+        }
         dests.push({
           skill: skill.name,
           key,
@@ -395,6 +406,7 @@ async function planSweep(
           );
         }
       }
+      await assertDestNotIgnored(root, site, kind);
       const observed = await observeDest(root, site);
       if (observed === null) {
         report.push(
@@ -457,11 +469,12 @@ async function assertNotIgnored(
   if (kind !== "directory") return;
   for (const file of files) {
     const path = joinRelative(site, file.path);
-    if (rules.excludes(path)) {
+    const by = rules.exclusionOf(path);
+    if (by !== null) {
       throw new ConfigError(
-        `${displayName(path)} would be excluded by a .gitignore of this ` +
-          `repository once placed; a distributed file verify cannot see is ` +
-          `not one gen may write — change the rule or the dest`,
+        `${displayName(path)} would be excluded by ${displayName(by)} once ` +
+          `placed; a distributed file verify cannot see is not one gen may ` +
+          `write — change the rule or the dest`,
       );
     }
   }
@@ -477,11 +490,11 @@ async function assertDestNotIgnored(
   kind: RawKind,
 ): Promise<IgnoreRules> {
   const rules = await readIgnoreRules(root, destIgnoreLevels(site));
-  if (rules.excludes(site, kind === "directory")) {
+  const by = rules.exclusionOf(site, kind === "directory");
+  if (by !== null) {
     throw new ConfigError(
-      `${displayName(site)} is excluded by a .gitignore of this repository; ` +
-        `a dest verify cannot see is not one gen may write — change the rule ` +
-        `or the dest`,
+      `${displayName(site)} is excluded by ${displayName(by)}; a dest verify ` +
+        `cannot see is not one gen may write — change the rule or the dest`,
     );
   }
   return rules;
@@ -515,13 +528,22 @@ async function assertWritableDest(
   ) {
     return false;
   }
-  if (observed.kind === mapping.kind && holdsExactly(observed, files)) {
-    return true;
+  if (observed.kind !== mapping.kind) {
+    throw new ConfigError(
+      `refusing to write ${displayName(site)}: a ${observed.kind} stands ` +
+        `there that the lock does not record as this tool's, and this run ` +
+        `writes a ${mapping.kind}; move it aside or delete it by hand`,
+    );
   }
+  const disagreement = firstDisagreement(observed, files);
+  if (disagreement === null) return true;
+  const named =
+    mapping.kind === "file" ? site : joinRelative(site, disagreement);
   throw new ConfigError(
     `refusing to write ${displayName(site)}: something stands there that ` +
       `the lock does not record as this tool's, and it is not what this run ` +
-      `would write; move it aside or delete it by hand`,
+      `would write — ${displayName(named)} differs or is not this run's to ` +
+      `write; move it aside or delete it by hand`,
   );
 }
 
@@ -587,6 +609,41 @@ function expectedPlacements(
 }
 
 /**
+ * The file a drifted dest disagrees on, where the canonical material is at
+ * hand to say; empty otherwise, since the lock pins a digest and nothing more.
+ */
+function driftDetail(
+  raws: RawContracts,
+  contract: string,
+  dest: string,
+  kind: RawKind,
+  observed: ObservedDest,
+  site: string,
+): string {
+  const material = raws
+    .get(contract)
+    ?.materials?.find(
+      (m) => m.mapping.dest === dest && m.mapping.kind === kind,
+    );
+  if (material === undefined) return "";
+  const planned: PlacedFile[] = material.files.map((file) => ({
+    path: placedPathOf(material.mapping, file),
+    content: file.content,
+  }));
+  const counted: ObservedDest = {
+    ...observed,
+    entries: observed.entries.filter(
+      (entry) =>
+        entry.path !== MARKER_FILE && !observed.ignored.has(entry.path),
+    ),
+  };
+  const disagreement = firstDisagreement(counted, planned);
+  if (disagreement === null) return "";
+  const named = kind === "file" ? site : joinRelative(site, disagreement);
+  return ` — ${displayName(named)} differs`;
+}
+
+/**
  * verify's two checks over raw-byte contracts: the lock's placements against
  * what the declarations and the table derive, and each recorded dest against
  * the digest recorded for it.
@@ -601,10 +658,16 @@ export async function placementViolations(
   declaration: Declaration,
   placements: Placements,
   resolutions: Record<string, Resolution>,
+  raws: RawContracts,
 ): Promise<string[]> {
   const violations: string[] = [];
   const expected = expectedPlacements(skills, declaration);
   const disputed = new Set<string>();
+  // A declared id whose table row is gone is already a closure gap; its
+  // placements are left to that report rather than named a second time.
+  const rowless = new Set(
+    declaredIds(skills).filter((id) => declaration.contracts[id] === undefined),
+  );
   const skillNames = new Set([...expected.keys(), ...Object.keys(placements)]);
   for (const skill of [...skillNames].sort(compareStrings)) {
     const want = expected.get(skill) ?? new Map();
@@ -614,6 +677,9 @@ export async function placementViolations(
       const site = displayName(`${SKILLS_DIR}/${skill}/${key}`);
       const w = want.get(key);
       const h = have[key];
+      if (w === undefined && rowless.has(h.contract)) {
+        continue;
+      }
       if (w === undefined) {
         violations.push(
           `placement: ${LOCK_PREFIX} records ${site} for ${h.contract}, which ` +
@@ -657,7 +723,8 @@ export async function placementViolations(
       if (digest !== placement.digest) {
         violations.push(
           `drift: ${displayName(site)} holds files digesting to ${digest}, ` +
-            `the lock pins ${placement.digest}`,
+            `the lock pins ${placement.digest}` +
+            driftDetail(raws, placement.contract, dest, kind, observed, site),
         );
       }
       if (kind === "directory") {

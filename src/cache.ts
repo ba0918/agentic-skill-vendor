@@ -126,13 +126,17 @@ export async function cacheIsIgnored(root: string): Promise<boolean> {
   return await isIgnored(root, CACHE_DIR);
 }
 
-/** True when the tree's ignore rules exclude `relative`. */
+/**
+ * True when the tree's ignore rules exclude the directory at `relative`. It
+ * is asked as a directory: the tool's own directories are what this answers
+ * for, and a rule written with a trailing slash matches only those.
+ */
 export async function isIgnored(
   root: string,
   relative: string,
 ): Promise<boolean> {
   const rules = await readIgnoreRules(root, ancestorDirectories(relative));
-  return rules.excludes(relative);
+  return rules.excludes(relative, true);
 }
 
 /**

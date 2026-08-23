@@ -432,7 +432,8 @@ async function collectContract(
   if (listed === undefined) {
     throw new ConfigError(
       `${pinned.repository} does not hold ${path} at the commit the lock ` +
-        `pins ${source} to; ${DECLARATION_FILE} maps ${id} to it`,
+        `pins ${source} to; ${DECLARATION_FILE} maps ${id} to it. Run update ` +
+        `to move the pin, or edit the path to one the commit holds`,
     );
   }
   const files: PlacedFile[] = [
@@ -526,7 +527,8 @@ async function collectRawMapping(
         throw new ConfigError(
           `${atCommit(pinned, entry.path)}: ${MARKER_FILE} at the top of a ` +
             `directory ${id} distributes is the marker gen writes, and a copy ` +
-            `carrying one of its own could never verify`,
+            `carrying one of its own could never verify; edit the files line ` +
+            `to a src without one, or have the source move it`,
         );
       }
     }

@@ -1184,3 +1184,20 @@ test("a source holding the contract path as a link is still counted as holding i
     expect(await snapshotTree(root), lines.join("\n")).toStrictEqual(before);
   });
 });
+
+test("a document the pinned commit does not hold stops the fetch and names the way out", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const github = fakeGitHub(workflow({ "README.md": "# Workflow\n" }));
+    const error = await rejectedBy(
+      () =>
+        commandFetch(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(github.fetch),
+        ),
+      ConfigError,
+    );
+    expect(error.message).toContain("contracts/tdd-contract.md");
+    expect(error.message).toContain("Run update");
+  });
+});
