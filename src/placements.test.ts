@@ -100,6 +100,7 @@ test("a hand-edited file inside a directory dest is reported as drift and refuse
     const verify = await runCli(["verify", "--root", root]);
     expect(verify.code).toStrictEqual(1);
     expect(verify.stdout.join("\n")).toContain(`drift: ${DEST}`);
+    expect(verify.stdout.join("\n")).toContain(`${DEST}/runtime.py differs`);
 
     const gen = await runCli(["gen", "--root", root]);
     expect(gen.code).toStrictEqual(2);

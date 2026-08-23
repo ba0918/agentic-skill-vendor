@@ -609,6 +609,41 @@ function expectedPlacements(
 }
 
 /**
+ * The file a drifted dest disagrees on, where the canonical material is at
+ * hand to say; empty otherwise, since the lock pins a digest and nothing more.
+ */
+function driftDetail(
+  raws: RawContracts,
+  contract: string,
+  dest: string,
+  kind: RawKind,
+  observed: ObservedDest,
+  site: string,
+): string {
+  const material = raws
+    .get(contract)
+    ?.materials?.find(
+      (m) => m.mapping.dest === dest && m.mapping.kind === kind,
+    );
+  if (material === undefined) return "";
+  const planned: PlacedFile[] = material.files.map((file) => ({
+    path: placedPathOf(material.mapping, file),
+    content: file.content,
+  }));
+  const counted: ObservedDest = {
+    ...observed,
+    entries: observed.entries.filter(
+      (entry) =>
+        entry.path !== MARKER_FILE && !observed.ignored.has(entry.path),
+    ),
+  };
+  const disagreement = firstDisagreement(counted, planned);
+  if (disagreement === null) return "";
+  const named = kind === "file" ? site : joinRelative(site, disagreement);
+  return ` — ${displayName(named)} differs`;
+}
+
+/**
  * verify's two checks over raw-byte contracts: the lock's placements against
  * what the declarations and the table derive, and each recorded dest against
  * the digest recorded for it.
@@ -623,6 +658,7 @@ export async function placementViolations(
   declaration: Declaration,
   placements: Placements,
   resolutions: Record<string, Resolution>,
+  raws: RawContracts,
 ): Promise<string[]> {
   const violations: string[] = [];
   const expected = expectedPlacements(skills, declaration);
@@ -689,7 +725,8 @@ export async function placementViolations(
       if (digest !== placement.digest) {
         violations.push(
           `drift: ${displayName(site)} holds files digesting to ${digest}, ` +
-            `the lock pins ${placement.digest}`,
+            `the lock pins ${placement.digest}` +
+            driftDetail(raws, placement.contract, dest, kind, observed, site),
         );
       }
       if (kind === "directory") {
