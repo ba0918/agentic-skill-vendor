@@ -956,3 +956,16 @@ test("a dest the lock remembers but the ignore rules now hide is refused by the 
     await expect(fs.stat(`${root}/${DEST}`)).resolves.toBeDefined();
   });
 });
+
+test("a file dest named .vendored is refused: the name is the marker and could never verify", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/.vendored\n",
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("scripts/.vendored");
+  });
+});
