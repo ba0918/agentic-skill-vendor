@@ -72,3 +72,14 @@ jobs:
 
       - name: Check that the fetched fixture skills are self-contained
         run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-remote/good
+
+      # The third fixture distributes raw bytes — a directory of scripts and
+      # one file — into two skills at dests the table names. Verified here for
+      # the same reason as the others, and its lock is the proof that the
+      # placements a raw-byte contract adds leave a document-only lock
+      # unchanged: the first two fixtures carry none.
+      - name: Verify the raw-byte fixture tree against its lock
+        run: bun run src/cli.ts verify --root fixtures/contracts-raw/good
+
+      - name: Check that the raw-byte fixture skills are self-contained
+        run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-raw/good

@@ -33,3 +33,7 @@ pre-push:
       run: bun run src/cli.ts verify --root fixtures/contracts-basic/good
     fixture-selfcontain:
       run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-basic/good
+    fixture-raw-verify:
+      run: bun run src/cli.ts verify --root fixtures/contracts-raw/good
+    fixture-raw-selfcontain:
+      run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-raw/good

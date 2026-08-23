@@ -44,6 +44,7 @@ it is never committed.
 | `src/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
 | `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
 | `fixtures/contracts-remote/good/` | The same, for a tree taking one contract from another repository — committed with the cache that contract's text sits in, so the offline guarantee is checked against a tree that actually has one |
+| `fixtures/contracts-raw/good/` | The same, for a tree distributing raw bytes — a directory of scripts and one file — into two skills at the dests its table names |
 | `docs/spec/` | Design decisions (Japanese) |
 | `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
