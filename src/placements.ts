@@ -276,20 +276,28 @@ async function observedDigest(observed: ObservedDest): Promise<string> {
 }
 
 /**
- * True when the dest holds exactly the files this run writes, nothing else.
+ * The first file, in the dest's own order, that keeps it from holding exactly
+ * what this run writes — one it holds that the run would not write, one whose
+ * bytes differ, or one the run writes that it lacks — or null where none does.
  * The marker alone may be missing: a directory copied by hand before the tool
  * owned it has none, and claiming it is what the recovery path is for.
  */
-function holdsExactly(observed: ObservedDest, files: PlacedFile[]): boolean {
+function firstDisagreement(
+  observed: ObservedDest,
+  files: PlacedFile[],
+): string | null {
   const planned = new Map(files.map((file) => [file.path, file.content]));
   const held = new Set(observed.entries.map((entry) => entry.path));
-  return (
-    observed.entries.every((entry) => {
-      const content = planned.get(entry.path);
-      return content !== undefined && sameBytes(content, entry.content);
-    }) &&
-    files.every((file) => held.has(file.path) || file.path === MARKER_FILE)
-  );
+  for (const entry of observed.entries) {
+    const content = planned.get(entry.path);
+    if (content === undefined || !sameBytes(content, entry.content)) {
+      return entry.path;
+    }
+  }
+  for (const file of files) {
+    if (!held.has(file.path) && file.path !== MARKER_FILE) return file.path;
+  }
+  return null;
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -519,13 +527,22 @@ async function assertWritableDest(
   ) {
     return false;
   }
-  if (observed.kind === mapping.kind && holdsExactly(observed, files)) {
-    return true;
+  if (observed.kind !== mapping.kind) {
+    throw new ConfigError(
+      `refusing to write ${displayName(site)}: a ${observed.kind} stands ` +
+        `there that the lock does not record as this tool's, and this run ` +
+        `writes a ${mapping.kind}; move it aside or delete it by hand`,
+    );
   }
+  const disagreement = firstDisagreement(observed, files);
+  if (disagreement === null) return true;
+  const named =
+    mapping.kind === "file" ? site : joinRelative(site, disagreement);
   throw new ConfigError(
     `refusing to write ${displayName(site)}: something stands there that ` +
       `the lock does not record as this tool's, and it is not what this run ` +
-      `would write; move it aside or delete it by hand`,
+      `would write — ${displayName(named)} differs or is not this run's to ` +
+      `write; move it aside or delete it by hand`,
   );
 }
 

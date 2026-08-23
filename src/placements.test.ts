@@ -969,3 +969,48 @@ test("a file dest named .vendored is refused: the name is the marker and could n
     expect(result.stderr.join("\n")).toContain("scripts/.vendored");
   });
 });
+
+test("the gate names the file that keeps a dest from being claimed", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${DEST}/runtime.py`, "print('run')\r\n");
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
+    await writeFile(`${root}/${DEST}/.env`, "SECRET=1\n");
+    const extra = await runCli(["gen", "--root", root]);
+    expect(extra.code).toStrictEqual(2);
+    expect(extra.stderr.join("\n")).toContain(`${DEST}/.env`);
+
+    await fs.rm(`${root}/${DEST}/.env`);
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 2\n");
+    const differing = await runCli(["gen", "--root", root]);
+    expect(differing.code).toStrictEqual(2);
+    expect(differing.stderr.join("\n")).toContain(`${DEST}/lib/helpers.py`);
+  });
+});
+
+test("a file dest holding someone else's bytes is refused, not claimed", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/run.py\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - helper-scripts\n",
+      ),
+    );
+    await writeFile(`${root}/skills/release-notes/scripts/run.py`, "MINE\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(
+      "refusing to write skills/release-notes/scripts/run.py",
+    );
+    expect(result.stderr.join("\n")).not.toContain("run.py/run.py");
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/scripts/run.py`, "utf8"),
+    ).toBe("MINE\n");
+  });
+});
