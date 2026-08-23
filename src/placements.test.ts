@@ -1018,3 +1018,23 @@ test("a file dest holding someone else's bytes is refused, not claimed", async (
     ).toBe("MINE\n");
   });
 });
+
+test("with several srcs absent, the closure names the first in path order", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/: scripts/_runtime/\n" +
+          "      tools/zeta.py: scripts/zeta.py\n" +
+          "      tools/alpha.py: scripts/alpha.py\n",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(result.stdout.join("\n")).toContain(
+      "but tools/alpha.py does not exist",
+    );
+  });
+});
