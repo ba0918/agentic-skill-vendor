@@ -815,7 +815,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   );
   const violations = [
     ...closureViolations(skills, contracts, locations),
-    ...rawClosureViolations(skills, raws, state.declaration),
+    ...rawClosureViolations(skills, raws),
   ];
   if (violations.length > 0) {
     for (const violation of violations) out(violation);

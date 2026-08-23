@@ -888,3 +888,22 @@ test("a file src the tree's ignore rules exclude counts as absent, like a direct
     );
   });
 });
+
+test("a closure names the src that is actually absent, not the first row of the contract", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/: scripts/_runtime/\n" +
+          "      tools/absent.py: scripts/absent.py\n",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(result.stdout.join("\n")).toContain(
+      "closure: workflow-runtime is declared by release-notes but tools/absent.py does not exist",
+    );
+  });
+});

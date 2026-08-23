@@ -260,7 +260,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   ]);
   const violations = [
     ...closureViolations(skills, contracts, locations),
-    ...rawClosureViolations(skills, raws, state.declaration),
+    ...rawClosureViolations(skills, raws),
     ...lockViolations(skills, contracts, resolutions, locations),
     ...rawLockViolations(
       skills,

@@ -23,7 +23,13 @@ import {
   readBytes,
   walkFiles,
 } from "./walk.ts";
-import { MARKER_FILE, type RawFile, type RawMaterial } from "./raw.ts";
+import {
+  MARKER_FILE,
+  type RawFile,
+  type RawMaterial,
+  srcKeyOf,
+} from "./raw.ts";
+import { compareStrings } from "./digest.ts";
 import type { RawMapping } from "./sources.ts";
 
 /**
@@ -38,17 +44,29 @@ export async function readRawMaterials(
   id: string,
   mappings: RawMapping[],
   applyIgnoreRules: boolean,
-): Promise<RawMaterial[] | null> {
+): Promise<RawMaterial[] | RawAbsence> {
   const materials: RawMaterial[] = [];
+  const absent: string[] = [];
   for (const mapping of mappings) {
     const files =
       mapping.kind === "file"
         ? await readFileSrc(root, mapping.src, applyIgnoreRules)
         : await readDirectorySrc(root, id, mapping.src, applyIgnoreRules);
-    if (files === null || files.length === 0) return null;
+    if (files === null || files.length === 0) {
+      absent.push(srcKeyOf(mapping));
+      continue;
+    }
     materials.push({ mapping, files });
   }
+  if (absent.length > 0) {
+    return { missing: absent.sort(compareStrings)[0] };
+  }
   return materials;
+}
+
+/** A contract the tree does not hold, named by the first absent src in path order. */
+export interface RawAbsence {
+  missing: string;
 }
 
 /**

@@ -66,6 +66,8 @@ import type { RawKind } from "./sources.ts";
 export interface RawReading {
   local: boolean;
   materials: RawMaterial[] | null;
+  /** The first absent src in path order, where `materials` is null for that reason. */
+  missing: string | null;
 }
 
 /** Every raw-byte contract a run has to look at, and what the tree holds for it. */
@@ -106,40 +108,40 @@ export async function readRawContracts(
     if (rows === undefined) continue;
     const source = declaration.contracts[id].source;
     if (source === LOCAL_SOURCE) {
-      contracts.set(id, {
-        local: true,
-        materials: await readRawMaterials(root, id, rows, true),
-      });
+      const read = await readRawMaterials(root, id, rows, true);
+      contracts.set(
+        id,
+        Array.isArray(read)
+          ? { local: true, materials: read, missing: null }
+          : { local: true, materials: null, missing: read.missing },
+      );
       continue;
     }
     const pinned = sources[source];
     if (pinned === undefined) {
-      contracts.set(id, { local: false, materials: null });
+      contracts.set(id, { local: false, materials: null, missing: null });
       continue;
     }
     const revision = cacheRevisionDirOf(source, pinned.revision);
     await assertPlainChain(root, revision);
     if (!(await isDirectoryOrAbsent(root, revision))) {
-      contracts.set(id, { local: false, materials: null });
+      contracts.set(id, { local: false, materials: null, missing: null });
       continue;
     }
     const inCache = rows.map((mapping) => ({
       ...mapping,
       src: `${revision}/${mapping.src}`,
     }));
-    const materials = await readRawMaterials(root, id, inCache, false);
+    const read = await readRawMaterials(root, id, inCache, false);
     contracts.set(id, {
       local: false,
       // The src the material is framed under is the source's own path, not
       // the cache site it was read from: the cache is where the bytes sit,
       // not what the contract is.
-      materials:
-        materials === null
-          ? null
-          : materials.map((material, index) => ({
-              ...material,
-              mapping: rows[index],
-            })),
+      materials: Array.isArray(read)
+        ? read.map((material, index) => ({ ...material, mapping: rows[index] }))
+        : null,
+      missing: null,
     });
   }
   return contracts;
@@ -149,7 +151,6 @@ export async function readRawContracts(
 export function rawClosureViolations(
   skills: SkillDeclaration[],
   raws: RawContracts,
-  declaration: Declaration,
 ): string[] {
   const violations: string[] = [];
   const dependentsOfId = dependentIndex(skills);
@@ -162,11 +163,9 @@ export function rawClosureViolations(
     const dependents = (dependentsOfId.get(id) ?? [])
       .map(displayName)
       .join(", ");
-    const first = declaration.contracts[id].files?.[0];
     violations.push(
-      `closure: ${id} is declared by ${dependents} but ${srcKeyOf(
-        first as RawMapping,
-      )} does not exist`,
+      `closure: ${id} is declared by ${dependents} but ${reading.missing} ` +
+        `does not exist`,
     );
   }
   return violations;
