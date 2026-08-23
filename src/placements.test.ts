@@ -574,3 +574,42 @@ test("add and update name a declared id that no conventional position anywhere h
     );
   });
 });
+
+test("a link on the way to a dest is refused by gen and verify alike", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.rename(
+      `${root}/skills/release-notes/scripts`,
+      `${root}/skills/release-notes/scripts-real`,
+    );
+    await fs.symlink("scripts-real", `${root}/skills/release-notes/scripts`);
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toStrictEqual(2);
+    expect(verify.stderr.join("\n")).toContain("symlink");
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toStrictEqual(2);
+    expect(gen.stderr.join("\n")).toContain("symlink");
+  });
+});
+
+test("a src at, under or over another contract's conformance position is refused", async () => {
+  await withRawTree(async (root) => {
+    // changelog-entry keeps its tests at contracts/changelog-entry/conformance.
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  grab:\n    source: local\n    files:\n      contracts/changelog-entry/: scripts/grab/\n",
+    );
+    await alsoDeclareIn(root, "review-writer");
+    const file = `${root}/skills/review-writer/SKILL.md`;
+    await fs.writeFile(
+      file,
+      (await fs.readFile(file, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - grab\n",
+      ),
+    );
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toStrictEqual(2);
+    expect(gen.stderr.join("\n")).toContain("conformance");
+  });
+});

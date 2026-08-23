@@ -19,7 +19,11 @@ import {
   contractPath,
   digestOfText,
 } from "./digest.ts";
-import { assertPlainContractPaths, conformanceDigest } from "./conformance.ts";
+import {
+  assertPlainContractPaths,
+  conformanceDigest,
+  conformanceDirectory,
+} from "./conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
@@ -56,6 +60,7 @@ import {
 import {
   assertKindsAgree,
   assertRawCacheHolds,
+  assertSrcsClearOfConformance,
   deriveRawResolutions,
   planPlacements,
   presentRawIds,
@@ -797,6 +802,10 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const { resolutions: recorded, skills, sources } = state;
   assertKindsAgree(state.declaration, recorded);
   const locations = await locateTreeContracts(root, state);
+  assertSrcsClearOfConformance(
+    state.declaration,
+    conformanceDirectoriesOf(locations),
+  );
   const contracts = await readContracts(root, locations);
   const raws = await readRawContracts(
     root,
@@ -917,4 +926,17 @@ async function reviseOrigins(
     return { declaration: state.declaration, text: null, report: [] };
   }
   return { declaration: parseDeclaration(text), text, report };
+}
+
+/** Where each document contract keeps its conformance tests, by id. */
+export function conformanceDirectoriesOf(
+  locations: Map<string, ContractLocation>,
+): Map<string, string> {
+  const directories = new Map<string, string>();
+  for (const [id, location] of locations) {
+    if (location.local) {
+      directories.set(id, conformanceDirectory(location.site, id));
+    }
+  }
+  return directories;
 }

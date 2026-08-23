@@ -220,6 +220,11 @@ async function observeDest(
   root: string,
   site: string,
 ): Promise<ObservedDest | null> {
+  // The whole way down is refused for links, not the dest alone: a link at
+  // `scripts/` would have every read, write and removal below it land
+  // outside the skill, and the write primitives guard their own chain while
+  // a removal and a digest would not.
+  await assertPlainChain(root, site);
   const info = await kindAt(root, site);
   if (info === null) return null;
   if (info.isFile()) {
@@ -755,4 +760,35 @@ export function presentRawIds(raws: RawContracts): string[] {
     const reading = raws.get(id) as RawReading;
     return !reading.local || reading.materials !== null;
   });
+}
+
+/**
+ * Refuses a raw-byte src that stands at, under or over the conformance
+ * position of a document contract. Conformance tests are collected by path
+ * prefix with no notion of which contract a file belongs to, so a src over
+ * that position would distribute the tests and one under it would be pinned
+ * as tests.
+ */
+export function assertSrcsClearOfConformance(
+  declaration: Declaration,
+  conformanceDirectories: Map<string, string>,
+): void {
+  for (const id of Object.keys(declaration.contracts).sort(compareStrings)) {
+    for (const mapping of declaration.contracts[id].files ?? []) {
+      for (const [other, directory] of conformanceDirectories) {
+        if (
+          mapping.src === directory ||
+          mapping.src.startsWith(`${directory}/`) ||
+          directory.startsWith(`${mapping.src}/`)
+        ) {
+          throw new ConfigError(
+            `vendor-manifest.yaml: contracts.${id}.files names the src ` +
+              `${JSON.stringify(srcKeyOf(mapping))}, which is at, under or ` +
+              `over ${directory}, the conformance position of ${other}; ` +
+              `tests are collected by prefix, so the two would be confused`,
+          );
+        }
+      }
+    }
+  }
 }

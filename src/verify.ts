@@ -23,6 +23,7 @@ import {
 } from "./manifest.ts";
 import {
   closureViolations,
+  conformanceDirectoriesOf,
   listVendorEntries,
   locateTreeContracts,
   lockViolations,
@@ -34,6 +35,7 @@ import {
 import type { ContractLocation, Declaration } from "./sources.ts";
 import {
   assertKindsAgree,
+  assertSrcsClearOfConformance,
   deriveRawResolutions,
   isRawId,
   placementViolations,
@@ -219,6 +221,10 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   const { resolutions, skills, sources } = state;
   assertKindsAgree(state.declaration, resolutions);
   const locations = await locateTreeContracts(root, state);
+  assertSrcsClearOfConformance(
+    state.declaration,
+    conformanceDirectoriesOf(locations),
+  );
   const contracts = await readContracts(root, locations);
   const raws = await readRawContracts(
     root,
