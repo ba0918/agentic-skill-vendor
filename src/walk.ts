@@ -193,7 +193,14 @@ export async function readEntries(
  * to ask: every question below is about what the tree holds at a path, and a
  * link is not an answer to it — it is a path leading out of the tree.
  */
-async function kindAt(root: string, relative: string): Promise<Stats | null> {
+/**
+ * What stands at a path: its stats, or null where nothing does. A link is
+ * refused rather than described, as everywhere else.
+ */
+export async function kindAt(
+  root: string,
+  relative: string,
+): Promise<Stats | null> {
   let info: Stats;
   try {
     info = await fs.lstat(`${root}/${relative}`);

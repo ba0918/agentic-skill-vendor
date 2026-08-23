@@ -311,6 +311,7 @@ async function writeLockSources(
     sources,
     await locateTreeContracts(root, state),
     state.declaration,
+    state.placements,
   );
   await atomicWriteFile(root, LOCK_FILE, new TextEncoder().encode(rendered));
 }

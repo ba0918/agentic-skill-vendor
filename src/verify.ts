@@ -16,6 +16,7 @@ import type { SkillDeclaration } from "./declaration.ts";
 import {
   LOCK_FILE,
   type LockSources,
+  type Placements,
   renderExpectedLock,
   type Resolutions,
   sourceViolations,
@@ -127,6 +128,7 @@ async function lockFileViolations(
   sources: LockSources,
   locations: Map<string, ContractLocation>,
   declaration: Declaration,
+  placements: Placements,
 ): Promise<string[]> {
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     return [`lock: ${LOCK_FILE} is missing`];
@@ -140,6 +142,7 @@ async function lockFileViolations(
     sources,
     locations,
     declaration,
+    placements,
   );
   const actual = decodeUtf8(
     await readBytes(`${root}/${LOCK_FILE}`, LOCK_FILE),
@@ -215,6 +218,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
       sources,
       locations,
       state.declaration,
+      state.placements,
     ),
     conformanceViolations(root, resolutions, locations),
   ]);

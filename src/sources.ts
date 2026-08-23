@@ -92,6 +92,25 @@ export interface SourceRecord {
 export interface ContractOrigin {
   source: string;
   path?: string;
+  /**
+   * A raw-byte contract: canonical src paths mapped to the dest each lands at
+   * inside every skill declaring the contract. Present on a raw-byte row and
+   * absent on a document row — the one thing that tells the two kinds apart.
+   */
+  files?: RawMapping[];
+}
+
+/** The kind a raw-byte mapping names: one file, or a directory whole. */
+export type RawKind = "file" | "directory";
+
+/**
+ * One src → dest pair of a raw-byte contract, both paths with the trailing
+ * slash already taken off and the kind it announced kept beside them.
+ */
+export interface RawMapping {
+  src: string;
+  dest: string;
+  kind: RawKind;
 }
 
 export interface Declaration {
@@ -230,7 +249,19 @@ function readContractOrigins(
       );
     }
     const origin: ContractOrigin = { source };
-    if (entry["path"] !== undefined) {
+    if (entry["files"] !== undefined) {
+      if (entry["path"] !== undefined) {
+        throw new ConfigError(
+          `${DECLARATION_FILE}: contracts.${id} carries both files and path; ` +
+            `the src paths of a raw-byte contract are the keys of files`,
+        );
+      }
+      origin.files = readRawMappings(
+        entry["files"],
+        id,
+        source === LOCAL_SOURCE,
+      );
+    } else if (entry["path"] !== undefined) {
       origin.path = readCanonicalPath(
         entry["path"],
         id,
@@ -393,6 +424,94 @@ function readCanonicalPath(
     );
   }
   return path;
+}
+
+/**
+ * The src → dest pairs a raw-byte row declares, each side judged as a path.
+ *
+ * The trailing slash is a kind marker, not a path character: it is read off
+ * both sides, must agree between them, and the path left behind is held to
+ * the same shape every other path in this table is. A dest is judged against
+ * the skill it lands in — inside it, never its SKILL.md, never the directory
+ * the document copies are swept from.
+ */
+function readRawMappings(
+  value: unknown,
+  id: string,
+  isLocal: boolean,
+): RawMapping[] {
+  const entries = requireMapping(value, `contracts.${id}.files`);
+  const mappings: RawMapping[] = [];
+  for (const key of Object.keys(entries)) {
+    const dest = requireText(entries[key], `contracts.${id}.files.${key}`);
+    const srcKind = kindOf(key);
+    const destKind = kindOf(dest);
+    if (srcKind !== destKind) {
+      throw new ConfigError(
+        `${DECLARATION_FILE}: contracts.${id}.files maps ${JSON.stringify(
+          key,
+        )} to ${JSON.stringify(dest)}, a ${srcKind} to a ${destKind}; ` +
+          `both sides must end in a slash, or neither`,
+      );
+    }
+    mappings.push({
+      src: readCanonicalPath(withoutKind(key), id, isLocal),
+      dest: readDestPath(withoutKind(dest), id),
+      kind: srcKind,
+    });
+  }
+  if (mappings.length === 0) {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: contracts.${id}.files maps nothing; a raw-byte ` +
+        `contract distributes at least one file or directory`,
+    );
+  }
+  return mappings;
+}
+
+function kindOf(path: string): RawKind {
+  return path.endsWith("/") ? "directory" : "file";
+}
+
+function withoutKind(path: string): string {
+  return path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+/** Where the document copies of a skill are swept from. */
+export const VENDOR_SUBPATH = "references/vendor";
+
+/**
+ * A dest, judged as a path inside the skill it lands in.
+ *
+ * `SKILL.md` is the declaration itself. `references/vendor/` is the one
+ * directory the document-contract sweep owns whole, so nothing raw may stand
+ * at it, under it or over it — two ownership rules over one path would each
+ * delete what the other wrote.
+ */
+function readDestPath(dest: string, id: string): string {
+  if (!isTreeRelativePath(dest)) {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: contracts.${id}.files names a dest that does ` +
+        `not stay inside the skill it lands in: ${JSON.stringify(dest)}`,
+    );
+  }
+  if (dest === "SKILL.md") {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: contracts.${id}.files names SKILL.md as a dest`,
+    );
+  }
+  if (
+    dest === VENDOR_SUBPATH ||
+    dest.startsWith(`${VENDOR_SUBPATH}/`) ||
+    VENDOR_SUBPATH.startsWith(`${dest}/`)
+  ) {
+    throw new ConfigError(
+      `${DECLARATION_FILE}: contracts.${id}.files names a dest at, under ` +
+        `or over ${VENDOR_SUBPATH}/, which the document copies are swept ` +
+        `from: ${JSON.stringify(dest)}`,
+    );
+  }
+  return dest;
 }
 
 function requireMapping(value: unknown, path: string): Record<string, unknown> {

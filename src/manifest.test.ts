@@ -505,6 +505,7 @@ test("the expected lock names the repository the declaration registers", async (
         },
         contracts: {},
       },
+      {},
     );
 
     expect(JSON.parse(rendered).sources.workflow).toStrictEqual({
