@@ -334,7 +334,10 @@ export async function planPlacements(
           material.mapping,
           files,
         );
-        if (claimed) report.push(`claimed: ${displayName(site)} (${id})`);
+        if (claimed) {
+          const suffix = material.mapping.kind === "directory" ? "/" : "";
+          report.push(`claimed: ${displayName(site)}${suffix} (${id})`);
+        }
         dests.push({
           skill: skill.name,
           key,

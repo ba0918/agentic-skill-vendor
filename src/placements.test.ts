@@ -624,7 +624,7 @@ test("a tree whose lock was lost is recorded anew by claiming every dest it stil
     await fs.rm(`${root}/vendor-lock.json`);
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect(result.stdout).toContain(`claimed: ${DEST}/ (workflow-runtime)`);
     expect((await readLockFile(root)).placements).toStrictEqual(
       before.placements,
     );
@@ -722,7 +722,7 @@ test("a run stopped between the copies and the sweep converges on the next gen",
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
     expect(result.stdout).toContain(
-      "claimed: skills/release-notes/scripts/runtime (workflow-runtime)",
+      "claimed: skills/release-notes/scripts/runtime/ (workflow-runtime)",
     );
     expect(result.stdout).toContain(
       "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime)",
@@ -816,7 +816,7 @@ test("a directory copied by hand before the tool owned it is claimed without a m
     await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
-    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect(result.stdout).toContain(`claimed: ${DEST}/ (workflow-runtime)`);
     expect(await fs.exists(`${root}/${DEST}/.vendored`)).toStrictEqual(true);
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
