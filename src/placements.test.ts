@@ -925,3 +925,22 @@ test("a .vendored at the top of a remote directory src is refused with the way o
     },
   );
 });
+
+test("a declared id whose table row vanished is reported as closure once, not as a placement too", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        / {2}workflow-runtime:\n( {4}.*\n)*/,
+        "",
+      ),
+    );
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toStrictEqual(1);
+    const lines = verify.stdout.join("\n");
+    expect(lines).toContain("closure: workflow-runtime");
+    expect(lines).not.toContain("placement:");
+  });
+});

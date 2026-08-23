@@ -608,6 +608,13 @@ export async function placementViolations(
   const violations: string[] = [];
   const expected = expectedPlacements(skills, declaration);
   const disputed = new Set<string>();
+  // A declared id whose table row is gone is already a closure gap; its
+  // placements are left to that report rather than named a second time.
+  const rowless = new Set(
+    declaredIds(skills).filter(
+      (id) => declaration.contracts[id]?.files === undefined,
+    ),
+  );
   const skillNames = new Set([...expected.keys(), ...Object.keys(placements)]);
   for (const skill of [...skillNames].sort(compareStrings)) {
     const want = expected.get(skill) ?? new Map();
@@ -617,6 +624,9 @@ export async function placementViolations(
       const site = displayName(`${SKILLS_DIR}/${skill}/${key}`);
       const w = want.get(key);
       const h = have[key];
+      if (w === undefined && rowless.has(h.contract)) {
+        continue;
+      }
       if (w === undefined) {
         violations.push(
           `placement: ${LOCK_PREFIX} records ${site} for ${h.contract}, which ` +
