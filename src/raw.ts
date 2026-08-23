@@ -59,7 +59,7 @@ export function placedPathOf(mapping: RawMapping, file: RawFile): string {
   return mapping.kind === "file" ? basenameOf(mapping.dest) : file.relative;
 }
 
-function basenameOf(path: string): string {
+export function basenameOf(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
 }
 

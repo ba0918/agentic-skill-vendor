@@ -18,6 +18,7 @@ import type {
 import { cacheRevisionDirOf } from "./cache.ts";
 import { LOCAL_SOURCE } from "./sources.ts";
 import {
+  basenameOf,
   MARKER_FILE,
   placedPathOf,
   placementDigest,
@@ -232,7 +233,10 @@ async function observeDest(
     return {
       kind: "file",
       entries: [
-        { path: "", content: await readBytes(`${root}/${site}`, site) },
+        {
+          path: basenameOf(site),
+          content: await readBytes(`${root}/${site}`, site),
+        },
       ],
       ignored: new Set(),
     };
@@ -262,18 +266,7 @@ async function observeDest(
  * The placement digest of what stands at a dest: the ignored files and the
  * marker left out, a file dest named by its own name.
  */
-async function observedDigest(
-  observed: ObservedDest,
-  site: string,
-): Promise<string> {
-  if (observed.kind === "file") {
-    return await framedDigest([
-      {
-        path: site.slice(site.lastIndexOf("/") + 1),
-        content: observed.entries[0].content,
-      },
-    ]);
-  }
+async function observedDigest(observed: ObservedDest): Promise<string> {
   return await framedDigest(
     observed.entries.filter(
       (entry) =>
@@ -282,14 +275,21 @@ async function observedDigest(
   );
 }
 
-/** True when the dest holds exactly the files this run writes, nothing else. */
+/**
+ * True when the dest holds exactly the files this run writes, nothing else.
+ * The marker alone may be missing: a directory copied by hand before the tool
+ * owned it has none, and claiming it is what the recovery path is for.
+ */
 function holdsExactly(observed: ObservedDest, files: PlacedFile[]): boolean {
-  if (observed.entries.length !== files.length) return false;
   const planned = new Map(files.map((file) => [file.path, file.content]));
-  return observed.entries.every((entry) => {
-    const content = planned.get(entry.path);
-    return content !== undefined && sameBytes(content, entry.content);
-  });
+  const held = new Set(observed.entries.map((entry) => entry.path));
+  return (
+    observed.entries.every((entry) => {
+      const content = planned.get(entry.path);
+      return content !== undefined && sameBytes(content, entry.content);
+    }) &&
+    files.every((file) => held.has(file.path) || file.path === MARKER_FILE)
+  );
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
@@ -409,7 +409,7 @@ async function planSweep(
             `${observed.kind}; it is not this tool's to clear`,
         );
       }
-      const digest = await observedDigest(observed, site);
+      const digest = await observedDigest(observed);
       if (digest !== placement.digest) {
         throw new ConfigError(
           `refusing to clear ${displayName(site)}: it no longer holds what ` +
@@ -498,7 +498,7 @@ async function assertWritableDest(
   if (
     remembered !== undefined &&
     rememberedKind === observed.kind &&
-    (await observedDigest(observed, site)) === remembered.digest
+    (await observedDigest(observed)) === remembered.digest
   ) {
     return false;
   }
@@ -639,7 +639,7 @@ export async function placementViolations(
             `found a ${observed.kind}`,
         );
       }
-      const digest = await observedDigest(observed, site);
+      const digest = await observedDigest(observed);
       if (digest !== placement.digest) {
         violations.push(
           `drift: ${displayName(site)} holds files digesting to ${digest}, ` +

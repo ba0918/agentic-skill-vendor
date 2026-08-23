@@ -777,3 +777,44 @@ test("a .gitignore placed inside a directory dest hides nothing: the extra files
     expect((await runCli(["gen", "--root", root])).code).toStrictEqual(2);
   });
 });
+
+test("a file dest whose lock was lost is claimed by the file it holds", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/run.py\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - helper-scripts\n",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    const before = await readLockFile(root);
+    await fs.rm(`${root}/vendor-lock.json`);
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "claimed: skills/release-notes/scripts/run.py (helper-scripts)",
+    );
+    expect((await readLockFile(root)).placements).toStrictEqual(
+      before.placements,
+    );
+  });
+});
+
+test("a directory copied by hand before the tool owned it is claimed without a marker", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${DEST}/runtime.py`, "print('run')\r\n");
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect(await fs.exists(`${root}/${DEST}/.vendored`)).toStrictEqual(true);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
