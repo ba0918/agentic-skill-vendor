@@ -398,6 +398,7 @@ async function planSweep(
           );
         }
       }
+      await assertDestNotIgnored(root, site, kind);
       const observed = await observeDest(root, site);
       if (observed === null) {
         report.push(

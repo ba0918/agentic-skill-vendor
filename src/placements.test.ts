@@ -944,3 +944,15 @@ test("a declared id whose table row vanished is reported as closure once, not as
     expect(lines).not.toContain("placement:");
   });
 });
+
+test("a dest the lock remembers but the ignore rules now hide is refused by the sweep rather than walked", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "release-notes");
+    await fs.appendFile(`${root}/.gitignore`, "_runtime/\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(".gitignore");
+    await expect(fs.stat(`${root}/${DEST}`)).resolves.toBeDefined();
+  });
+});
