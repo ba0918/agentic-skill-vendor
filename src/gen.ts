@@ -44,7 +44,7 @@ import {
 } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
-import { placeViaStaging, prepareStaging, STAGING_DIR } from "./staging.ts";
+import { placeViaStaging, prepareStaging } from "./staging.ts";
 export { vendorHeader } from "./header.ts";
 import { cacheSiteOf, isIgnored, unignoredWarning } from "./cache.ts";
 import {
@@ -79,6 +79,7 @@ import {
   readDeclaration,
   withContractMapping,
   withoutContractMapping,
+  TOOL_DIR,
 } from "./sources.ts";
 
 const VENDOR_SUBPATH = "references/vendor";
@@ -356,11 +357,10 @@ export async function executePlan(
   for (const file of plan.files) {
     await atomicWriteFile(root, file.site, file.content);
   }
-  if (plan.placed.length > 0) {
-    if (!(await isIgnored(root, STAGING_DIR)))
-      out(unignoredWarning(STAGING_DIR));
-    await prepareStaging(root);
+  if (plan.placed.length > 0 || plan.sweeps.length > 0) {
+    if (!(await isIgnored(root, TOOL_DIR))) out(unignoredWarning(TOOL_DIR));
   }
+  if (plan.placed.length > 0) await prepareStaging(root);
   for (const dest of plan.placed) {
     await placeViaStaging(root, dest.site, dest.what);
   }

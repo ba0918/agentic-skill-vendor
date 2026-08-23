@@ -271,12 +271,18 @@ test("gen builds a dest outside the skill, so a neighbour named like a temporary
   });
 });
 
-test("gen warns when the tool directory its staging lives under is not ignored", async () => {
+test("gen warns when the tool directory is not ignored, on a run that places and on one that only sweeps", async () => {
   await withRawTree(async (root) => {
     await fs.rm(`${root}/.gitignore`);
     const result = await runCli(["gen", "--root", root]);
     expect(result.stdout.join("\n")).toContain(
-      "warning: .agentic-skill-vendor/staging is not ignored",
+      "warning: .agentic-skill-vendor is not ignored",
+    );
+    await undeclareIn(root, "release-notes");
+    const sweeping = await runCli(["gen", "--root", root]);
+    expect(sweeping.stdout.join("\n")).toContain("cleared:");
+    expect(sweeping.stdout.join("\n")).toContain(
+      "warning: .agentic-skill-vendor is not ignored",
     );
     await fs.writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
     const quiet = await runCli(["gen", "--root", root]);
