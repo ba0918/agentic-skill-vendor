@@ -469,11 +469,12 @@ async function assertNotIgnored(
   if (kind !== "directory") return;
   for (const file of files) {
     const path = joinRelative(site, file.path);
-    if (rules.excludes(path)) {
+    const by = rules.exclusionOf(path);
+    if (by !== null) {
       throw new ConfigError(
-        `${displayName(path)} would be excluded by a .gitignore of this ` +
-          `repository once placed; a distributed file verify cannot see is ` +
-          `not one gen may write — change the rule or the dest`,
+        `${displayName(path)} would be excluded by ${displayName(by)} once ` +
+          `placed; a distributed file verify cannot see is not one gen may ` +
+          `write — change the rule or the dest`,
       );
     }
   }
@@ -489,11 +490,11 @@ async function assertDestNotIgnored(
   kind: RawKind,
 ): Promise<IgnoreRules> {
   const rules = await readIgnoreRules(root, destIgnoreLevels(site));
-  if (rules.excludes(site, kind === "directory")) {
+  const by = rules.exclusionOf(site, kind === "directory");
+  if (by !== null) {
     throw new ConfigError(
-      `${displayName(site)} is excluded by a .gitignore of this repository; ` +
-        `a dest verify cannot see is not one gen may write — change the rule ` +
-        `or the dest`,
+      `${displayName(site)} is excluded by ${displayName(by)}; a dest verify ` +
+        `cannot see is not one gen may write — change the rule or the dest`,
     );
   }
   return rules;

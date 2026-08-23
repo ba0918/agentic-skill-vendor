@@ -312,7 +312,7 @@ test("a dest the tree's ignore rules exclude is refused by gen and verify alike"
       const result = await runCli([command, "--root", root]);
       expect(result.code, command).toStrictEqual(2);
       expect(result.stderr.join("\n")).toContain("_runtime");
-      expect(result.stderr.join("\n")).toContain(".gitignore");
+      expect(result.stderr.join("\n")).toContain("by .gitignore");
     }
   });
 });
@@ -323,6 +323,9 @@ test("a distributed file that would be ignored at its dest is refused at plannin
     const gen = await runCli(["gen", "--root", root]);
     expect(gen.code).toStrictEqual(2);
     expect(gen.stderr.join("\n")).toContain("helpers.py");
+    expect(gen.stderr.join("\n")).toContain(
+      "by skills/release-notes/.gitignore",
+    );
     await expect(fs.stat(`${root}/${DEST}`)).rejects.toThrow();
   });
 });
