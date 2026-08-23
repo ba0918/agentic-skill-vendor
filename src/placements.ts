@@ -369,13 +369,18 @@ async function planSweep(
   dests: PlannedDest[],
   report: string[],
 ): Promise<string[]> {
-  const written = new Set(dests.map((dest) => `${dest.skill}\0${dest.key}`));
+  // Sameness is the path, not the key: a dest switching kind keeps its path
+  // under a new key, and the gate already let the write replace it in place.
+  // Sweeping the old key would clear the dest this run just wrote.
+  const written = new Set(
+    dests.map((dest) => `${dest.skill}\0${dest.mapping.dest}`),
+  );
   const sweeps: string[] = [];
   for (const skill of Object.keys(recorded).sort(compareStrings)) {
     for (const key of Object.keys(recorded[skill]).sort(compareStrings)) {
-      if (written.has(`${skill}\0${key}`)) continue;
       const kind: RawKind = key.endsWith("/") ? "directory" : "file";
       const dest = kind === "directory" ? key.slice(0, -1) : key;
+      if (written.has(`${skill}\0${dest}`)) continue;
       const site = `${SKILLS_DIR}/${skill}/${dest}`;
       const placement = recorded[skill][key];
       for (const planned of dests) {

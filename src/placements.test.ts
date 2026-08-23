@@ -728,6 +728,44 @@ test("a run stopped between the copies and the sweep converges on the next gen",
   });
 });
 
+test("switching a dest between directory and file at the same path replaces it in place with nothing swept", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const manifest = `${root}/vendor-manifest.yaml`;
+    const asDirectory = await fs.readFile(manifest, "utf8");
+    const asFile = asDirectory.replace(
+      "      tools/workflow-runtime/: scripts/_runtime/\n",
+      "      tools/workflow-runtime/runtime.py: scripts/_runtime\n",
+    );
+
+    await fs.writeFile(manifest, asFile);
+    const toFile = await runCli(["gen", "--root", root]);
+    expect(toFile.code, toFile.stderr.join("\n")).toStrictEqual(0);
+    expect(toFile.stdout.join("\n")).not.toContain("cleared:");
+    expect(await fs.readFile(`${root}/${DEST}`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    const fileLock = await readLockFile(root);
+    expect(Object.keys(fileLock.placements["release-notes"])).toStrictEqual([
+      "scripts/_runtime",
+    ]);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+
+    await fs.writeFile(manifest, asDirectory);
+    const toDirectory = await runCli(["gen", "--root", root]);
+    expect(toDirectory.code, toDirectory.stderr.join("\n")).toStrictEqual(0);
+    expect(toDirectory.stdout.join("\n")).not.toContain("cleared:");
+    expect(await fs.readFile(`${root}/${DEST}/lib/helpers.py`, "utf8")).toBe(
+      "HELP = 1\n",
+    );
+    const directoryLock = await readLockFile(root);
+    expect(
+      Object.keys(directoryLock.placements["release-notes"]),
+    ).toStrictEqual(["scripts/_runtime/"]);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
 test("a .gitignore placed inside a directory dest hides nothing: the extra files are drift", async () => {
   await withRawTree(async (root) => {
     await runCli(["gen", "--root", root]);
