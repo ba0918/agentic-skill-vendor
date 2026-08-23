@@ -282,3 +282,51 @@ test("gen warns when the tool directory its staging lives under is not ignored",
     expect(quiet.stdout.join("\n")).not.toContain("warning:");
   });
 });
+
+test("ignored files that appear inside a directory dest neither fail verify nor block gen", async () => {
+  await withRawTree(async (root) => {
+    await fs.appendFile(`${root}/.gitignore`, "__pycache__/\n");
+    await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/${DEST}/__pycache__/runtime.pyc`, "\x00\x01");
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code, gen.stderr.join("\n")).toStrictEqual(0);
+    await expect(
+      fs.stat(`${root}/${DEST}/__pycache__/runtime.pyc`),
+    ).rejects.toThrow();
+  });
+});
+
+test("a dest the tree's ignore rules exclude is refused rather than written into the dark", async () => {
+  await withRawTree(async (root) => {
+    await fs.appendFile(`${root}/.gitignore`, "_runtime/\n");
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toStrictEqual(2);
+    expect(gen.stderr.join("\n")).toContain("_runtime");
+    expect(gen.stderr.join("\n")).toContain(".gitignore");
+  });
+});
+
+test("a distributed file that would be ignored at its dest is refused at planning", async () => {
+  await withRawTree(async (root) => {
+    await fs.appendFile(`${root}/skills/release-notes/.gitignore`, "*.py\n");
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toStrictEqual(2);
+    expect(gen.stderr.join("\n")).toContain("helpers.py");
+    await expect(fs.stat(`${root}/${DEST}`)).rejects.toThrow();
+  });
+});
+
+test("a .gitignore or a top-level .vendored inside a directory src is refused", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${RUNTIME}/.gitignore`, "*.pyc\n");
+    const one = await runCli(["gen", "--root", root]);
+    expect(one.code).toStrictEqual(2);
+    expect(one.stderr.join("\n")).toContain(`${RUNTIME}/.gitignore`);
+    await fs.rm(`${root}/${RUNTIME}/.gitignore`);
+    await writeFile(`${root}/${RUNTIME}/.vendored`, "x");
+    const two = await runCli(["gen", "--root", root]);
+    expect(two.code).toStrictEqual(2);
+    expect(two.stderr.join("\n")).toContain(`${RUNTIME}/.vendored`);
+  });
+});

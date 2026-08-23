@@ -261,6 +261,7 @@ export async function planPlacements(
           src: srcKeyOf(material.mapping),
           digest: await placementDigest(material),
         };
+        await assertNotIgnored(root, site, material.mapping.kind, files);
         const claimed = await assertWritableDest(
           root,
           site,
@@ -354,6 +355,43 @@ async function planSweep(
     }
   }
   return sweeps;
+}
+
+/**
+ * Refuses a dest the tree's own ignore rules would hide, and a file that
+ * would be hidden once placed there.
+ *
+ * An ignored dest is one verify never sees and gen keeps writing — the two
+ * commands disagreeing for good over a tree nobody changed. An ignored file
+ * inside a dest is the same disagreement one level down: the placement digest
+ * counts it, the dest's recomputation does not. Both are refused where the
+ * rule is, rather than carried as a state.
+ */
+async function assertNotIgnored(
+  root: string,
+  site: string,
+  kind: RawKind,
+  files: PlacedFile[],
+): Promise<void> {
+  const rules = await readIgnoreRules(root, ancestorDirectories(site));
+  if (rules.excludes(site, kind === "directory")) {
+    throw new ConfigError(
+      `${displayName(site)} is excluded by a .gitignore of this repository; ` +
+        `a dest verify cannot see is not one gen may write — change the rule ` +
+        `or the dest`,
+    );
+  }
+  if (kind !== "directory") return;
+  for (const file of files) {
+    const path = joinRelative(site, file.path);
+    if (rules.excludes(path)) {
+      throw new ConfigError(
+        `${displayName(path)} would be excluded by a .gitignore of this ` +
+          `repository once placed; a distributed file verify cannot see is ` +
+          `not one gen may write — change the rule or the dest`,
+      );
+    }
+  }
 }
 
 /**
