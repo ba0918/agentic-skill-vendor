@@ -20,6 +20,7 @@ async function withRawTree<T>(fn: (root: string) => Promise<T>): Promise<T> {
   return await withGoodTree(async (root) => {
     await writeFile(`${root}/${RUNTIME}/runtime.py`, "print('run')\r\n");
     await writeFile(`${root}/${RUNTIME}/lib/helpers.py`, "HELP = 1\n");
+    await writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
     await writeFile(
       `${root}/vendor-manifest.yaml`,
       "contracts:\n" +
@@ -250,5 +251,34 @@ test("a sweep target that is already gone is reported as absent and forgotten", 
       "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime; already absent)",
     );
     expect((await readLockFile(root)).placements).toBe(undefined);
+  });
+});
+
+test("gen builds a dest outside the skill, so a neighbour named like a temporary is untouched", async () => {
+  await withRawTree(async (root) => {
+    // The user's own directory beside the dest, named as a sibling temporary
+    // would be. Built in place, the run would clear it as "nobody's data".
+    await writeFile(`${root}/${DEST}.tmp/keep.txt`, "mine\n");
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(await fs.readFile(`${root}/${DEST}.tmp/keep.txt`, "utf8")).toBe(
+      "mine\n",
+    );
+    await expect(
+      fs.stat(`${root}/.agentic-skill-vendor/staging`),
+    ).resolves.toBeDefined();
+  });
+});
+
+test("gen warns when the tool directory its staging lives under is not ignored", async () => {
+  await withRawTree(async (root) => {
+    await fs.rm(`${root}/.gitignore`);
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.stdout.join("\n")).toContain(
+      "warning: .agentic-skill-vendor/staging is not ignored",
+    );
+    await fs.writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
+    const quiet = await runCli(["gen", "--root", root]);
+    expect(quiet.stdout.join("\n")).not.toContain("warning:");
   });
 });

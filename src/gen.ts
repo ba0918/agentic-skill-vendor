@@ -23,7 +23,6 @@ import { assertPlainContractPaths, conformanceDigest } from "./conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
-  atomicWriteDirectory,
   atomicWriteFile,
   displayName,
   type PlacedFile,
@@ -41,8 +40,9 @@ import {
 } from "./declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
+import { placeViaStaging, prepareStaging, STAGING_DIR } from "./staging.ts";
 export { vendorHeader } from "./header.ts";
-import { cacheSiteOf } from "./cache.ts";
+import { cacheSiteOf, isIgnored, unignoredWarning } from "./cache.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -221,7 +221,11 @@ export async function listVendorEntries(
  */
 interface WritePlan {
   files: { site: string; content: Uint8Array }[];
-  directories: { site: string; files: PlacedFile[] }[];
+  /** Raw-byte dests, placed via the staging directory rather than in place. */
+  placed: {
+    site: string;
+    what: { files: PlacedFile[] } | { content: Uint8Array };
+  }[];
   /** Raw-byte dests to clear: before the lock, which is their only memory. */
   sweeps: string[];
   lock: { site: string; content: Uint8Array };
@@ -247,7 +251,7 @@ export async function planExpansion(
 ): Promise<WritePlan> {
   const encoder = new TextEncoder();
   const files: WritePlan["files"] = [];
-  const directories: WritePlan["directories"] = [];
+  const placedDests: WritePlan["placed"] = [];
   const removals: string[] = [];
   const placed = await planPlacements(
     root,
@@ -257,11 +261,13 @@ export async function planExpansion(
     placements,
   );
   for (const dest of placed.dests) {
-    if (dest.mapping.kind === "directory") {
-      directories.push({ site: dest.site, files: dest.files });
-    } else {
-      files.push({ site: dest.site, content: dest.files[0].content });
-    }
+    placedDests.push({
+      site: dest.site,
+      what:
+        dest.mapping.kind === "directory"
+          ? { files: dest.files }
+          : { content: dest.files[0].content },
+    });
   }
   for (const skill of skills) {
     const expected = new Set<string>();
@@ -298,7 +304,7 @@ export async function planExpansion(
   }
   return {
     files,
-    directories,
+    placed: placedDests,
     lock: {
       site: LOCK_FILE,
       content: encoder.encode(
@@ -342,12 +348,18 @@ export function presentRawIds(raws: RawContracts): string[] {
 export async function executePlan(
   root: string,
   plan: WritePlan,
+  out: Sink = () => {},
 ): Promise<void> {
   for (const file of plan.files) {
     await atomicWriteFile(root, file.site, file.content);
   }
-  for (const directory of plan.directories) {
-    await atomicWriteDirectory(root, directory.site, directory.files);
+  if (plan.placed.length > 0) {
+    if (!(await isIgnored(root, STAGING_DIR)))
+      out(unignoredWarning(STAGING_DIR));
+    await prepareStaging(root);
+  }
+  for (const dest of plan.placed) {
+    await placeViaStaging(root, dest.site, dest.what);
   }
   // The raw-byte sweeps go before the lock, unlike the document removals
   // below. The lock is the only memory of a raw-byte dest: written first, a
@@ -822,7 +834,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
       content: new TextEncoder().encode(table.text),
     });
   }
-  await executePlan(root, plan);
+  await executePlan(root, plan, out);
   for (const line of table.report) out(line);
   for (const line of plan.report) out(line);
   for (const line of rewriteReport(recorded, derived)) out(line);

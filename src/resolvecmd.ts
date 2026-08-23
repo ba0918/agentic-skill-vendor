@@ -24,6 +24,7 @@ import {
   cacheIsIgnored,
   cacheRevisionDirOf,
   CACHE_DIR,
+  unignoredWarning,
   pruneCache,
 } from "./cache.ts";
 import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
@@ -589,9 +590,5 @@ async function placeInCache(
  */
 async function warnUnlessIgnored(root: string, out: Sink): Promise<void> {
   if (await cacheIsIgnored(root)) return;
-  out(
-    `warning: ${CACHE_DIR} is not ignored by this repository; add ` +
-      `/${CACHE_DIR.split("/")[0]}/ to .gitignore so fetched copies are ` +
-      `never committed`,
-  );
+  out(unignoredWarning(CACHE_DIR));
 }
