@@ -133,10 +133,9 @@ test("a request the service did not answer is refused, naming the status", async
   expect(error.message).toContain("404");
 });
 
-test("an answer far larger than a shared document is refused", async () => {
-  // The contracts this tool distributes are documents. Whatever a host is
-  // willing to stream, the run stops reading once the answer has stopped
-  // looking like one.
+test("an answer far larger than any contract this tool distributes is refused", async () => {
+  // Whatever a host is willing to stream, the run stops reading once the
+  // answer has stopped looking like a file a contract would distribute.
   const oversized = "x".repeat(2 * 1024 * 1024);
   const github = fakeGitHub({
     [REPOSITORY]: {
@@ -154,7 +153,9 @@ test("an answer far larger than a shared document is refused", async () => {
       ),
     ConfigError,
   );
-  expect(error.message).toContain("too large");
+  expect(error.message).toContain(
+    "too large for a file a contract distributes",
+  );
 });
 
 test("an answer that is not shaped like the API's own is refused, never guessed at", async () => {

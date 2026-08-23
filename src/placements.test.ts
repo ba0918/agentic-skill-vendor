@@ -907,3 +907,15 @@ test("a closure names the src that is actually absent, not the first row of the 
     );
   });
 });
+
+test("a .vendored at the top of a remote directory src is refused with the way out named", async () => {
+  await withRemoteRawTree(
+    { "tools/rt/a.py": "A\n", "tools/rt/.vendored": "x" },
+    async (root, github) => {
+      const fetched = await runCli(["fetch", "--root", root], github.fetch);
+      expect(fetched.code).toStrictEqual(2);
+      expect(fetched.stderr.join("\n")).toContain("tools/rt/.vendored");
+      expect(fetched.stderr.join("\n")).toContain("edit the files line");
+    },
+  );
+});
