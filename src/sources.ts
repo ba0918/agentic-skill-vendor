@@ -270,7 +270,37 @@ function readContractOrigins(
     }
     contracts[id] = origin;
   }
+  assertDestsDisjoint(contracts);
   return contracts;
+}
+
+/**
+ * Refuses two raw-byte dests, anywhere in the table, that are the same path
+ * or nest. A skill declaring both contracts would have two distributions
+ * fighting over one place; the table is judged rather than each skill, so
+ * the refusal does not wait for the declaration that triggers it.
+ */
+function assertDestsDisjoint(contracts: Record<string, ContractOrigin>): void {
+  const seen: { id: string; dest: string }[] = [];
+  for (const id of Object.keys(contracts)) {
+    for (const mapping of contracts[id].files ?? []) {
+      for (const other of seen) {
+        if (
+          other.dest === mapping.dest ||
+          other.dest.startsWith(`${mapping.dest}/`) ||
+          mapping.dest.startsWith(`${other.dest}/`)
+        ) {
+          throw new ConfigError(
+            `${DECLARATION_FILE}: contracts.${id}.files names the dest ` +
+              `${JSON.stringify(mapping.dest)}, which is the same as or nests ` +
+              `with ${JSON.stringify(other.dest)} of contracts.${other.id}; ` +
+              `two distributions cannot share a place`,
+          );
+        }
+      }
+      seen.push({ id, dest: mapping.dest });
+    }
+  }
 }
 
 /**

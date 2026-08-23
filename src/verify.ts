@@ -32,7 +32,16 @@ import {
   vendorHeader,
 } from "./gen.ts";
 import type { ContractLocation, Declaration } from "./sources.ts";
-import { isRawId, placementViolations } from "./placements.ts";
+import {
+  assertKindsAgree,
+  deriveRawResolutions,
+  isRawId,
+  placementViolations,
+  rawClosureViolations,
+  rawLockViolations,
+  readRawContracts,
+} from "./placements.ts";
+import { declaredIds } from "./declaration.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the
@@ -208,8 +217,14 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
+  assertKindsAgree(state.declaration, resolutions);
   const locations = await locateTreeContracts(root, state);
   const contracts = await readContracts(root, locations);
+  const raws = await readRawContracts(
+    root,
+    state.declaration,
+    declaredIds(skills),
+  );
 
   // The three file-system checks are independent of one another and of the
   // check against the canonical text, so they overlap; their findings are
@@ -238,7 +253,14 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   ]);
   const violations = [
     ...closureViolations(skills, contracts, locations),
+    ...rawClosureViolations(skills, raws, state.declaration),
     ...lockViolations(skills, contracts, resolutions, locations),
+    ...rawLockViolations(
+      skills,
+      raws,
+      resolutions,
+      await deriveRawResolutions(raws),
+    ),
   ];
   for (const result of settled) {
     if (result.status === "fulfilled") {

@@ -54,6 +54,7 @@ import {
   type Resolutions,
 } from "./manifest.ts";
 import {
+  assertKindsAgree,
   deriveRawResolutions,
   planPlacements,
   rawClosureViolations,
@@ -797,6 +798,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const table = await reviseOrigins(root, read);
   const state = { ...read, declaration: table.declaration };
   const { resolutions: recorded, skills, sources } = state;
+  assertKindsAgree(state.declaration, recorded);
   const locations = await locateTreeContracts(root, state);
   const contracts = await readContracts(root, locations);
   const raws = await readRawContracts(
@@ -883,6 +885,10 @@ async function reviseOrigins(
     compareStrings,
   )) {
     if (declared.has(id)) continue;
+    // A raw-byte row is a person's src → dest mapping, which no derivation
+    // could write back. It stays until the person takes it out; the sweep
+    // report is what tells them the row has nothing left to place.
+    if (state.declaration.contracts[id].files !== undefined) continue;
     const pruned = withoutContractMapping(text, id);
     // A line the scribe could not reach is refused rather than reported. The
     // report is how the change to this table is read, so `unmapped` for an

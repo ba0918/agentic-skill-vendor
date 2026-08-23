@@ -591,3 +591,64 @@ export async function placementViolations(
 }
 
 const LOCK_PREFIX = "vendor-lock.json";
+
+/**
+ * Refuses a table row whose kind disagrees with what the lock remembers the
+ * contract as. Both directions: a raw-byte row over a document resolution,
+ * and a document row over a raw-byte one. Silently taken, one kind's copies
+ * would be left behind by the other kind's sweep. An id with no row is not
+ * judged — that state is a closure gap, or a retirement.
+ */
+export function assertKindsAgree(
+  declaration: Declaration,
+  resolutions: Record<string, Resolution>,
+): void {
+  for (const id of Object.keys(declaration.contracts).sort(compareStrings)) {
+    const resolution = resolutions[id];
+    if (resolution === undefined) continue;
+    const rowIsRaw = declaration.contracts[id].files !== undefined;
+    const lockIsRaw = resolution.kind === "raw";
+    if (rowIsRaw === lockIsRaw) continue;
+    throw new ConfigError(
+      `${id} is ${rowIsRaw ? "a raw-byte" : "a document"} contract in ` +
+        `vendor-manifest.yaml but the lock resolves it as ` +
+        `${lockIsRaw ? "raw-byte" : "a document"}; a contract cannot change ` +
+        `kind in place — withdraw it from every skill, run gen, take the row ` +
+        `out, run gen again, then write the new row`,
+    );
+  }
+}
+
+/**
+ * What the lock records for each declared raw-byte contract, against what
+ * its src digests to now: the raw-byte half of the lock-versus-canonical
+ * check. A contract the lock says nothing about is unresolved; one it
+ * records another digest for is a stale lock.
+ */
+export function rawLockViolations(
+  skills: SkillDeclaration[],
+  raws: RawContracts,
+  recorded: Record<string, Resolution>,
+  derived: Record<string, Resolution>,
+): string[] {
+  const violations: string[] = [];
+  for (const id of declaredIds(skills)) {
+    if (!raws.has(id)) continue;
+    const resolution = recorded[id];
+    if (resolution === undefined) {
+      violations.push(
+        `unresolved: ${id} has no entry in vendor-lock.json; run gen to record one`,
+      );
+      continue;
+    }
+    const now = derived[id];
+    if (now === undefined) continue;
+    if (resolution.digest !== now.digest) {
+      violations.push(
+        `stale-lock: ${id} is recorded as ${resolution.digest} but its files ` +
+          `digest to ${now.digest}; run gen to record the current files`,
+      );
+    }
+  }
+  return violations;
+}

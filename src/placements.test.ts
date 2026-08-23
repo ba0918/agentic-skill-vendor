@@ -330,3 +330,139 @@ test("a .gitignore or a top-level .vendored inside a directory src is refused", 
     expect(two.stderr.join("\n")).toContain(`${RUNTIME}/.vendored`);
   });
 });
+
+test("a file mapping lands one file at its dest and is checked by its own name", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/run.py\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - helper-scripts\n",
+      ),
+    );
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code, gen.stderr.join("\n")).toStrictEqual(0);
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/scripts/run.py`, "utf8"),
+    ).toBe("RUN\n");
+    const lock = await readLockFile(root);
+    expect(lock.placements["release-notes"]["scripts/run.py"].src).toBe(
+      "tools/scripts/run.py",
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("the scribe leaves a files row alone when nothing declares it, and a person's deletion retires it", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "release-notes");
+    const swept = await runCli(["gen", "--root", root]);
+    expect(swept.code, swept.stderr.join("\n")).toStrictEqual(0);
+    expect(swept.stdout.filter((l) => l.startsWith("unmapped:"))).toStrictEqual(
+      [],
+    );
+    expect(await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8")).toContain(
+      "workflow-runtime:",
+    );
+    expect(
+      (await readLockFile(root)).resolutions["workflow-runtime"],
+    ).toBeDefined();
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        / {2}workflow-runtime:\n( {4}.*\n)*/,
+        "",
+      ),
+    );
+    const retired = await runCli(["gen", "--root", root]);
+    expect(retired.stdout.join("\n")).toContain("retired: workflow-runtime");
+    expect((await readLockFile(root)).resolutions["workflow-runtime"]).toBe(
+      undefined,
+    );
+  });
+});
+
+test("a row rewritten from raw-byte to document, or back, is refused while the lock remembers the other kind", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    const raw = await fs.readFile(table, "utf8");
+    await fs.writeFile(
+      table,
+      raw.replace(
+        "    files:\n      tools/workflow-runtime/: scripts/_runtime/\n",
+        "",
+      ),
+    );
+    await writeFile(`${root}/contracts/workflow-runtime.md`, "# doc\n");
+    const toDocument = await runCli(["gen", "--root", root]);
+    expect(toDocument.code).toStrictEqual(2);
+    expect(toDocument.stderr.join("\n")).toContain("workflow-runtime");
+    expect(toDocument.stderr.join("\n")).toContain("raw");
+  });
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/tools/x/a.txt`, "a\n");
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      "contracts:\n  verdict-format:\n    source: local\n    files:\n      tools/x/: scripts/x/\n",
+    );
+    const toRaw = await runCli(["gen", "--root", root]);
+    expect(toRaw.code).toStrictEqual(2);
+    expect(toRaw.stderr.join("\n")).toContain("verdict-format");
+  });
+});
+
+test("a raw-byte src edited without gen is a stale lock, and a declared one the lock forgot is unresolved", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.appendFile(`${root}/${RUNTIME}/runtime.py`, "# more\n");
+    const stale = await runCli(["verify", "--root", root]);
+    expect(stale.code).toStrictEqual(1);
+    expect(stale.stdout.join("\n")).toContain("stale-lock: workflow-runtime");
+
+    await runCli(["gen", "--root", root]);
+    const lock = await readLockFile(root);
+    delete lock.resolutions["workflow-runtime"];
+    await writeLockFile(root, lock);
+    const unresolved = await runCli(["verify", "--root", root]);
+    expect(unresolved.stdout.join("\n")).toContain(
+      "unresolved: workflow-runtime",
+    );
+  });
+});
+
+test("two dests that nest, or a dest over the vendor directory, are refused by the table", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/other/b.txt`, "b\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  other:\n    source: local\n    files:\n      tools/other/: scripts/_runtime/lib/\n",
+    );
+    const nested = await runCli(["gen", "--root", root]);
+    expect(nested.code).toStrictEqual(2);
+    expect(nested.stderr.join("\n")).toContain("scripts/_runtime/lib");
+  });
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "scripts/_runtime/",
+        "references/",
+      ),
+    );
+    const over = await runCli(["gen", "--root", root]);
+    expect(over.code).toStrictEqual(2);
+    expect(over.stderr.join("\n")).toContain("references/vendor");
+  });
+});
