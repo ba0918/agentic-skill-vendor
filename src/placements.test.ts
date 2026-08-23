@@ -861,3 +861,27 @@ test("a lock placement at a reserved position, or nesting with another, is refus
     expect(nested.stderr.join("\n")).toContain("scripts/_runtime/lib/");
   });
 });
+
+test("a file src the tree's ignore rules exclude counts as absent, like a directory src", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/scripts/run.py`, "RUN\n");
+    await fs.appendFile(`${root}/.gitignore`, "/tools/scripts/\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  helper-scripts:\n    source: local\n    files:\n      tools/scripts/run.py: scripts/run.py\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - helper-scripts\n",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(1);
+    expect(result.stdout.join("\n")).toContain(
+      "closure: helper-scripts is declared by release-notes but tools/scripts/run.py does not exist",
+    );
+  });
+});

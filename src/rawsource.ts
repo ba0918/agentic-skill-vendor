@@ -16,6 +16,7 @@ import {
 } from "./ignore.ts";
 import {
   assertPlainChain,
+  dirNameOf,
   displayName,
   isDirectoryOrAbsent,
   isRegularFileOrAbsent,
@@ -42,7 +43,7 @@ export async function readRawMaterials(
   for (const mapping of mappings) {
     const files =
       mapping.kind === "file"
-        ? await readFileSrc(root, mapping.src)
+        ? await readFileSrc(root, mapping.src, applyIgnoreRules)
         : await readDirectorySrc(root, id, mapping.src, applyIgnoreRules);
     if (files === null || files.length === 0) return null;
     materials.push({ mapping, files });
@@ -50,12 +51,24 @@ export async function readRawMaterials(
   return materials;
 }
 
+/**
+ * A file src, absent where the tree holds nothing there — or where its ignore
+ * rules exclude it, since a clean checkout holds nothing there either.
+ */
 async function readFileSrc(
   root: string,
   src: string,
+  applyIgnoreRules: boolean,
 ): Promise<RawFile[] | null> {
   await assertPlainChain(root, src);
   if (!(await isRegularFileOrAbsent(root, src))) return null;
+  if (applyIgnoreRules) {
+    const rules = await readIgnoreRules(
+      root,
+      ancestorDirectories(dirNameOf(src)),
+    );
+    if (rules.excludes(src)) return null;
+  }
   return [{ relative: "", content: await readBytes(`${root}/${src}`, src) }];
 }
 
