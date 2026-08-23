@@ -37,6 +37,11 @@ it is never committed.
 | `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
 | `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
 | `src/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
+| `src/header.ts` | The generated-copy header, shared by document copies and raw-byte markers |
+| `src/raw.ts` | Raw-byte contracts, pure: the shared framing, the contract digest and the placement digest |
+| `src/rawsource.ts` | Reading a raw-byte contract's files from the tree or the cache, with the refusals that go with it |
+| `src/placements.ts` | Distributing raw-byte contracts: the gate, the sweep, the placement record, and verify's checks over them |
+| `src/staging.ts` | Building a raw-byte dest under the tool's directory and renaming it into the skill |
 | `src/verify.ts` | The four independent identity checks |
 | `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
 | `src/selftest.ts` | The environment smoke check and its hand-computed vectors |
@@ -90,9 +95,15 @@ it is never committed.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
 - The following are external compatibility and do not change without a version change: the
-  commands and their flags, the lock schema, the declaration schema, the exit codes, the digest algorithm and
-  its normalization rules, the conformance framing rules, the byte form of the vendored copy
-  header, and the violation kinds.
+  commands and their flags, the lock schema (`placements` and a resolution's `kind` included),
+  the declaration schema (`files` lines included), the exit codes, the digest algorithm and
+  its normalization rules, the framing rules shared by conformance, contract and placement
+  digests, the byte form of the vendored copy header and of the `.vendored` marker, the
+  violation kinds, and the report lines.
+- A raw-byte dest is built under `.agentic-skill-vendor/staging/` and renamed into the skill,
+  never built in place: a temporary name inside a skill is the person's, and the gate never
+  looks at it. The rename needs one file system; a tree whose tool directory sits on another
+  is refused before anything is removed.
 - `gen`, `verify`, `lint-selfcontain` and `self-test` reach the file system and nothing else
   — no network, no environment, no subprocess. Under Deno that is enforceable with
   `--allow-read --allow-write`; on Node and Bun there is no sandbox to enforce it with, so it
