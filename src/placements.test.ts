@@ -818,3 +818,46 @@ test("a directory copied by hand before the tool owned it is claimed without a m
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
 });
+
+test("a lock placement at a reserved position, or nesting with another, is refused before anything is swept", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const lock = await readLockFile(root);
+    const placement = lock.placements["release-notes"]["scripts/_runtime/"];
+    const skillBefore = await fs.readFile(
+      `${root}/skills/release-notes/SKILL.md`,
+      "utf8",
+    );
+
+    await writeLockFile(root, {
+      ...lock,
+      placements: {
+        "release-notes": {
+          "scripts/_runtime/": placement,
+          "SKILL.md": { ...placement, src: "tools/x" },
+        },
+      },
+    });
+    for (const command of ["gen", "verify"]) {
+      const result = await runCli([command, "--root", root]);
+      expect(result.code, command).toStrictEqual(2);
+      expect(result.stderr.join("\n")).toContain("SKILL.md");
+    }
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/SKILL.md`, "utf8"),
+    ).toStrictEqual(skillBefore);
+
+    await writeLockFile(root, {
+      ...lock,
+      placements: {
+        "release-notes": {
+          "scripts/_runtime/": placement,
+          "scripts/_runtime/lib/": { ...placement, src: "tools/x" },
+        },
+      },
+    });
+    const nested = await runCli(["verify", "--root", root]);
+    expect(nested.code).toStrictEqual(2);
+    expect(nested.stderr.join("\n")).toContain("scripts/_runtime/lib/");
+  });
+});

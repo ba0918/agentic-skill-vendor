@@ -285,11 +285,7 @@ function assertDestsDisjoint(contracts: Record<string, ContractOrigin>): void {
   for (const id of Object.keys(contracts)) {
     for (const mapping of contracts[id].files ?? []) {
       for (const other of seen) {
-        if (
-          other.dest === mapping.dest ||
-          other.dest.startsWith(`${mapping.dest}/`) ||
-          mapping.dest.startsWith(`${other.dest}/`)
-        ) {
+        if (destsCollide(other.dest, mapping.dest)) {
           throw new ConfigError(
             `${DECLARATION_FILE}: contracts.${id}.files names the dest ` +
               `${JSON.stringify(mapping.dest)}, which is the same as or nests ` +
@@ -525,23 +521,35 @@ function readDestPath(dest: string, id: string): string {
         `not stay inside the skill it lands in: ${JSON.stringify(dest)}`,
     );
   }
-  if (dest === "SKILL.md") {
+  const reserved = reservedDestRefusal(dest);
+  if (reserved !== null) {
     throw new ConfigError(
-      `${DECLARATION_FILE}: contracts.${id}.files names SKILL.md as a dest`,
-    );
-  }
-  if (
-    dest === VENDOR_SUBPATH ||
-    dest.startsWith(`${VENDOR_SUBPATH}/`) ||
-    VENDOR_SUBPATH.startsWith(`${dest}/`)
-  ) {
-    throw new ConfigError(
-      `${DECLARATION_FILE}: contracts.${id}.files names a dest at, under ` +
-        `or over ${VENDOR_SUBPATH}/, which the document copies are swept ` +
-        `from: ${JSON.stringify(dest)}`,
+      `${DECLARATION_FILE}: contracts.${id}.files names ${reserved}`,
     );
   }
   return dest;
+}
+
+/**
+ * Why a dest may not stand at a reserved position, or null where it may. One
+ * judgment for the table and the lock alike: the lock's dests are where the
+ * sweep deletes, so a position the table may not name is one the lock may
+ * not remember either.
+ */
+export function reservedDestRefusal(dest: string): string | null {
+  if (dest === "SKILL.md") return "SKILL.md as a dest";
+  if (destsCollide(dest, VENDOR_SUBPATH)) {
+    return (
+      `a dest at, under or over ${VENDOR_SUBPATH}/, which the document ` +
+      `copies are swept from: ${JSON.stringify(dest)}`
+    );
+  }
+  return null;
+}
+
+/** True when two dests are the same path or one lies under the other. */
+export function destsCollide(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
 }
 
 function requireMapping(value: unknown, path: string): Record<string, unknown> {

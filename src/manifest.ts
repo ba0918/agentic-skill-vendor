@@ -26,7 +26,9 @@ import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
+  destsCollide,
   isTreeRelativePath,
+  reservedDestRefusal,
 } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
@@ -508,10 +510,24 @@ function validatePlacements(document: Record<string, unknown>): Placements {
     const entries: Record<string, Placement> = emptyRecord();
     for (const dest of Object.keys(dests)) {
       const path = `placements.${skill}.${dest}`;
-      if (!isTreeRelativePath(dest.replace(/\/$/, ""))) {
+      const bare = dest.replace(/\/$/, "");
+      if (!isTreeRelativePath(bare)) {
         throw new ConfigError(
           `${LOCK_FILE}: ${path} is not a path inside the skill`,
         );
+      }
+      const reserved = reservedDestRefusal(bare);
+      if (reserved !== null) {
+        throw new ConfigError(`${LOCK_FILE}: ${path} names ${reserved}`);
+      }
+      for (const other of Object.keys(entries)) {
+        if (destsCollide(other.replace(/\/$/, ""), bare)) {
+          throw new ConfigError(
+            `${LOCK_FILE}: ${path} is the same as or nests with ` +
+              `placements.${skill}.${other}; two distributions cannot share ` +
+              `a place`,
+          );
+        }
       }
       const entry = pickObject(dests[dest], path);
       const contract = requireText(entry["contract"], `${path}.contract`);
