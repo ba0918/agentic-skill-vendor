@@ -613,3 +613,117 @@ test("a src at, under or over another contract's conformance position is refused
     expect(gen.stderr.join("\n")).toContain("conformance");
   });
 });
+
+test("a tree whose lock was lost is recorded anew by claiming every dest it still holds", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const before = await readLockFile(root);
+    await fs.rm(`${root}/vendor-lock.json`);
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(`claimed: ${DEST} (workflow-runtime)`);
+    expect((await readLockFile(root)).placements).toStrictEqual(
+      before.placements,
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("swapping the dests of two contracts replaces both in place with nothing swept", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/other/o.txt`, "O\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  other:\n    source: local\n    files:\n      tools/other/: scripts/other/\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - other\n",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8"))
+        .replace("scripts/_runtime/", "scripts/SWAP/")
+        .replace("scripts/other/", "scripts/_runtime/")
+        .replace("scripts/SWAP/", "scripts/other/"),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout.filter((l) => l.startsWith("cleared:"))).toStrictEqual(
+      [],
+    );
+    expect(await fs.readFile(`${root}/${DEST}/o.txt`, "utf8")).toBe("O\n");
+    expect(
+      await fs.readFile(
+        `${root}/skills/release-notes/scripts/other/runtime.py`,
+        "utf8",
+      ),
+    ).toBe("print('run')\r\n");
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a dest moved under or over its own old place is refused with the two-step way out", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "scripts/_runtime/",
+        "scripts/_runtime/inner/",
+      ),
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("nests with");
+    expect(result.stderr.join("\n")).toContain("withdraw the declaration");
+    // Nothing was written or cleared.
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    await expect(fs.stat(`${root}/${DEST}/inner`)).rejects.toThrow();
+  });
+});
+
+test("a run stopped between the copies and the sweep converges on the next gen", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const oldLock = await fs.readFile(`${root}/vendor-lock.json`);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "scripts/_runtime/",
+        "scripts/runtime/",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    // Put the tree back to "new dest written, old dest swept, lock not yet
+    // rewritten" — and further back, to before the sweep, by restoring the
+    // old dest from the canonical files the lock's digest still matches.
+    await fs.writeFile(`${root}/vendor-lock.json`, oldLock);
+    await fs.cp(
+      `${root}/skills/release-notes/scripts/runtime`,
+      `${root}/${DEST}`,
+      {
+        recursive: true,
+      },
+    );
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "claimed: skills/release-notes/scripts/runtime (workflow-runtime)",
+    );
+    expect(result.stdout).toContain(
+      "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime)",
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
