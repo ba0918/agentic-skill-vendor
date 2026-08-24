@@ -72,6 +72,60 @@ async function withRemoteTree(
   });
 }
 
+async function writeUnplacedOverlappingRawContracts(
+  root: string,
+): Promise<void> {
+  await writeFile(
+    `${root}/vendor-manifest.yaml`,
+    [
+      "contracts:",
+      "  runtime:",
+      "    source: local",
+      "    files:",
+      "      tools/runtime/: scripts/shared/",
+      "  helper:",
+      "    source: local",
+      "    files:",
+      "      tools/helper/: scripts/shared/bin/",
+      "",
+    ].join("\n"),
+  );
+}
+
+test("fetch reads unplaced raw contracts whose dests overlap", async () => {
+  await withGoodTree(async (root) => {
+    await writeUnplacedOverlappingRawContracts(root);
+
+    const result = await runCli(["fetch", "--root", root]);
+
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+  });
+});
+
+test("update reads unplaced raw contracts whose dests overlap", async () => {
+  await withGoodTree(async (root) => {
+    await writeUnplacedOverlappingRawContracts(root);
+
+    const result = await runCli(["update", "--root", root]);
+
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+  });
+});
+
+test("add reads unplaced raw contracts whose dests overlap", async () => {
+  await withGoodTree(async (root) => {
+    await writeUnplacedOverlappingRawContracts(root);
+    const github = fakeGitHub(workflow());
+
+    const result = await runCli(
+      ["add", REPOSITORY, "workflow", "--root", root],
+      github.fetch,
+    );
+
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+  });
+});
+
 test("fetch puts the pinned text and the tests beside it into the cache", async () => {
   await withRemoteTree(async (root, lines) => {
     // A clean checkout holds no cache at all. One fetch is what puts it back,

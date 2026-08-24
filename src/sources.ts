@@ -21,6 +21,7 @@ import { emptyRecord } from "./records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 import { MARKER_FILE } from "./raw.ts";
 import { readDistributionIgnore } from "./distribution-ignore.ts";
+import { pathsOverlap } from "./placement-ownership.ts";
 import {
   assertPlainChain,
   isRegularFileOrAbsent,
@@ -284,33 +285,7 @@ function readContractOrigins(
     }
     contracts[id] = origin;
   }
-  assertDestsDisjoint(contracts);
   return contracts;
-}
-
-/**
- * Refuses two raw-byte dests, anywhere in the table, that are the same path
- * or nest. A skill declaring both contracts would have two distributions
- * fighting over one place; the table is judged rather than each skill, so
- * the refusal does not wait for the declaration that triggers it.
- */
-function assertDestsDisjoint(contracts: Record<string, ContractOrigin>): void {
-  const seen: { id: string; dest: string }[] = [];
-  for (const id of Object.keys(contracts)) {
-    for (const mapping of contracts[id].files ?? []) {
-      for (const other of seen) {
-        if (destsCollide(other.dest, mapping.dest)) {
-          throw new ConfigError(
-            `${DECLARATION_FILE}: contracts.${id}.files names the dest ` +
-              `${JSON.stringify(mapping.dest)}, which is the same as or nests ` +
-              `with ${JSON.stringify(other.dest)} of contracts.${other.id}; ` +
-              `two distributions cannot share a place`,
-          );
-        }
-      }
-      seen.push({ id, dest: mapping.dest });
-    }
-  }
 }
 
 /**
@@ -559,7 +534,7 @@ export function reservedDestRefusal(dest: string): string | null {
       `digest, so it could never verify`
     );
   }
-  if (destsCollide(dest, VENDOR_SUBPATH)) {
+  if (pathsOverlap(dest, VENDOR_SUBPATH)) {
     return (
       `a dest at, under or over ${VENDOR_SUBPATH}/, which the document ` +
       `copies are swept from: ${JSON.stringify(dest)}`
@@ -570,7 +545,7 @@ export function reservedDestRefusal(dest: string): string | null {
 
 /** True when two dests are the same path or one lies under the other. */
 export function destsCollide(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  return pathsOverlap(a, b);
 }
 
 function requireMapping(value: unknown, path: string): Record<string, unknown> {

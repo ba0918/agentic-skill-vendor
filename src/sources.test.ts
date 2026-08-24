@@ -572,3 +572,51 @@ test("mapping a contract refuses a value the table would not read back as itself
     ).toThrow(ConfigError);
   }
 });
+
+test("a table keeps identical dests for different raw contracts", () => {
+  const declaration = parseDeclaration(
+    [
+      "contracts:",
+      "  runtime:",
+      "    source: local",
+      "    files:",
+      "      tools/runtime/: scripts/shared/",
+      "  helper:",
+      "    source: local",
+      "    files:",
+      "      tools/helper/: scripts/shared/",
+      "",
+    ].join("\n"),
+  );
+
+  expect(declaration.contracts["runtime"].files?.[0].dest).toBe(
+    "scripts/shared",
+  );
+  expect(declaration.contracts["helper"].files?.[0].dest).toBe(
+    "scripts/shared",
+  );
+});
+
+test("a table keeps nested dests for different raw contracts", () => {
+  const declaration = parseDeclaration(
+    [
+      "contracts:",
+      "  runtime:",
+      "    source: local",
+      "    files:",
+      "      tools/runtime/: scripts/shared/",
+      "  command:",
+      "    source: local",
+      "    files:",
+      "      tools/command/: scripts/shared/bin/",
+      "",
+    ].join("\n"),
+  );
+
+  expect(declaration.contracts["runtime"].files?.[0].dest).toBe(
+    "scripts/shared",
+  );
+  expect(declaration.contracts["command"].files?.[0].dest).toBe(
+    "scripts/shared/bin",
+  );
+});

@@ -7,6 +7,7 @@ import {
   fakeGitHub,
   readLockFile,
   runCli,
+  snapshotTree,
   withGoodTree,
   writeFile,
   writeLockFile,
@@ -502,17 +503,88 @@ test("a source repository exclusion is stale lock without placement drift", asyn
   });
 });
 
-test("two dests that nest, or a dest over the vendor directory, are refused by the table", async () => {
+test("gen and verify accept identical dests owned by different skills", async () => {
   await withRawTree(async (root) => {
     await writeFile(`${root}/tools/other/b.txt`, "b\n");
     await fs.appendFile(
       `${root}/vendor-manifest.yaml`,
-      "  other:\n    source: local\n    files:\n      tools/other/: scripts/_runtime/lib/\n",
+      "  other:\n    source: local\n    files:\n      tools/other/: scripts/_runtime/\n",
     );
-    const nested = await runCli(["gen", "--root", root]);
-    expect(nested.code).toStrictEqual(2);
-    expect(nested.stderr.join("\n")).toContain("scripts/_runtime/lib");
+    const skill = `${root}/skills/review-writer/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - verdict-format\n",
+        "    - verdict-format\n    - other\n",
+      ),
+    );
+
+    const generated = await runCli(["gen", "--root", root]);
+    expect(generated.code, generated.stderr.join("\n")).toStrictEqual(0);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    expect(
+      await fs.readFile(
+        `${root}/skills/review-writer/scripts/_runtime/b.txt`,
+        "utf8",
+      ),
+    ).toBe("b\n");
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });
+});
+
+test("gen refuses identical final dests in one skill before writing", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/other/b.txt`, "b\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  other:\n    source: local\n    files:\n      tools/other/: scripts/_runtime/\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - other\n",
+      ),
+    );
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("release-notes");
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("verify refuses nested final dests in one skill without writing", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/tools/other/b.txt`, "b\n");
+    await fs.appendFile(
+      `${root}/vendor-manifest.yaml`,
+      "  other:\n    source: local\n    files:\n      tools/other/: scripts/_runtime/bin/\n",
+    );
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        "    - workflow-runtime\n",
+        "    - workflow-runtime\n    - other\n",
+      ),
+    );
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["verify", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("release-notes");
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("a dest over the vendor directory is refused by the table", async () => {
   await withRawTree(async (root) => {
     const table = `${root}/vendor-manifest.yaml`;
     await fs.writeFile(

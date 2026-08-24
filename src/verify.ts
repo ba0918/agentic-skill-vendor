@@ -35,6 +35,10 @@ import {
 } from "./gen.ts";
 import type { ContractLocation, Declaration } from "./sources.ts";
 import {
+  assertFinalDestinationsDisjoint,
+  finalRawDestinations,
+} from "./placement-ownership.ts";
+import {
   assertKindsAgree,
   assertSrcsClearOfConformance,
   deriveRawResolutions,
@@ -219,6 +223,9 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
+  assertFinalDestinationsDisjoint(
+    finalRawDestinations(skills, state.declaration),
+  );
   assertKindsAgree(state.declaration, resolutions);
   const locations = await locateTreeContracts(root, state);
   assertSrcsClearOfConformance(
