@@ -34,14 +34,102 @@ test("a declaration is read as the sources it registers and the origin of each c
   });
   expect(declaration.contracts["report-format"]).toStrictEqual({
     source: "local",
+    ignore: [],
   });
   expect(declaration.contracts["writing-style"]).toStrictEqual({
     source: "local",
     path: "docs/style/writing-style.md",
+    ignore: [],
   });
   expect(declaration.contracts["tdd-contract"]).toStrictEqual({
     source: "workflow",
+    ignore: [],
   });
+  expect(declaration.ignore).toStrictEqual([]);
+});
+
+test("a declaration keeps shared and contract-specific distribution exclusions", () => {
+  const declaration = parseDeclaration(
+    [
+      "ignore:",
+      "  - '**/*.test.ts'",
+      "contracts:",
+      "  executable:",
+      "    source: local",
+      "    ignore:",
+      "      - '*.tmp'",
+      "",
+    ].join("\n"),
+  );
+  expect(declaration.ignore).toStrictEqual(["**/*.test.ts"]);
+  expect(declaration.contracts["executable"].ignore).toStrictEqual(["*.tmp"]);
+});
+
+test("distribution exclusions must be arrays", () => {
+  for (const text of [
+    ["ignore: '*.tmp'", ""].join("\n"),
+    [
+      "contracts:",
+      "  executable:",
+      "    source: local",
+      "    ignore: '*.tmp'",
+      "",
+    ].join("\n"),
+  ]) {
+    expect(() => parseDeclaration(text)).toThrow(ConfigError);
+  }
+});
+
+test("every distribution exclusion must be text", () => {
+  for (const text of [
+    ["ignore:", "  - 42", ""].join("\n"),
+    [
+      "contracts:",
+      "  executable:",
+      "    source: local",
+      "    ignore:",
+      "      - false",
+      "",
+    ].join("\n"),
+  ]) {
+    expect(() => parseDeclaration(text)).toThrow(ConfigError);
+  }
+});
+
+test("an exclusion cannot re-include a path", () => {
+  for (const text of [
+    ["ignore:", "  - '!keep.ts'", ""].join("\n"),
+    [
+      "contracts:",
+      "  executable:",
+      "    source: local",
+      "    ignore:",
+      "      - '!keep.ts'",
+      "",
+    ].join("\n"),
+  ]) {
+    const error = thrownBy(() => parseDeclaration(text), ConfigError);
+    expect(error.message).toContain("!keep.ts");
+  }
+});
+
+test("an escaped leading exclamation mark is a literal exclusion", () => {
+  const declaration = parseDeclaration(
+    [
+      "ignore:",
+      "  - '\\!shared.txt'",
+      "contracts:",
+      "  executable:",
+      "    source: local",
+      "    ignore:",
+      "      - '\\!private.txt'",
+      "",
+    ].join("\n"),
+  );
+  expect(declaration.ignore).toStrictEqual(["\\!shared.txt"]);
+  expect(declaration.contracts["executable"].ignore).toStrictEqual([
+    "\\!private.txt",
+  ]);
 });
 
 test("a tree with no declaration file maps nothing and registers nothing", async () => {
@@ -265,9 +353,11 @@ test("a mapping written into the table leaves every hand-written line where it w
   );
   expect(parseDeclaration(written).contracts["report-format"]).toStrictEqual({
     source: "local",
+    ignore: [],
   });
   expect(parseDeclaration(written).contracts["tdd-contract"]).toStrictEqual({
     source: "workflow",
+    ignore: [],
   });
 });
 
@@ -285,6 +375,7 @@ test("a mapping written into a table that has no contracts block yet opens one",
   );
   expect(parseDeclaration(written).contracts["tdd-contract"]).toStrictEqual({
     source: "workflow",
+    ignore: [],
   });
   expect(parseDeclaration(written).sources["workflow"].ref).toStrictEqual(
     "main",
@@ -334,6 +425,7 @@ test("a source registered beside an existing one keeps the entries already writt
   );
   expect(declaration.contracts["tdd-contract"]).toStrictEqual({
     source: "workflow",
+    ignore: [],
   });
 });
 
@@ -411,6 +503,7 @@ test("a mapping written below a comment at the left margin is still taken out", 
   expect("tdd-contract" in declaration.contracts).toStrictEqual(false);
   expect(declaration.contracts["report-format"]).toStrictEqual({
     source: "local",
+    ignore: [],
   });
   expect(written).toContain("# tdd-contract is ours as well");
 });
