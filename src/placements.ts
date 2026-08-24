@@ -9,6 +9,7 @@
 
 import { ConfigError } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
+import { createDistributionIgnore } from "./distribution-ignore.ts";
 import type {
   LockSources,
   Placement,
@@ -657,6 +658,40 @@ function driftDetail(
   return ` — ${displayName(named)} differs`;
 }
 
+function selectionRemovalDetail(
+  raws: RawContracts,
+  declaration: Declaration,
+  contract: string,
+  dest: string,
+  kind: RawKind,
+  observed: ObservedDest,
+  site: string,
+): string {
+  const material = raws
+    .get(contract)
+    ?.materials?.find(
+      (candidate) =>
+        candidate.mapping.dest === dest && candidate.mapping.kind === kind,
+    );
+  const origin = declaration.contracts[contract];
+  if (material === undefined || origin === undefined || kind !== "directory") {
+    return "";
+  }
+  const distribution = createDistributionIgnore(
+    declaration.ignore,
+    origin.ignore,
+  );
+  const removed = observed.entries.find(
+    (entry) =>
+      entry.path !== MARKER_FILE &&
+      !observed.ignored.has(entry.path) &&
+      distribution.excludes(entry.path),
+  );
+  if (removed === undefined) return "";
+  const named = joinRelative(site, removed.path);
+  return ` — ${displayName(named)} is no longer selected`;
+}
+
 /**
  * verify's two checks over raw-byte contracts: the lock's placements against
  * what the declarations and the table derive, and each recorded dest against
@@ -734,11 +769,33 @@ export async function placementViolations(
         );
       }
       const digest = await observedDigest(observed);
+      const detail = driftDetail(
+        raws,
+        placement.contract,
+        dest,
+        kind,
+        observed,
+        site,
+      );
+      const removed = selectionRemovalDetail(
+        raws,
+        declaration,
+        placement.contract,
+        dest,
+        kind,
+        observed,
+        site,
+      );
       if (digest !== placement.digest) {
         violations.push(
           `drift: ${displayName(site)} holds files digesting to ${digest}, ` +
             `the lock pins ${placement.digest}` +
-            driftDetail(raws, placement.contract, dest, kind, observed, site),
+            detail,
+        );
+      } else if (removed !== "") {
+        violations.push(
+          `drift: ${displayName(site)} differs from the currently selected ` +
+            `canonical files${removed}; run gen to replace it`,
         );
       }
       if (kind === "directory") {
