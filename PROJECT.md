@@ -32,6 +32,7 @@ it is never committed.
 | `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
 | `src/manifest.ts` | The lock, in one canonical rendering, and what that rendering takes from the table of origins rather than from the lock |
 | `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
+| `src/distribution-ignore.ts` | Validation and matching of the shared and contract-specific distribution `ignore` rules |
 | `src/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
 | `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
 | `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
