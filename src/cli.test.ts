@@ -1,14 +1,16 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   importClosureOf,
   runCli,
   withEmptyDir,
   withGoodTree,
 } from "./testing.ts";
-import { startedThisProgram } from "./cli.ts";
+import { run, startedThisProgram } from "./cli.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
+const CLI_PATH = fileURLToPath(new URL("./cli.ts", import.meta.url));
 
 test("an unknown command is a usage error", async () => {
   const result = await runCli(["frobnicate"]);
@@ -220,6 +222,43 @@ test("the entry-point probe answers false when no program is started", () => {
 
 test("the entry-point probe answers false for a path it was not started with", () => {
   expect(startedThisProgram(["node", "/no/such/entry"])).toStrictEqual(false);
+});
+
+test("the entry-point probe recognizes this program's real path", () => {
+  expect(startedThisProgram([process.execPath, CLI_PATH])).toStrictEqual(true);
+});
+
+test("the public entry point uses the current directory as its default root", async () => {
+  await withGoodTree(async (root) => {
+    const child = Bun.spawn([process.execPath, CLI_PATH, "verify"], {
+      cwd: root,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+
+    expect(code, stderr).toStrictEqual(0);
+    expect(stdout).toStrictEqual("");
+    expect(stderr).toStrictEqual("");
+  });
+});
+
+test("an unexpected exception is one stderr line on exit code 2", async () => {
+  const stderr: string[] = [];
+  const code = await run(
+    ["--help"],
+    () => {
+      throw new Error("boom");
+    },
+    (line) => stderr.push(line),
+  );
+
+  expect(code).toStrictEqual(2);
+  expect(stderr).toStrictEqual(["internal error: boom"]);
 });
 
 test("the commands that work offline reach no network, environment or subprocess", async () => {

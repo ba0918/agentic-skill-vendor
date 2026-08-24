@@ -83,3 +83,74 @@ jobs:
 
       - name: Check that the raw-byte fixture skills are self-contained
         run: bun run src/cli.ts lint-selfcontain --root fixtures/contracts-raw/good
+
+  package-smoke:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # prepack builds the published entry point with Bun. The tarball below is
+      # therefore the same package shape npm would receive, not a source-tree
+      # shortcut that can pass while dist/ is broken or missing.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20.10"
+
+      - name: Build and install the package tarball
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          mkdir -p "$RUNNER_TEMP/package" "$RUNNER_TEMP/consumer"
+          tarball="$(npm pack --pack-destination "$RUNNER_TEMP/package" | tail -n 1)"
+          npm install --prefix "$RUNNER_TEMP/consumer" "$RUNNER_TEMP/package/$tarball"
+          package_root="$RUNNER_TEMP/consumer/node_modules/@ba0918-dev/agentic-skill-vendor"
+          package_bin="$RUNNER_TEMP/consumer/node_modules/.bin/agentic-skill-vendor"
+          test -x "$package_bin"
+          test -f "$package_root/dist/cli.js"
+          echo "PACKAGE_ROOT=$package_root" >> "$GITHUB_ENV"
+          echo "PACKAGE_BIN=$package_bin" >> "$GITHUB_ENV"
+
+      - name: Smoke-test the installed bin on Node 20.10
+        run: |
+          set -euo pipefail
+          node --version | grep -E '^v20\.10\.'
+          "$PACKAGE_BIN" --help | grep -F 'usage: agentic-skill-vendor'
+          "$PACKAGE_BIN" verify --root fixtures/contracts-raw/good
+          "$PACKAGE_BIN" lint-selfcontain --root fixtures/contracts-basic/good
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Smoke-test the installed bin on Node 24
+        run: |
+          set -euo pipefail
+          node --version | grep -E '^v24\.'
+          "$PACKAGE_BIN" --help | grep -F 'usage: agentic-skill-vendor'
+          "$PACKAGE_BIN" verify --root fixtures/contracts-raw/good
+          "$PACKAGE_BIN" lint-selfcontain --root fixtures/contracts-basic/good
+
+      - name: Smoke-test the installed package on Bun 1.3
+        run: |
+          set -euo pipefail
+          bun --version | grep -E '^1\.3\.'
+          bun "$PACKAGE_ROOT/dist/cli.js" --help | grep -F 'usage: agentic-skill-vendor'
+          bun "$PACKAGE_ROOT/dist/cli.js" verify --root fixtures/contracts-raw/good
+          bun "$PACKAGE_ROOT/dist/cli.js" lint-selfcontain --root fixtures/contracts-basic/good
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "v2.x"
+
+      - name: Smoke-test the installed package on Deno 2
+        run: |
+          set -euo pipefail
+          deno --version | head -1 | grep -E '^deno 2\.'
+          deno run --allow-read --allow-write "$PACKAGE_ROOT/dist/cli.js" --help | grep -F 'usage: agentic-skill-vendor'
+          deno run --allow-read --allow-write "$PACKAGE_ROOT/dist/cli.js" verify --root fixtures/contracts-raw/good
+          deno run --allow-read --allow-write "$PACKAGE_ROOT/dist/cli.js" lint-selfcontain --root fixtures/contracts-basic/good

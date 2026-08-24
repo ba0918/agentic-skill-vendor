@@ -30,6 +30,8 @@ workflow ファイル名)を登録する。以後の publish はすべて workfl
    - package.json の版・既存 git タグ・npm 上の公開済み版を照合し、リリース対象かを決める
    - リリース対象なら通常 CI(型検査・lint・format・テスト・fixture の verify と
      自己完結チェック)を通す
+   - 公開する tarball を実際にインストールし、最低対応の Node 20.10 と release が使う
+     Node 24、Bun 1.3.x、Deno 2.x から公開 CLI の入口を通す
    - タグ v{版} を作成する(チェックが通った状態にだけタグを打つ)
    - 同じコミットから tarball をビルドし、trusted publishing で publish する
 
