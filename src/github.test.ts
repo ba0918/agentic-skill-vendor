@@ -351,3 +351,119 @@ test("every request tells the transport not to follow a redirect itself", async 
 
   expect(asked.map((init) => init?.redirect)).toStrictEqual(["manual"]);
 });
+
+const TOKEN = "ghp_TestOnlyCredentialValue000000000000";
+
+/** Every Authorization header a run of `fn` put on the wire, in order. */
+async function authorizationsDuring(
+  fn: (transport: typeof fetch) => Promise<unknown>,
+): Promise<(string | null)[]> {
+  const seen: (string | null)[] = [];
+  const transport = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    seen.push(new Headers(init?.headers).get("authorization"));
+    return await new Response(
+      JSON.stringify({ sha: REVISION, default_branch: "main", tree: [] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  }) as unknown as typeof fetch;
+  await fn(transport);
+  return seen;
+}
+
+test("a run given no token sends no Authorization header at all", async () => {
+  // The unauthenticated request is what it always was. An empty or absent
+  // credential spelled as a header is a request that reaches the host as
+  // neither one thing nor the other, and a 401 answered to it would be read
+  // here as the source not holding the contract.
+  const seen = await authorizationsDuring(async (transport) => {
+    const client = gitHubOver(transport);
+    await client.commitOf(REPOSITORY, "main");
+    await client.fileAt(REPOSITORY, REVISION, "contracts/tdd.md");
+  });
+  expect(seen).toStrictEqual([null, null]);
+});
+
+test("the token reaches both hosts, because both of them serve a private source", async () => {
+  // The listing comes from the API host and the bytes from the raw host, and
+  // a private repository answers neither without a credential. Sent to the
+  // API alone, a private source would resolve its commit and then fail to
+  // fetch one single file of it.
+  const seen = await authorizationsDuring(async (transport) => {
+    const client = gitHubOver(transport, TOKEN);
+    await client.commitOf(REPOSITORY, "main");
+    await client.blobsAt(REPOSITORY, REVISION);
+    await client.fileAt(REPOSITORY, REVISION, "contracts/tdd.md");
+  });
+  expect(seen).toStrictEqual([
+    `Bearer ${TOKEN}`,
+    `Bearer ${TOKEN}`,
+    `Bearer ${TOKEN}`,
+  ]);
+});
+
+test("a refused request tells an authenticated run to look at its token, not at the hourly allowance", async () => {
+  // The unauthenticated hint sends a reader to wait out an allowance they
+  // are not spending: a run carrying a credential has 5,000 requests an hour,
+  // and what answers 403 for it is a token without access to the source or
+  // one that has expired.
+  //
+  // 404 is in the list for a behaviour of the raw content host that a person
+  // will otherwise spend an afternoon on: handed an Authorization header it
+  // cannot validate, it answers 404 for a file it serves anonymously with
+  // 200, so a merely wrong token makes a public source look empty rather than
+  // making itself known.
+  for (const status of [401, 403, 404, 429]) {
+    const transport = (async () =>
+      new Response("", { status })) as unknown as typeof fetch;
+    const error = await rejectedBy(
+      () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+      ConfigError,
+    );
+    expect(error.message).toContain(`answered ${status}`);
+    expect(error.message).toContain("token");
+    expect(error.message).not.toContain("unauthenticated requests");
+  }
+});
+
+test("an unauthenticated run keeps the note it always had, and gains none", async () => {
+  // The run that reaches for no credential is the run this tool has always
+  // made, and its refusals say what they always said. A 404 in particular
+  // carries no note at all: without a credential the raw host answers it for
+  // a file that genuinely is not there.
+  for (const [status, expected] of [
+    [403, true],
+    [429, true],
+    [401, false],
+    [404, false],
+  ] as [number, boolean][]) {
+    const transport = (async () =>
+      new Response("", { status })) as unknown as typeof fetch;
+    const error = await rejectedBy(
+      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      ConfigError,
+    );
+    expect(error.message).toContain(`answered ${status}`);
+    expect(error.message.includes("rate limited by the hour")).toStrictEqual(
+      expected,
+    );
+    expect(error.message).not.toContain("the token this run was given");
+  }
+});
+
+test("no refusal puts the token into its message", async () => {
+  // A refusal is written to a terminal, kept in a CI log and pasted into
+  // issues. The URL it names is built from the tree; the credential is not
+  // part of the URL and must not be part of anything reported beside it.
+  for (const status of [401, 403, 404, 500]) {
+    const transport = (async () =>
+      new Response("", { status })) as unknown as typeof fetch;
+    const error = await rejectedBy(
+      () => gitHubOver(transport, TOKEN).fileAt(REPOSITORY, REVISION, "a.md"),
+      ConfigError,
+    );
+    expect(error.message).not.toContain(TOKEN);
+  }
+});

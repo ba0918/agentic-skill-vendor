@@ -35,6 +35,7 @@ export interface CliResult {
 export async function runCli(
   args: string[],
   transport: typeof fetch = refusingTransport,
+  readStdin: () => string = refusingStdin,
 ): Promise<CliResult> {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -43,9 +44,22 @@ export async function runCli(
     (line) => stdout.push(line),
     (line) => stderr.push(line),
     transport,
+    readStdin,
   );
   return { code, stdout, stderr };
 }
+
+/**
+ * Standard input, for a suite that must never touch the real one.
+ *
+ * A test runner's standard input is not a pipe carrying a credential, and a
+ * case that reached for it would either block or read whatever the runner
+ * happened to leave there. Refused, a command that read it where it must not
+ * fails instead — the same shape as the transport above.
+ */
+const refusingStdin = (): string => {
+  throw new Error("the test suite reads no standard input");
+};
 
 const refusingTransport = ((input: string | URL | Request) => {
   throw new Error(`the test suite reaches no network: ${String(input)}`);
