@@ -42,6 +42,12 @@ export async function prepareStaging(root: string): Promise<void> {
 
 let counter = 0;
 
+type DeviceOf = (path: string) => Promise<number>;
+
+async function deviceOf(path: string): Promise<number> {
+  return (await fs.stat(path)).dev;
+}
+
 /**
  * Places `files` at `relative` as a whole directory, or `content` as one
  * file, via the staging directory. What stands at `relative` is removed
@@ -51,6 +57,7 @@ export async function placeViaStaging(
   root: string,
   relative: string,
   what: { files: PlacedFile[] } | { content: Uint8Array },
+  readDevice: DeviceOf = deviceOf,
 ): Promise<void> {
   const staged = `${STAGING_DIR}/${counter++}`;
   const stagedPath = `${root}/${staged}`;
@@ -67,7 +74,7 @@ export async function placeViaStaging(
     } else {
       await fs.writeFile(stagedPath, what.content);
     }
-    await assertSameDevice(root, staged, dirNameOf(relative));
+    await assertSameDevice(root, staged, dirNameOf(relative), readDevice);
     if ((await kindAt(root, relative)) !== null) {
       await fs.rm(path, { recursive: true });
     }
@@ -90,12 +97,13 @@ async function assertSameDevice(
   root: string,
   staged: string,
   parent: string,
+  readDevice: DeviceOf,
 ): Promise<void> {
   const [a, b] = await Promise.all([
-    fs.stat(`${root}/${staged}`),
-    fs.stat(`${root}/${parent}`),
+    readDevice(`${root}/${staged}`),
+    readDevice(`${root}/${parent}`),
   ]);
-  if (a.dev === b.dev) return;
+  if (a === b) return;
   throw new ConfigError(
     `${displayName(parent)} and ${displayName(STAGING_DIR)} are on different ` +
       `file systems, so a dest cannot be moved into place atomically; keep ` +
