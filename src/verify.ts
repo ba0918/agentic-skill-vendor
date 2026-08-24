@@ -26,6 +26,7 @@ import {
   conformanceDirectoriesOf,
   listVendorEntries,
   locateTreeContracts,
+  lockedOrDeclared,
   lockViolations,
   readContracts,
   readTreeState,
@@ -43,7 +44,6 @@ import {
   rawLockViolations,
   readRawContracts,
 } from "./placements.ts";
-import { declaredIds } from "./declaration.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the
@@ -223,14 +223,14 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
   const locations = await locateTreeContracts(root, state);
   assertSrcsClearOfConformance(
     state.declaration,
-    conformanceDirectoriesOf(locations),
+    conformanceDirectoriesOf(locations, state.declaration),
   );
   const contracts = await readContracts(root, locations);
   const raws = await readRawContracts(
     root,
     state.declaration,
     sources,
-    declaredIds(skills),
+    lockedOrDeclared(skills, resolutions),
   );
 
   // The three file-system checks are independent of one another and of the
@@ -263,12 +263,7 @@ export async function commandVerify(root: string, out: Sink): Promise<number> {
     ...closureViolations(skills, contracts, locations),
     ...rawClosureViolations(skills, raws),
     ...lockViolations(skills, contracts, resolutions, locations),
-    ...rawLockViolations(
-      skills,
-      raws,
-      resolutions,
-      await deriveRawResolutions(raws),
-    ),
+    ...rawLockViolations(raws, resolutions, await deriveRawResolutions(raws)),
   ];
   for (const result of settled) {
     if (result.status === "fulfilled") {

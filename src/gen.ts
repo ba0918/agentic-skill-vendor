@@ -65,6 +65,7 @@ import {
   planPlacements,
   presentRawIds,
   rawClosureViolations,
+  type ConformancePosition,
   type RawContracts,
   rawMappingsOf,
   readRawContracts,
@@ -577,7 +578,7 @@ export async function readTreeState(root: string): Promise<TreeState> {
  * verification with nothing able to record the new value — the one command that
  * could was the approval command, and it is gone.
  */
-function lockedOrDeclared(
+export function lockedOrDeclared(
   skills: SkillDeclaration[],
   resolutions: Resolutions,
 ): string[] {
@@ -804,7 +805,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const locations = await locateTreeContracts(root, state);
   assertSrcsClearOfConformance(
     state.declaration,
-    conformanceDirectoriesOf(locations),
+    conformanceDirectoriesOf(locations, state.declaration),
   );
   const contracts = await readContracts(root, locations);
   const raws = await readRawContracts(
@@ -928,15 +929,18 @@ async function reviseOrigins(
   return { declaration: parseDeclaration(text), text, report };
 }
 
-/** Where each document contract keeps its conformance tests, by id. */
+/** Where each document contract keeps its conformance tests inside its source, by id. */
 export function conformanceDirectoriesOf(
   locations: Map<string, ContractLocation>,
-): Map<string, string> {
-  const directories = new Map<string, string>();
-  for (const [id, location] of locations) {
-    if (location.local) {
-      directories.set(id, conformanceDirectory(location.site, id));
-    }
+  declaration: Declaration,
+): Map<string, ConformancePosition> {
+  const positions = new Map<string, ConformancePosition>();
+  for (const id of locations.keys()) {
+    const origin = declaration.contracts[id];
+    positions.set(id, {
+      source: origin?.source ?? LOCAL_SOURCE,
+      directory: conformanceDirectory(originPathOf(id, origin), id),
+    });
   }
-  return directories;
+  return positions;
 }

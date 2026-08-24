@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { conformanceDirectoriesOf } from "./gen.ts";
+import { assertSrcsClearOfConformance } from "./placements.ts";
+import { type ContractLocation, parseDeclaration } from "./sources.ts";
 import {
   fakeGitHub,
   readLockFile,
@@ -406,6 +409,24 @@ test("the scribe leaves a files row alone when nothing declares it, and a person
   });
 });
 
+test("verify reports a changed local raw-byte contract whose table row and resolution remain after every declaration is withdrawn", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await undeclareIn(root, "release-notes");
+    await runCli(["gen", "--root", root]);
+    const recorded = (await readLockFile(root)).resolutions["workflow-runtime"]
+      .digest;
+    await fs.appendFile(`${root}/${RUNTIME}/runtime.py`, "# changed\n");
+
+    const result = await runCli(["verify", "--root", root]);
+
+    expect(result.code).toStrictEqual(1);
+    expect(
+      result.stdout.find((line) => line.startsWith("stale-lock:")),
+    ).toContain(recorded);
+  });
+});
+
 test("a row rewritten from raw-byte to document, or back, is refused while the lock remembers the other kind", async () => {
   await withRawTree(async (root) => {
     await runCli(["gen", "--root", root]);
@@ -625,6 +646,64 @@ test("a src at, under or over another contract's conformance position is refused
     expect(gen.code).toStrictEqual(2);
     expect(gen.stderr.join("\n")).toContain("conformance");
   });
+});
+
+test("the same src and conformance path in different sources do not collide", () => {
+  const declaration = parseDeclaration(
+    "sources:\n" +
+      "  upstream:\n" +
+      "    repository: example/upstream\n" +
+      "    ref: main\n" +
+      "contracts:\n" +
+      "  document:\n" +
+      "    source: local\n" +
+      "  payload:\n" +
+      "    source: upstream\n" +
+      "    files:\n" +
+      "      contracts/document/conformance/: scripts/payload/\n",
+  );
+  const locations = new Map<string, ContractLocation>([
+    ["document", { local: true, site: "contracts/document.md" }],
+  ]);
+
+  expect(() =>
+    assertSrcsClearOfConformance(
+      declaration,
+      conformanceDirectoriesOf(locations, declaration),
+    ),
+  ).not.toThrow();
+});
+
+test("a raw src and conformance path in the same remote source collide", () => {
+  const declaration = parseDeclaration(
+    "sources:\n" +
+      "  upstream:\n" +
+      "    repository: example/upstream\n" +
+      "    ref: main\n" +
+      "contracts:\n" +
+      "  document:\n" +
+      "    source: upstream\n" +
+      "  payload:\n" +
+      "    source: upstream\n" +
+      "    files:\n" +
+      "      contracts/document/conformance/: scripts/payload/\n",
+  );
+  const locations = new Map<string, ContractLocation>([
+    [
+      "document",
+      {
+        local: false,
+        site: ".agentic-skill-vendor/cache/upstream/commit/contracts/document.md",
+      },
+    ],
+  ]);
+
+  expect(() =>
+    assertSrcsClearOfConformance(
+      declaration,
+      conformanceDirectoriesOf(locations, declaration),
+    ),
+  ).toThrow("conformance");
 });
 
 test("a tree whose lock was lost is recorded anew by claiming every dest it still holds", async () => {

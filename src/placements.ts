@@ -781,20 +781,18 @@ export function assertKindsAgree(
 }
 
 /**
- * What the lock records for each declared raw-byte contract, against what
- * its src digests to now: the raw-byte half of the lock-versus-canonical
- * check. A contract the lock says nothing about is unresolved; one it
- * records another digest for is a stale lock.
+ * What the lock records for each raw-byte contract this run read, against
+ * what its src digests to now: the raw-byte half of the
+ * lock-versus-canonical check. A contract the lock says nothing about is
+ * unresolved; one it records another digest for is a stale lock.
  */
 export function rawLockViolations(
-  skills: SkillDeclaration[],
   raws: RawContracts,
   recorded: Record<string, Resolution>,
   derived: Record<string, Resolution>,
 ): string[] {
   const violations: string[] = [];
-  for (const id of declaredIds(skills)) {
-    if (!raws.has(id)) continue;
+  for (const id of [...raws.keys()].sort(compareStrings)) {
     const resolution = recorded[id];
     if (resolution === undefined) {
       violations.push(
@@ -859,20 +857,29 @@ export function presentRawIds(raws: RawContracts): string[] {
   });
 }
 
+/** A document contract's conformance position inside the source that owns it. */
+export interface ConformancePosition {
+  source: string;
+  directory: string;
+}
+
 /**
  * Refuses a raw-byte src that stands at, under or over the conformance
- * position of a document contract. Conformance tests are collected by path
- * prefix with no notion of which contract a file belongs to, so a src over
- * that position would distribute the tests and one under it would be pinned
- * as tests.
+ * position of a document contract in the same source. Conformance tests are
+ * collected by path prefix with no notion of which contract a file belongs
+ * to, so a src over that position would distribute the tests and one under it
+ * would be pinned as tests.
  */
 export function assertSrcsClearOfConformance(
   declaration: Declaration,
-  conformanceDirectories: Map<string, string>,
+  conformancePositions: Map<string, ConformancePosition>,
 ): void {
   for (const id of Object.keys(declaration.contracts).sort(compareStrings)) {
+    const source = declaration.contracts[id].source;
     for (const mapping of declaration.contracts[id].files ?? []) {
-      for (const [other, directory] of conformanceDirectories) {
+      for (const [other, position] of conformancePositions) {
+        if (source !== position.source) continue;
+        const { directory } = position;
         if (
           mapping.src === directory ||
           mapping.src.startsWith(`${directory}/`) ||
