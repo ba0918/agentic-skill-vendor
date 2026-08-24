@@ -168,9 +168,14 @@ place to a position of your choosing inside each skill, by a `files` line in the
 origins in `vendor-manifest.yaml`:
 
 ```yaml
+ignore:
+  - "**/*.test.ts"                         # every raw directory source
+
 contracts:
   workflow-runtime:
     source: local
+    ignore:
+      - "fixtures/"                        # this contract only
     files:
       tools/workflow-runtime/: scripts/_runtime/    # a directory, whole
   check-script:
@@ -190,6 +195,24 @@ metadata:
   contracts:
     - workflow-runtime
 ```
+
+Both `ignore` fields are optional arrays of strings. They use `.gitignore` pattern syntax,
+including `*`, `**`, anchored `/`, comments, and escapes. An unescaped leading `!` is refused:
+contract-specific rules may add exclusions but cannot undo a shared one. Each directory mapping
+is matched independently against POSIX paths relative to its own source directory, so `/build.ts`
+means the `build.ts` immediately inside every mapped directory. These rules do not affect an
+explicit file source or a document contract.
+
+Exclusion changes what is distributed, digested, and recorded, not what is fetched or safety
+checked. A remote directory source is fetched and verified in full and then filtered while its
+cache is read. If that cache is absent, `verify` still compares the lock with the existing copies
+but cannot evaluate an `ignore` change; run `fetch` and then `verify` for the full comparison.
+Links, reserved files, and other unsafe source entries are inspected before filtering.
+
+When a new rule excludes a file that was distributed earlier, `verify` reports the old copy as
+`drift` when the canonical source is available, and the next `gen` removes it by replacing the
+directory destination. If filtering leaves a mapped directory with no distributable files,
+`gen` and `verify` stop with a configuration error before changing the lock or existing copies.
 
 `files` lines are yours to write, always: there is no conventional position for a set of files,
 so nothing derives them, and `gen` never takes one out. `add` and `update` report a declared id

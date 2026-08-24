@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Raw directory contracts may define shared and contract-specific `ignore` pattern arrays in
+  `vendor-manifest.yaml`. The backward-compatible option uses `.gitignore` syntax to exclude
+  files from distribution and digests while preserving full remote fetches and existing
+  manifests that omit it.
+
 ## [0.3.0] - 2026-08-24
 
 ### Added
