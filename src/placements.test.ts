@@ -572,6 +572,148 @@ test("a raw-byte contract from another repository is fetched under its src, plac
   );
 });
 
+test("local and remote directory sources apply the same distribution exclusions", async () => {
+  let localDigest = "";
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${RUNTIME}/ignored.tmp`, "ignored\n");
+    const manifest = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      manifest,
+      (await fs.readFile(manifest, "utf8")).replace(
+        "    source: local\n",
+        "    source: local\n    ignore:\n      - '*.tmp'\n",
+      ),
+    );
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code, gen.stderr.join("\n")).toStrictEqual(0);
+    await expect(fs.stat(`${root}/${DEST}/ignored.tmp`)).rejects.toThrow();
+    localDigest = (await readLockFile(root)).resolutions["workflow-runtime"]
+      .digest;
+  });
+
+  await withRemoteRawTree(
+    {
+      "tools/workflow-runtime/runtime.py": "print('run')\r\n",
+      "tools/workflow-runtime/lib/helpers.py": "HELP = 1\n",
+      "tools/workflow-runtime/ignored.tmp": "ignored\n",
+    },
+    async (root, github) => {
+      const manifest = `${root}/vendor-manifest.yaml`;
+      await fs.writeFile(
+        manifest,
+        (await fs.readFile(manifest, "utf8"))
+          .replace(
+            "    source: workflow\n",
+            "    source: workflow\n    ignore:\n      - '*.tmp'\n",
+          )
+          .replace("tools/rt/", "tools/workflow-runtime/"),
+      );
+      expect((await runCli(["fetch", "--root", root], github.fetch)).code).toBe(
+        0,
+      );
+      const gen = await runCli(["gen", "--root", root]);
+      expect(gen.code, gen.stderr.join("\n")).toStrictEqual(0);
+      await expect(fs.stat(`${root}/${DEST}/ignored.tmp`)).rejects.toThrow();
+      expect(
+        (await readLockFile(root)).resolutions["workflow-runtime"].digest,
+      ).toBe(localDigest);
+    },
+  );
+});
+
+test("changing only excluded content leaves the lock, report, and distribution unchanged", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${RUNTIME}/ignored.tmp`, "first\n");
+    const manifest = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      manifest,
+      (await fs.readFile(manifest, "utf8")).replace(
+        "    source: local\n",
+        "    source: local\n    ignore:\n      - '*.tmp'\n",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    const before = await fs.readFile(`${root}/vendor-lock.json`, "utf8");
+    await fs.writeFile(`${root}/${RUNTIME}/ignored.tmp`, "second\n");
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toBe(0);
+    expect(gen.stdout).toStrictEqual([]);
+    expect(await fs.readFile(`${root}/vendor-lock.json`, "utf8")).toBe(before);
+    await expect(fs.stat(`${root}/${DEST}/ignored.tmp`)).rejects.toThrow();
+  });
+});
+
+test("verify reports a newly excluded old copy and gen removes it", async () => {
+  await withRawTree(async (root) => {
+    await writeFile(`${root}/${RUNTIME}/remove.tmp`, "old\n");
+    await runCli(["gen", "--root", root]);
+    const manifest = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      manifest,
+      (await fs.readFile(manifest, "utf8")).replace(
+        "    source: local\n",
+        "    source: local\n    ignore:\n      - '*.tmp'\n",
+      ),
+    );
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toBe(1);
+    expect(verify.stdout.join("\n")).toContain("drift:");
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code, gen.stderr.join("\n")).toBe(0);
+    await expect(fs.stat(`${root}/${DEST}/remove.tmp`)).rejects.toThrow();
+    expect((await runCli(["verify", "--root", root])).code).toBe(0);
+  });
+});
+
+test("an empty distribution selection leaves the existing lock and dest unchanged", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const lock = await fs.readFile(`${root}/vendor-lock.json`, "utf8");
+    const manifest = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      manifest,
+      (await fs.readFile(manifest, "utf8")).replace(
+        "    source: local\n",
+        "    source: local\n    ignore:\n      - '**'\n",
+      ),
+    );
+    const gen = await runCli(["gen", "--root", root]);
+    expect(gen.code).toBe(2);
+    expect(await fs.readFile(`${root}/vendor-lock.json`, "utf8")).toBe(lock);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+  });
+});
+
+test("cacheless verify defers an ignore change until fetch restores the remote source", async () => {
+  await withRemoteRawTree(
+    { "tools/rt/run.ts": "run\n", "tools/rt/remove.tmp": "remove\n" },
+    async (root, github) => {
+      expect((await runCli(["fetch", "--root", root], github.fetch)).code).toBe(
+        0,
+      );
+      expect((await runCli(["gen", "--root", root])).code).toBe(0);
+      await fs.rm(`${root}/.agentic-skill-vendor`, { recursive: true });
+      const manifest = `${root}/vendor-manifest.yaml`;
+      await fs.writeFile(
+        manifest,
+        (await fs.readFile(manifest, "utf8")).replace(
+          "    source: workflow\n",
+          "    source: workflow\n    ignore:\n      - '*.tmp'\n",
+        ),
+      );
+      expect((await runCli(["verify", "--root", root])).code).toBe(0);
+      expect((await runCli(["fetch", "--root", root], github.fetch)).code).toBe(
+        0,
+      );
+      const verified = await runCli(["verify", "--root", root]);
+      expect(verified.code).toBe(1);
+      expect(verified.stdout.join("\n")).toContain("stale-lock:");
+    },
+  );
+});
+
 test("a src the pinned commit does not hold stops the fetch and names the way out", async () => {
   await withRemoteRawTree(
     { "tools/elsewhere/a.py": "A\n" },
