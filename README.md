@@ -164,6 +164,20 @@ Withdrawing a contract — removing it from the skills' declarations and deletin
 text — is the same act at the other end: the next `gen` retires its resolution and reports
 `retired: <id>`, so the removal never happens silently.
 
+Taking it out of the declarations while leaving the canonical text in place is a different
+state, and not a retirement: the text is still there, so the lock goes on resolving the id.
+Every `gen` from then on says so, and goes on saying so, because it is a standing state
+rather than an event:
+
+```
+unused: <id> (no skill declares it; its resolution stays in the lock)
+```
+
+The resolution is reported, not removed — deleting the digest would make a contract briefly
+out of use one to re-adopt from scratch when it comes back — and the exit code is untouched.
+A canonical text that no skill has ever declared says nothing at all: nothing resolves it, so
+a repository holding contracts purely for other repositories to fetch reports none of them.
+
 ## Distributing files and directories as they are
 
 A contract need not be a document. Scripts several skills share — a runtime every workflow
@@ -489,8 +503,8 @@ looks finished: whatever it leaves behind is a state `verify` reports as a viola
 | `self-test` | `self-test` | the tool disagrees with a vector embedded in it |
 
 A successful run reports in the same shape, and on the same stability footing: `adopted`,
-`retired`, `claimed` and `cleared` from `gen`, `mapped` and `unmapped` for the table of origins,
-and `resolved` and `unlocated` from `add` and `update`.
+`retired`, `claimed`, `cleared` and `unused` from `gen`, `mapped` and `unmapped` for the table
+of origins, and `resolved` and `unlocated` from `add` and `update`.
 
 ## Design notes
 

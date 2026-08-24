@@ -1461,3 +1461,103 @@ test("a raw dest is refused at the position the document copies are written to",
   expect(reservedDestRefusal(dest)).not.toBeNull();
   expect(reservedDestRefusal(`${dest}/nested.md`)).not.toBeNull();
 });
+
+/** The fixture's `verdict-format` withdrawn from the one skill declaring it. */
+const REVIEW_WRITER = "skills/review-writer/SKILL.md";
+const WITHOUT_VERDICT = [
+  "---",
+  "name: review-writer",
+  "description: Turns a run's evidence into a review.",
+  "metadata:",
+  "  contracts:",
+  "    - changelog-entry",
+  "---",
+  "",
+  "# Review Writer",
+  "",
+  "Reads the evidence a run produced and writes the review for it.",
+  "",
+].join("\n");
+
+test("a resolution no skill declares any more is reported, run after run", async () => {
+  // Withdrawing a declaration while the canonical text stays is not a
+  // retirement: the text is still there, so the lock goes on resolving the id
+  // and every later run answers 0 over a resolution nothing depends on. Until
+  // now it did so in silence, which made the lock's own `dependencies` the
+  // only place the state was visible — and nobody reads a lock for what is
+  // missing from it.
+  //
+  // Reported every run rather than once, because it is a standing state and
+  // not an event: the run that first sees it is rarely the run somebody
+  // reads. `unlocated` is reported the same way, for the same reason.
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/${REVIEW_WRITER}`, WITHOUT_VERDICT);
+
+    const first = await runCli(["gen", "--root", root]);
+    expect(first.code).toStrictEqual(0);
+    expect(first.stdout.join("\n")).toContain("unused: verdict-format");
+
+    const second = await runCli(["gen", "--root", root]);
+    expect(second.code).toStrictEqual(0);
+    expect(second.stdout.join("\n")).toContain("unused: verdict-format");
+
+    // Still resolved: the report says the resolution is unused, and does not
+    // take it out. What a withdrawal removes is the copy, and the copy is
+    // gone.
+    const lock = await readLockFile(root);
+    expect(lock.resolutions["verdict-format"]).toBeDefined();
+    expect(lock.dependencies["review-writer"]).toStrictEqual([
+      "changelog-entry",
+    ]);
+  });
+});
+
+test("a canonical text nothing ever declared is not reported as unused", async () => {
+  // The state a repository that is a source for others is permanently in: it
+  // holds the contract, other repositories fetch it, and no skill of its own
+  // declares it. Nothing resolves it here — a resolution is only ever written
+  // for an id the lock or a declaration already named — so there is nothing
+  // unused to say, and saying it every run would make the report noise in
+  // exactly the repositories that publish the most.
+  await withGoodTree(async (root) => {
+    await writeFile(
+      `${root}/contracts/published-elsewhere.md`,
+      "# For others\n",
+    );
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout.join("\n")).not.toContain("published-elsewhere");
+    const lock = await readLockFile(root);
+    expect(lock.resolutions["published-elsewhere"]).toBeUndefined();
+  });
+});
+
+test("declaring a contract again stops it being reported as unused", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(`${root}/${REVIEW_WRITER}`, WITHOUT_VERDICT);
+    const withdrawn = await runCli(["gen", "--root", root]);
+    expect(withdrawn.stdout.join("\n")).toContain("unused: verdict-format");
+
+    await writeFile(
+      `${root}/${REVIEW_WRITER}`,
+      WITHOUT_VERDICT.replace(
+        "    - changelog-entry",
+        "    - changelog-entry\n    - verdict-format",
+      ),
+    );
+    const restored = await runCli(["gen", "--root", root]);
+
+    expect(restored.code).toStrictEqual(0);
+    expect(restored.stdout.join("\n")).not.toContain("unused:");
+  });
+});
+
+test("a tree whose every resolution is declared reports no unused line", async () => {
+  await withGoodTree(async (root) => {
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(0);
+    expect(result.stdout.join("\n")).not.toContain("unused:");
+  });
+});

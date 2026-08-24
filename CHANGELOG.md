@@ -23,6 +23,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a position instead. `gen`, `verify`, `lint-selfcontain` and `self-test` refuse the flag:
   they reach no network, and accepting it would contradict the boundary they state.
 
+- `gen` reports `unused: <id>` for a resolution the lock keeps that no skill declares any
+  more — a declaration withdrawn while the canonical text stayed, which is not a retirement
+  and until now passed in silence. Reported every run, since it is a standing state; the
+  resolution is not removed and the exit code does not change. A canonical text nothing has
+  ever declared is not reported, so a repository holding contracts for other repositories to
+  fetch stays quiet.
+
 ### Changed
 
 - A refused request from a run carrying a token names the token as a likely cause instead of
