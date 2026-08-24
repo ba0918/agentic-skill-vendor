@@ -504,6 +504,7 @@ test("the expected lock names the repository the declaration registers", async (
           workflow: { repository: "ba0918/agentic-workflow", ref: "main" },
         },
         contracts: {},
+        ignore: [],
       },
       {},
     );

@@ -39,7 +39,7 @@ test("planning over a declared contract whose text is missing refuses instead of
         {},
         {},
         new Map(),
-        { sources: {}, contracts: {} },
+        { sources: {}, contracts: {}, ignore: [] },
       ),
     ).rejects.toThrow(ConfigError);
   });
@@ -1333,9 +1333,11 @@ test("gen writes the origin of a declared contract this repository holds itself"
     );
     expect(declaration.contracts["changelog-entry"]).toStrictEqual({
       source: "local",
+      ignore: [],
     });
     expect(declaration.contracts[REMOTE.id]).toStrictEqual({
       source: "workflow",
+      ignore: [],
     });
     expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
   });

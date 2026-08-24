@@ -442,7 +442,7 @@ test("a declared contract found at one source's conventional position is mapped 
       parseDeclaration(
         await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
       ).contracts["tdd-contract"],
-    ).toStrictEqual({ source: "workflow" });
+    ).toStrictEqual({ source: "workflow", ignore: [] });
     expect(
       await fs.readFile(
         `${root}/${cacheSiteOf("workflow", REVISION, "contracts/tdd-contract.md")}`,

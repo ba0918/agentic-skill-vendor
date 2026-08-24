@@ -74,6 +74,7 @@ test("add registers the source at the branch the repository hands out and takes 
     });
     expect(declaration.contracts["tdd-contract"]).toStrictEqual({
       source: "agentic-workflow",
+      ignore: [],
     });
     expect(lines).toContain("mapped: tdd-contract <- agentic-workflow");
     expect(lines).toContain(

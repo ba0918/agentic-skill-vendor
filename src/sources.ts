@@ -20,6 +20,7 @@ import { assertValidContractId, contractPath } from "./digest.ts";
 import { emptyRecord } from "./records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 import { MARKER_FILE } from "./raw.ts";
+import { readDistributionIgnore } from "./distribution-ignore.ts";
 import {
   assertPlainChain,
   isRegularFileOrAbsent,
@@ -92,6 +93,7 @@ export interface SourceRecord {
  */
 export interface ContractOrigin {
   source: string;
+  ignore: string[];
   path?: string;
   /**
    * A raw-byte contract: canonical src paths mapped to the dest each lands at
@@ -117,6 +119,7 @@ export interface RawMapping {
 export interface Declaration {
   sources: Record<string, SourceRecord>;
   contracts: Record<string, ContractOrigin>;
+  ignore: string[];
 }
 
 /**
@@ -175,6 +178,10 @@ export function parseDeclaration(text: string): Declaration {
   return {
     sources,
     contracts: readContractOrigins(root["contracts"], sources),
+    ignore: readDistributionIgnore(
+      root["ignore"],
+      `${DECLARATION_FILE}: ignore`,
+    ),
   };
 }
 
@@ -199,7 +206,7 @@ export async function readDeclaration(root: string): Promise<Declaration> {
 
 /** A declaration registering nothing and mapping nothing. */
 export function emptyDeclaration(): Declaration {
-  return { sources: emptyRecord(), contracts: emptyRecord() };
+  return { sources: emptyRecord(), contracts: emptyRecord(), ignore: [] };
 }
 
 function readSourceRecords(value: unknown): Record<string, SourceRecord> {
@@ -249,7 +256,13 @@ function readContractOrigins(
         )}, which no sources entry registers`,
       );
     }
-    const origin: ContractOrigin = { source };
+    const origin: ContractOrigin = {
+      source,
+      ignore: readDistributionIgnore(
+        entry["ignore"],
+        `${DECLARATION_FILE}: contracts.${id}.ignore`,
+      ),
+    };
     if (entry["files"] !== undefined) {
       if (entry["path"] !== undefined) {
         throw new ConfigError(
