@@ -7,6 +7,38 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-24
+
+### Added
+
+- **A token for private and rate-limited sources.** `--token-stdin` reads a GitHub token from
+  standard input and `add`, `update` and `fetch` send it as an `Authorization: Bearer` header
+  to both hosts, which is what a source in a private repository needs and what lifts the
+  hourly allowance from 60 requests to 5,000. Standard input rather than a file or an
+  environment variable: a pipe leaves no copy of the secret at rest, appears in no process
+  listing or shell history, and needs no permission of its own, so the Deno flags every
+  command documents are unchanged and nothing here reads the environment. The value is judged
+  before it is sent — printable ASCII, no spaces, at most 1024 characters, the trailing
+  newline trimmed — held for one run, written nowhere, and named by no refusal, which report
+  a position instead. `gen`, `verify`, `lint-selfcontain` and `self-test` refuse the flag:
+  they reach no network, and accepting it would contradict the boundary they state.
+
+### Changed
+
+- A refused request from a run carrying a token names the token as a likely cause instead of
+  the unauthenticated hourly allowance, and does so for `401` and `404` as well as `403` and
+  `429`. Handed an `Authorization` header it cannot validate, `raw.githubusercontent.com`
+  answers `404` for a file it serves anonymously with `200`, so an expired token makes a
+  public source look empty rather than making itself known. An unauthenticated run's
+  refusals are unchanged.
+
+### Fixed
+
+- `references/vendor` was written as a separate literal in two modules, one building the
+  directory the document copies go into and the other refusing a raw-byte dest that would
+  land on them. They share one constant now; drifted apart, a raw contract could have been
+  placed over a document copy with neither side seeing a collision.
+
 ## [0.4.0] - 2026-08-24
 
 ### Added
@@ -129,7 +161,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A fixture tree under `fixtures/contracts-basic/good/` that verifies clean, which CI runs
   `verify` and `lint-selfcontain` against so that an unapproved change fails the build.
 
-[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.1.0...v0.2.0

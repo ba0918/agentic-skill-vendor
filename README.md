@@ -19,6 +19,7 @@ repository's own regression machinery.
 - Keep local documents in sync: [Quickstart](#quickstart)
 - Distribute raw files or directories: [Distributing files and directories as they are](#distributing-files-and-directories-as-they-are)
 - Take a contract from another repository: [Taking a contract from another repository](#taking-a-contract-from-another-repository)
+- Take one from a private repository: [Taking a contract from a private repository](#taking-a-contract-from-a-private-repository)
 - Check committed output in CI: [Running it in CI](#running-it-in-ci)
 
 Whichever path you take, [review the generated changes](#review-generated-changes) after `gen`.
@@ -91,11 +92,12 @@ These examples limit file access to the current root. When using `--root <path>`
 in the read and write permissions with that path.
 
 The same source runs on Node (>= 20.10), Bun and Deno. It reads no environment variable and
-starts no subprocess, ever. Three commands reach the network — `add`, `update` and `fetch`,
-over HTTPS to `api.github.com` and `raw.githubusercontent.com` and nowhere else — and the rest
-touch the file system alone. Under Deno the read-only commands need only read access to the
-root, `gen` adds write access to it, and only the three fetching commands need access to the
-two GitHub hosts.
+starts no subprocess, ever; the one credential it can be given arrives on standard input, and
+only where `--token-stdin` asks for it. Three commands reach the network — `add`, `update`
+and `fetch`, over HTTPS to `api.github.com` and `raw.githubusercontent.com` and nowhere else
+— and the rest touch the file system alone. Under Deno the read-only commands need only read
+access to the root, `gen` adds write access to it, and only the three fetching commands need
+access to the two GitHub hosts.
 
 ## The commands
 
@@ -109,9 +111,11 @@ two GitHub hosts.
 | `update` | Moves every pin to what its ref names now, and fetches what the new pin holds | yes |
 | `fetch` | Fills the cache with exactly what the lock already pins — what a clean checkout runs | yes |
 
-`--root` names the tree to work on and defaults to the current directory. Exit codes: `0`
-nothing to report, `1` violations (one per line on standard output), `2` a refusal or an
-internal error (standard error).
+`--root` names the tree to work on and defaults to the current directory. `--token-stdin`
+reads a GitHub token from standard input and is taken by the three commands that reach a
+network — see [below](#taking-a-contract-from-a-private-repository). Exit codes: `0` nothing
+to report, `1` violations (one per line on standard output), `2` a refusal or an internal
+error (standard error).
 
 ## The tree
 
@@ -324,6 +328,52 @@ The repository each source is pinned to is the one this table registers. Edit th
 tree disagrees with itself until `update` runs: `verify` reports `source-mismatch`, and `gen`
 and `fetch` stop for that source rather than act on a pin the table contradicts. `update` is
 the way back — it reads the repository and the ref from the table alone.
+
+## Taking a contract from a private repository
+
+A source in a private repository, or a public one being fetched often enough to meet the
+hourly allowance, needs a token. It is piped in; nothing else is accepted:
+
+```
+gh auth token | bunx agentic-skill-vendor update --token-stdin
+```
+
+Anything that writes a token to standard output composes the same way — `op read`,
+`vault kv get -field=token`, a `secrets` value in a workflow step:
+
+```yaml
+- run: echo "${{ secrets.CONTRACTS_TOKEN }}" | bunx agentic-skill-vendor fetch --token-stdin
+```
+
+**A pipe, and not a file or an environment variable, on purpose.** A file is a second copy of
+the secret at rest — one more thing to be committed, backed up, synced, or left readable by
+everything running as the same person — and making one safe would take a permission check
+that means nothing on a file system without POSIX modes. An environment variable is inherited
+by every child process and would cost this tool the boundary it can otherwise state plainly:
+that it reads none. A pipe leaves nothing behind, appears in no process listing and in no
+shell history, and needs no permission of its own — so the Deno flags above do not change,
+and `--token-stdin` needs no `--allow-env`.
+
+The token is held in memory for the length of one run, reaches one `Authorization` header,
+is written nowhere, and appears in no message this tool prints. It is judged before it is
+sent: printable ASCII with no spaces, at most 1024 characters, the trailing newline every
+producer leaves trimmed off. A value carrying a line break is refused by position — a header
+field is terminated by CRLF, so such a value would put headers of its own into the request —
+and the refusal names the position rather than the value.
+
+`--token-stdin` is refused by `gen`, `verify`, `lint-selfcontain` and `self-test`. Those four
+reach no network, and a flag they accepted would quietly contradict the one thing this
+document says about them.
+
+Two things are worth knowing before the first run:
+
+- **A wrong token is worse than no token on a public source.** Handed an `Authorization`
+  header it cannot validate, `raw.githubusercontent.com` answers `404` for a file it would
+  serve anonymously with `200`. The run refuses rather than reading that as "the source holds
+  no such contract", and the refusal says to look at the token — but a token that is merely
+  expired makes a public source that worked yesterday look empty.
+- **The token is needed only where a fetch is.** `gen` and `verify` read the cache and the
+  tree, so CI that commits the cache, or that runs `verify` alone, needs no credential at all.
 
 ## Running it in CI
 

@@ -34,6 +34,7 @@ it is never committed.
 | `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
 | `src/distribution-ignore.ts` | Validation and matching of the shared and contract-specific distribution `ignore` rules |
 | `src/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
+| `src/token.ts` | The credential: taken from standard input, judged before it can become a header, named by no refusal |
 | `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
 | `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
 | `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
@@ -99,6 +100,16 @@ tags follow that value; they are not separate version declarations.
   own in CI. Without it the settings in `tsconfig.json` would constrain nothing.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
+- A credential reaches the tool on standard input alone, only where `--token-stdin` asks for
+  it, and only for the three commands that reach a network. Not a file: that is a second copy
+  of the secret at rest, and making one safe needs a mode check that says nothing on a file
+  system without POSIX modes. Not an environment variable: that is inherited by every child
+  process and would cost the boundary above, and `--allow-env` besides. Standard input needs
+  no permission of its own, so the Deno flags the commands document do not change. The value
+  is held for one run, reaches one `Authorization: Bearer` header on both hosts, is written
+  nowhere and is named by no refusal — the refusals report a position instead. Reading
+  standard input is the one part of this path that is a runtime capability rather than this
+  package's own code, so CI asserts it on Node, Bun and Deno against the packed tarball.
 - The following are external compatibility and do not change without a version change: the
   commands and their flags, the lock schema (`placements` and a resolution's `kind` included),
   the declaration schema (`files` lines included), the exit codes, the digest algorithm and
@@ -121,7 +132,8 @@ tags follow that value; they are not separate version declarations.
   is a property of the code rather than a guarantee of the runtime. `add`, `update` and
   `fetch` add HTTPS to `api.github.com` and `raw.githubusercontent.com`, through a transport
   injected at the command boundary, and read no environment variable and start no subprocess
-  either. No redirect is followed: the fixed pair of hosts would otherwise hold for the first
+  either. The four offline commands refuse `--token-stdin` rather than ignoring it, so the
+  boundary above is stated in the one place a person checks it. No redirect is followed: the fixed pair of hosts would otherwise hold for the first
   request of a run only, so a `3xx` answer stops the run with nothing written.
 - The lock records what was resolved and nothing else — no tool version, no repository URL, no
   derivable path. Every one of those was a value no check consumed, and the tool's own
