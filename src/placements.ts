@@ -541,7 +541,6 @@ async function planMigration(
       destination.mapping.kind === "file",
   );
   const finalKind: RawKind = finalAtOuter === undefined ? "directory" : "file";
-  const planned = new Map(files.map((file) => [file.path, file.content]));
   const oldOwned = new Set<string>();
   const observedOuter = await observeDest(root, site);
   const alreadyComplete =
@@ -554,7 +553,7 @@ async function planMigration(
       const oldSite = `${SKILLS_DIR}/${old.skill}/${oldDest}`;
       const oldKind: RawKind = old.dest.endsWith("/") ? "directory" : "file";
       report.push(
-        `cleared: ${displayName(oldSite)}${oldKind === "directory" ? "/" : ""} (${old.placement.contract})${observedOuter === null ? "; already absent" : ""}`,
+        `cleared: ${displayName(oldSite)}${oldKind === "directory" ? "/" : ""} (${old.placement.contract}${observedOuter === null ? "; already absent" : ""})`,
       );
     }
     if (alreadyComplete) {
@@ -633,8 +632,6 @@ async function planMigration(
   for (const entry of observedOuter.entries) {
     const path = observedOuter.kind === "file" ? "" : entry.path;
     if (oldOwned.has(path)) continue;
-    const content = planned.get(path);
-    if (content !== undefined && sameBytes(content, entry.content)) continue;
     const named = path === "" ? site : joinRelative(site, path);
     throw new ConfigError(
       `refusing to write ${displayName(site)}: ${displayName(named)} is not owned by an old placement or written by this run`,
