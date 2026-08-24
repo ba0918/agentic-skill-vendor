@@ -59,6 +59,9 @@ it is never committed.
 | `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over both fixtures |
 | `.github/workflows/release.yml` | The release: a push to main that carries a version bump is tagged and published to npm, with the checks above called rather than restated |
 
+The canonical project version is the `version` field in `package.json`. Release headings and
+tags follow that value; they are not separate version declarations.
+
 ## Commands
 
 | Purpose | Command |

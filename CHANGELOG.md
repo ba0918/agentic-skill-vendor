@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-24
+
 ### Added
 
 - Raw directory contracts may define shared and contract-specific `ignore` pattern arrays in
@@ -127,7 +129,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A fixture tree under `fixtures/contracts-basic/good/` that verifies clean, which CI runs
   `verify` and `lint-selfcontain` against so that an unapproved change fails the build.
 
-[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ba0918/agentic-skill-vendor/releases/tag/v0.1.0
