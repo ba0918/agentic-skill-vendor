@@ -2,13 +2,32 @@
 
 Keeps a shared document in one place and gives every skill that needs it its own copy.
 
-Each copy is provably byte-identical to its source, and every change to what a skill carries
-lands in one reviewable diff — nothing reaches a skill silently. The source may live in this
-repository or in another one on GitHub; either way each skill ends up with the same bytes.
+In this README, a contract is either a shared document or a set of raw files and directories
+that skills need to carry identically.
+
+A document contract's generated copy carries a fixed header followed by its canonical body. A
+raw-byte contract copies each payload file byte for byte; a generated directory marker is a
+separate file. Every change to what a skill carries lands in one reviewable diff — nothing
+reaches a skill silently. The source may live in this repository or in another one on GitHub.
 
 Compatibility judgment is out of scope. A digest proves a copy matches its source, not that a
 new version still suits the skills depending on it — that judgment belongs to the consuming
 repository's own regression machinery.
+
+## Choose a starting point
+
+- Keep local documents in sync: [Quickstart](#quickstart)
+- Distribute raw files or directories: [Distributing files and directories as they are](#distributing-files-and-directories-as-they-are)
+- Take a contract from another repository: [Taking a contract from another repository](#taking-a-contract-from-another-repository)
+- Check committed output in CI: [Running it in CI](#running-it-in-ci)
+
+Whichever path you take, [review the generated changes](#review-generated-changes) after `gen`.
+
+## Review generated changes
+
+After `gen`, review and commit the generated copies and `vendor-lock.json` with the canonical
+source change. Also review and commit `vendor-manifest.yaml` when you add or change a raw
+mapping or a remote-source row.
 
 ## Quickstart
 
@@ -56,14 +75,27 @@ a bare name resolves the newest release each time:
 
 ```
 bunx @ba0918-dev/agentic-skill-vendor@<version> <command> [--root <path>]
-deno run --allow-read --allow-write npm:@ba0918-dev/agentic-skill-vendor@<version> <command>
+# A read-only command
+deno run --allow-read=. npm:@ba0918-dev/agentic-skill-vendor@<version> verify
+
+# A local write, with no network access
+deno run --allow-read=. --allow-write=. npm:@ba0918-dev/agentic-skill-vendor@<version> gen
+
+# Commands that fetch from GitHub
+deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> add <owner/repo>
+deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> update
+deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> fetch
 ```
 
-The same source runs on Node (>= 20), Bun and Deno. It reads no environment variable and
+These examples limit file access to the current root. When using `--root <path>`, replace `.`
+in the read and write permissions with that path.
+
+The same source runs on Node (>= 20.10), Bun and Deno. It reads no environment variable and
 starts no subprocess, ever. Three commands reach the network — `add`, `update` and `fetch`,
 over HTTPS to `api.github.com` and `raw.githubusercontent.com` and nowhere else — and the rest
-touch the file system alone. Under Deno the read-only commands run on `--allow-read`, `gen`
-needs `--allow-write` too, and only the three fetching commands need `--allow-net`.
+touch the file system alone. Under Deno the read-only commands need only read access to the
+root, `gen` adds write access to it, and only the three fetching commands need access to the
+two GitHub hosts.
 
 ## The commands
 
@@ -89,14 +121,17 @@ contracts/<id>/conformance/**             its conformance tests, if any
 skills/<name>/SKILL.md                    a skill, declaring what it depends on
 skills/<name>/references/vendor/<id>.md   the copy this tool writes into that skill
 skills/<name>/<dest>                      a raw-byte contract's copy, where the table says
-vendor-manifest.yaml                      the table of origins: where each contract comes from
+vendor-manifest.yaml                      origins and raw-byte source-to-destination mappings
 vendor-lock.json                          the lock: the digest recorded for each contract
 .agentic-skill-vendor/                    the cache of fetched text — never committed
 ```
 
-The last three are the tool's own files. `vendor-manifest.yaml` and `.agentic-skill-vendor/`
-appear only once a repository takes a contract from somewhere else; a repository using nothing
-but its own contracts has the lock and the copies, as it always did.
+The last three are the tool's own files. `vendor-manifest.yaml` is needed when a contract comes
+from another repository or when raw files or directories are distributed, because it records
+their origins and source-to-destination mappings. It is not needed when every contract is a
+local document at its standard `contracts/<id>.md` path. `.agentic-skill-vendor/` appears only
+after a repository fetches a contract from another repository; a repository using only local
+documents has the lock and generated copies, as it always did.
 
 ## Changing a contract
 
@@ -130,7 +165,7 @@ text — is the same act at the other end: the next `gen` retires its resolution
 A contract need not be a document. Scripts several skills share — a runtime every workflow
 skill drives, a helper a few of them call — are distributed as raw bytes, from one canonical
 place to a position of your choosing inside each skill, by a `files` line in the table of
-origins:
+origins in `vendor-manifest.yaml`:
 
 ```yaml
 contracts:
@@ -252,11 +287,35 @@ the way back — it reads the repository and the ref from the table alone.
 CI runs `verify` and fails the build on a non-zero exit. CI never runs `gen` — its job is
 detecting a tree that disagrees with its lock, not resolving the disagreement.
 
-It needs no network and no cache. For a contract fetched from another repository, `verify`
-compares the copies against the lock and the lock against what the tree renders to, and
-silently leaves out the two comparisons that need the canonical text (the text against the
-lock, and the conformance tests against the lock) when the cache is not there. Run `fetch`
-before `verify` where the full comparison is wanted.
+For a repository that installs this package with Bun, the smallest GitHub Actions workflow is:
+
+```yaml
+name: Verify vendored contracts
+
+on: [pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.x"
+      - run: bun install --frozen-lockfile
+      - run: bunx agentic-skill-vendor verify
+```
+
+After dependencies are installed, the `verify` step itself needs neither network access nor the
+`.agentic-skill-vendor/` cache. The install step downloads packages from the registry and does
+need network access. For a contract fetched from another repository, `verify` compares the
+copies against the lock and the lock against what the tree renders to, and silently leaves out
+the two comparisons that need the canonical text (the text against the lock, and the conformance
+tests against the lock) when the cache is not there. Run `fetch` before `verify` where the full
+comparison is wanted.
 
 What is never left out is the lock recording nothing at all for a declared contract: that is
 reported as `unresolved` with a cache or without one, so the tree an `add` wrote the mapping
