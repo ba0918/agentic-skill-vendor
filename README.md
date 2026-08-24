@@ -218,6 +218,12 @@ directory destination. If filtering leaves a mapped directory with no distributa
 so nothing derives them, and `gen` never takes one out. `add` and `update` report a declared id
 they find at no conventional position as `unlocated: <id>`, which is the cue to write one.
 
+A dest conflicts only with the other final dests in the same skill. Different skills may use
+the same dest text independently. Within one skill, identical dests and ancestor/descendant
+dests are refused when `gen` or `verify` combines the table with the skill declarations. The
+table itself remains readable, so `add`, `update`, and `fetch` are not stopped by overlapping
+dests that no skill places together.
+
 The copies land wherever you pointed them, so the lock records what was written where —
 `placements`, skill by skill and dest by dest — and `gen` reads that record before it touches a
 path:
@@ -237,6 +243,20 @@ path:
   replacement. A directory dest is the tool's; keep local files out of it. A dest, or a file
   being placed in one, that those rules would exclude outright is refused instead, since a copy
   `verify` cannot see is not one `gen` may write.
+
+When an old recorded dest overlaps its replacement in the same skill — for example, a directory
+split into child files, or child files gathered into a directory — one `gen` can migrate the
+ownership. From the intact old state, every old placement must still match its recorded digest,
+and the newly owned range must contain no content that was neither owned before nor written by
+this run. The final files are built as one artifact under `.agentic-skill-vendor/staging/` and
+the outermost owned dest is replaced once. If a run stops at that replacement boundary, the next
+`gen` continues only from the intact old state, an absent outermost dest, or the exact completed
+artifact with the old lock; every other partial state is refused before any copy or lock change.
+The staging and destination file systems are checked before the old dest is removed.
+
+This migration adds no lock field or report kind. It also adds no network access: `gen` and
+`verify` retain their file-system-only boundary, while only `add`, `update`, and `fetch` reach the
+two documented GitHub hosts.
 
 `verify` compares each recorded dest with the digest recorded for it, and the record itself
 with what the declarations and the table say it should be (`placement`), and needs neither the

@@ -41,7 +41,8 @@ it is never committed.
 | `src/header.ts` | The generated-copy header, shared by document copies and raw-byte markers |
 | `src/raw.ts` | Raw-byte contracts, pure: the shared framing, the contract digest and the placement digest |
 | `src/rawsource.ts` | Reading a raw-byte contract's files from the tree or the cache, with the refusals that go with it |
-| `src/placements.ts` | Distributing raw-byte contracts: the gate, the sweep, the placement record, and verify's checks over them |
+| `src/placement-ownership.ts` | Pure per-skill final-dest conflict checks and old-to-final overlap component derivation |
+| `src/placements.ts` | Distributing raw-byte contracts: the gate, ownership-migration state classification, the sweep, the placement record, and verify's checks over them |
 | `src/staging.ts` | Building a raw-byte dest under the tool's directory and renaming it into the skill |
 | `src/verify.ts` | The four independent identity checks |
 | `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
@@ -105,6 +106,12 @@ it is never committed.
   never built in place: a temporary name inside a skill is the person's, and the gate never
   looks at it. The rename needs one file system; a tree whose tool directory sits on another
   is refused before anything is removed.
+- Raw-byte dest ownership is scoped to a skill. `gen` and `verify` reject identical or nested
+  final dests within that skill, while table parsing and the non-placement commands do not apply
+  that tree-dependent check. An old placement overlapping its replacement is planned as one
+  outermost staged write only after the intact-old digest and newly-owned-content gates pass;
+  interrupted runs converge only from the old, absent, or exact-complete state. This changes no
+  lock field and grants no command additional network, environment, or subprocess access.
 - `gen`, `verify`, `lint-selfcontain` and `self-test` reach the file system and nothing else
   — no network, no environment, no subprocess. Under Deno that is enforceable with
   `--allow-read --allow-write`; on Node and Bun there is no sandbox to enforce it with, so it

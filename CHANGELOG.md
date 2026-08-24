@@ -13,6 +13,14 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `vendor-manifest.yaml`. The backward-compatible option uses `.gitignore` syntax to exclude
   files from distribution and digests while preserving full remote fetches and existing
   manifests that omit it.
+- Raw-byte dest conflicts are now scoped to each skill: different skills may independently use
+  the same dest, while `gen` and `verify` still refuse identical or nested final dests inside one
+  skill. `add`, `update`, and `fetch` may read overlapping table rows that they do not place.
+- `gen` can migrate overlapping owned dests in one run, including directory-to-children and
+  children-to-directory changes. It refuses edited old placements and unknown content, replaces
+  one owned outermost artifact through staging, and recovers only from the intact old, absent, or
+  exact completed state. The lock schema, report kinds, and commands' external-I/O boundaries do
+  not change.
 
 ## [0.3.0] - 2026-08-24
 
