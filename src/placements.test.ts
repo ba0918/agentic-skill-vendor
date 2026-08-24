@@ -1127,6 +1127,9 @@ test("an absent outermost migration destination is rebuilt and converges on the 
 
     const result = await runCli(["gen", "--root", root]);
     expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(result.stdout).toContain(
+      "cleared: skills/release-notes/scripts/_runtime/ (workflow-runtime; already absent)",
+    );
     expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
       "print('run')\r\n",
     );
@@ -1502,6 +1505,30 @@ test("a file dest holding someone else's bytes is refused, not claimed", async (
     expect(
       await fs.readFile(`${root}/skills/release-notes/scripts/run.py`, "utf8"),
     ).toBe("MINE\n");
+  });
+});
+
+test("a migration refuses equal bytes in an unowned entry without changing the tree or lock", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    const asDirectory = await fs.readFile(table, "utf8");
+    await fs.writeFile(
+      table,
+      asDirectory.replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/${DEST}/lib/helpers.py`, "HELP = 1\n");
+    await fs.writeFile(table, asDirectory);
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(`${DEST}/lib/helpers.py`);
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
 

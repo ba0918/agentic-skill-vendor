@@ -166,3 +166,22 @@ test("a deeply nested valid destination is classified without exhausting the cal
     },
   ]);
 });
+
+test("many sibling destinations are checked with a bounded number of path reads", () => {
+  const width = 2_048;
+  let destinationReads = 0;
+  const destinations = Array.from({ length: width }, (_, index) => {
+    const dest = `scripts/commands/command-${index}.py`;
+    return {
+      skill: "release-notes",
+      contract: `command-${index}`,
+      get dest() {
+        destinationReads++;
+        return dest;
+      },
+    };
+  });
+
+  expect(() => assertFinalDestinationsDisjoint(destinations)).not.toThrow();
+  expect(destinationReads).toBeLessThanOrEqual(width * 2);
+});
