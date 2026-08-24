@@ -464,6 +464,7 @@ test("a raw-byte src edited without gen is a stale lock, and a declared one the 
     const stale = await runCli(["verify", "--root", root]);
     expect(stale.code).toStrictEqual(1);
     expect(stale.stdout.join("\n")).toContain("stale-lock: workflow-runtime");
+    expect(stale.stdout.join("\n")).not.toContain("drift:");
 
     await runCli(["gen", "--root", root]);
     const lock = await readLockFile(root);
@@ -473,6 +474,31 @@ test("a raw-byte src edited without gen is a stale lock, and a declared one the 
     expect(unresolved.stdout.join("\n")).toContain(
       "unresolved: workflow-runtime",
     );
+  });
+});
+
+test("deleting a canonical directory file is stale lock without placement drift", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.rm(`${root}/${RUNTIME}/lib/helpers.py`);
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toBe(1);
+    expect(verify.stdout.join("\n")).toContain("stale-lock:");
+    expect(verify.stdout.join("\n")).not.toContain("drift:");
+  });
+});
+
+test("a source repository exclusion is stale lock without placement drift", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.appendFile(
+      `${root}/.gitignore`,
+      "/tools/workflow-runtime/lib/helpers.py\n",
+    );
+    const verify = await runCli(["verify", "--root", root]);
+    expect(verify.code).toBe(1);
+    expect(verify.stdout.join("\n")).toContain("stale-lock:");
+    expect(verify.stdout.join("\n")).not.toContain("drift:");
   });
 });
 

@@ -110,6 +110,46 @@ test("fetch puts the pinned text and the tests beside it into the cache", async 
   });
 });
 
+test("fetch keeps files that distribution rules exclude", async () => {
+  await withRemoteTree(async (root, lines) => {
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  workflow:",
+        `    repository: ${REPOSITORY}`,
+        "    ref: main",
+        "contracts:",
+        "  runtime:",
+        "    source: workflow",
+        "    ignore:",
+        "      - '*.tmp'",
+        "    files:",
+        "      tools/rt/: scripts/rt/",
+        "",
+      ].join("\n"),
+    );
+    const github = fakeGitHub(
+      workflow({
+        "tools/rt/run.ts": "run\n",
+        "tools/rt/ignored.tmp": "ignored\n",
+      }),
+    );
+    const code = await commandFetch(
+      root,
+      (line) => lines.push(line),
+      gitHubOver(github.fetch),
+    );
+    expect(code, lines.join("\n")).toBe(0);
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", REVISION, "tools/rt/ignored.tmp")}`,
+        "utf8",
+      ),
+    ).toBe("ignored\n");
+  });
+});
+
 test("fetch rebuilds the cache the commit describes even where the lock records another digest", async () => {
   await withRemoteTree(async (root, lines) => {
     // A lock recording one digest while the pinned commit holds another text
