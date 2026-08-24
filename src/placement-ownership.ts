@@ -32,6 +32,16 @@ function pathNode(): PathNode {
   return { children: new Map(), old: [], final: [] };
 }
 
+interface FinalPathNode {
+  children: Map<string, FinalPathNode>;
+  terminal: FinalDestination | null;
+  representative: FinalDestination | null;
+}
+
+function finalPathNode(): FinalPathNode {
+  return { children: new Map(), terminal: null, representative: null };
+}
+
 function insertPath(root: PathNode, dest: string): PathNode {
   let node = root;
   for (const segment of bareDest(dest).split("/")) {
@@ -234,21 +244,43 @@ export function finalRawDestinations(
 export function assertFinalDestinationsDisjoint(
   destinations: FinalDestination[],
 ): void {
-  const bySkill = new Map<string, FinalDestination[]>();
+  const bySkill = new Map<string, FinalPathNode>();
   for (const destination of destinations) {
-    const placed = bySkill.get(destination.skill) ?? [];
-    for (const other of placed) {
-      if (!pathsOverlap(other.dest, destination.dest)) continue;
+    let root = bySkill.get(destination.skill);
+    if (root === undefined) {
+      root = finalPathNode();
+      bySkill.set(destination.skill, root);
+    }
+    let node = root;
+    const ancestors = [root];
+    let conflict: FinalDestination | null = null;
+    for (const segment of bareDest(destination.dest).split("/")) {
+      if (node.terminal !== null) {
+        conflict = node.terminal;
+        break;
+      }
+      let child = node.children.get(segment);
+      if (child === undefined) {
+        child = finalPathNode();
+        node.children.set(segment, child);
+      }
+      node = child;
+      ancestors.push(node);
+    }
+    conflict ??= node.representative;
+    if (conflict !== null) {
       throw new ConfigError(
         `skill ${JSON.stringify(destination.skill)} places contract ` +
           `${JSON.stringify(destination.contract)} at ` +
           `${JSON.stringify(destination.dest)}, which is the same as or ` +
-          `nests with ${JSON.stringify(other.dest)} of contract ` +
-          `${JSON.stringify(other.contract)}; two distributions cannot ` +
+          `nests with ${JSON.stringify(conflict.dest)} of contract ` +
+          `${JSON.stringify(conflict.contract)}; two distributions cannot ` +
           `share a place in one skill`,
       );
     }
-    placed.push(destination);
-    bySkill.set(destination.skill, placed);
+    node.terminal = destination;
+    for (const ancestor of ancestors) {
+      ancestor.representative ??= destination;
+    }
   }
 }
