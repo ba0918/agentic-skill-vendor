@@ -274,15 +274,7 @@ export async function planExpansion(
     resolutions,
     placements,
   );
-  for (const dest of placed.dests) {
-    placedDests.push({
-      site: dest.site,
-      what:
-        dest.mapping.kind === "directory"
-          ? { files: dest.files }
-          : { content: dest.files[0].content },
-    });
-  }
+  placedDests.push(...placed.writes);
   for (const skill of skills) {
     const expected = new Set<string>();
     for (const id of skill.contracts) {

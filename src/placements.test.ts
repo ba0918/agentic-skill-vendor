@@ -1001,26 +1001,113 @@ test("swapping the dests of two contracts replaces both in place with nothing sw
   });
 });
 
-test("a dest moved under or over its own old place is refused with the two-step way out", async () => {
+test("gen migrates one owned directory to two child file placements in one run", async () => {
   await withRawTree(async (root) => {
     await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/skills/release-notes/notes.txt`, "USER NOTES\n");
     const table = `${root}/vendor-manifest.yaml`;
     await fs.writeFile(
       table,
       (await fs.readFile(table, "utf8")).replace(
-        "scripts/_runtime/",
-        "scripts/_runtime/inner/",
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+          "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
       ),
     );
     const result = await runCli(["gen", "--root", root]);
-    expect(result.code).toStrictEqual(2);
-    expect(result.stderr.join("\n")).toContain("nests with");
-    expect(result.stderr.join("\n")).toContain("withdraw the declaration");
-    // Nothing was written or cleared.
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
     expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
       "print('run')\r\n",
     );
-    await expect(fs.stat(`${root}/${DEST}/inner`)).rejects.toThrow();
+    expect(await fs.readFile(`${root}/${DEST}/lib/helpers.py`, "utf8")).toBe(
+      "HELP = 1\n",
+    );
+    await expect(fs.stat(`${root}/${DEST}/.vendored`)).rejects.toThrow();
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/notes.txt`, "utf8"),
+    ).toBe("USER NOTES\n");
+    expect(
+      Object.keys((await readLockFile(root)).placements["release-notes"]),
+    ).toStrictEqual([
+      "scripts/_runtime/lib/helpers.py",
+      "scripts/_runtime/runtime.py",
+    ]);
+  });
+});
+
+test("gen migrates two owned child files to their parent directory in one run", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    const asDirectory = await fs.readFile(table, "utf8");
+    const asChildren = asDirectory.replace(
+      "      tools/workflow-runtime/: scripts/_runtime/\n",
+      "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+        "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
+    );
+    await fs.writeFile(table, asChildren);
+    await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/skills/release-notes/notes.txt`, "USER NOTES\n");
+
+    await fs.writeFile(table, asDirectory);
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    expect(await fs.readFile(`${root}/${DEST}/lib/helpers.py`, "utf8")).toBe(
+      "HELP = 1\n",
+    );
+    expect(
+      await fs.readFile(`${root}/skills/release-notes/notes.txt`, "utf8"),
+    ).toBe("USER NOTES\n");
+    expect(
+      Object.keys((await readLockFile(root)).placements["release-notes"]),
+    ).toStrictEqual(["scripts/_runtime/"]);
+  });
+});
+
+test("an edited old placement rejects a migration before the tree or lock changes", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    await fs.writeFile(`${root}/${DEST}/runtime.py`, "USER EDIT\n");
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+          "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
+      ),
+    );
+    const before = await snapshotTree(root);
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(`${DEST}/runtime.py differs`);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("unknown user content in a newly owned parent rejects a migration without changing it", async () => {
+  await withRawTree(async (root) => {
+    const table = `${root}/vendor-manifest.yaml`;
+    const asDirectory = await fs.readFile(table, "utf8");
+    await fs.writeFile(
+      table,
+      asDirectory.replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+          "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
+      ),
+    );
+    await runCli(["gen", "--root", root]);
+    await writeFile(`${root}/${DEST}/user.txt`, "MINE\n");
+    await fs.writeFile(table, asDirectory);
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain(`${DEST}/user.txt`);
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
 

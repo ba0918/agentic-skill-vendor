@@ -56,6 +56,11 @@ import {
 } from "./ignore.ts";
 import { framedDigest } from "./raw.ts";
 import type { RawKind } from "./sources.ts";
+import {
+  derivePlacementMigrationComponents,
+  type PlacementMigrationComponent,
+  type RecordedDestination,
+} from "./placement-ownership.ts";
 
 /**
  * What one raw-byte contract's material is, and who answers for it.
@@ -214,6 +219,10 @@ export interface PlannedDest {
 
 export interface PlacementPlan {
   dests: PlannedDest[];
+  writes: {
+    site: string;
+    what: { files: PlacedFile[] } | { content: Uint8Array };
+  }[];
   placements: Placements;
   /** The dests the run clears, as tree-relative sites; all gate-checked. */
   sweeps: string[];
@@ -350,17 +359,6 @@ export async function planPlacements(
           digest: await placementDigest(material),
         };
         await assertNotIgnored(root, site, material.mapping.kind, files);
-        const claimed = await assertWritableDest(
-          root,
-          site,
-          recorded[skill.name] ?? emptyRecord(),
-          material.mapping,
-          files,
-        );
-        if (claimed) {
-          const suffix = material.mapping.kind === "directory" ? "/" : "";
-          report.push(`claimed: ${displayName(site)}${suffix} (${id})`);
-        }
         dests.push({
           skill: skill.name,
           key,
@@ -374,8 +372,232 @@ export async function planPlacements(
       }
     }
   }
-  const sweeps = await planSweep(root, recorded, dests, report);
-  return { dests, placements, sweeps, report };
+
+  const finalPaths = new Set(
+    dests.map((dest) => `${dest.skill}\0${dest.mapping.dest}`),
+  );
+  const oldDestinations: RecordedDestination[] = [];
+  for (const skill of Object.keys(recorded).sort(compareStrings)) {
+    for (const key of Object.keys(recorded[skill]).sort(compareStrings)) {
+      const dest = key.endsWith("/") ? key.slice(0, -1) : key;
+      if (finalPaths.has(`${skill}\0${dest}`)) continue;
+      oldDestinations.push({
+        skill,
+        dest: key,
+        placement: recorded[skill][key],
+      });
+    }
+  }
+  const components = derivePlacementMigrationComponents(
+    oldDestinations,
+    dests.map((dest) => ({
+      skill: dest.skill,
+      contract: dest.placement.contract,
+      dest: dest.mapping.dest,
+    })),
+  );
+  const destinationIdentity = (
+    skill: string,
+    contract: string,
+    dest: string,
+  ): string => `${skill}\0${contract}\0${dest}`;
+  const finalByIdentity = new Map(
+    dests.map((dest) => [
+      destinationIdentity(
+        dest.skill,
+        dest.placement.contract,
+        dest.mapping.dest,
+      ),
+      dest,
+    ]),
+  );
+  const migratedOld = new Set<string>();
+  const migratedFinal = new Set<string>();
+  const writes: PlacementPlan["writes"] = [];
+  for (const component of components) {
+    for (const old of component.oldDestinations) {
+      migratedOld.add(`${old.skill}\0${old.dest}`);
+    }
+    const members: PlannedDest[] = [];
+    for (const final of component.finalDestinations) {
+      const identity = destinationIdentity(
+        final.skill,
+        final.contract,
+        final.dest,
+      );
+      const member = finalByIdentity.get(identity);
+      if (member === undefined) {
+        throw new ConfigError(
+          `cannot plan migration destination ${displayName(final.dest)} in skill ${displayName(final.skill)}`,
+        );
+      }
+      members.push(member);
+      migratedFinal.add(identity);
+    }
+    writes.push(await planMigration(root, component, members, report));
+  }
+  for (const dest of dests) {
+    if (
+      migratedFinal.has(
+        destinationIdentity(
+          dest.skill,
+          dest.placement.contract,
+          dest.mapping.dest,
+        ),
+      )
+    ) {
+      continue;
+    }
+    const claimed = await assertWritableDest(
+      root,
+      dest.site,
+      recorded[dest.skill] ?? emptyRecord(),
+      dest.mapping,
+      dest.files,
+    );
+    if (claimed) {
+      const suffix = dest.mapping.kind === "directory" ? "/" : "";
+      report.push(
+        `claimed: ${displayName(dest.site)}${suffix} (${dest.placement.contract})`,
+      );
+    }
+    writes.push({
+      site: dest.site,
+      what:
+        dest.mapping.kind === "directory"
+          ? { files: dest.files }
+          : { content: dest.files[0].content },
+    });
+  }
+  const sweeps = await planSweep(root, recorded, dests, report, migratedOld);
+  return { dests, writes, placements, sweeps, report };
+}
+
+function bareDest(dest: string): string {
+  return dest.endsWith("/") ? dest.slice(0, -1) : dest;
+}
+
+function relativeTo(outer: string, path: string): string {
+  const root = bareDest(outer);
+  const nested = bareDest(path);
+  return nested === root ? "" : nested.slice(root.length + 1);
+}
+
+function compositeFiles(
+  outer: string,
+  destinations: PlannedDest[],
+): PlacedFile[] {
+  const files: PlacedFile[] = [];
+  for (const destination of destinations) {
+    const prefix = relativeTo(outer, destination.mapping.dest);
+    if (destination.mapping.kind === "file") {
+      files.push({ path: prefix, content: destination.files[0].content });
+      continue;
+    }
+    for (const file of destination.files) {
+      files.push({
+        path: prefix === "" ? file.path : `${prefix}/${file.path}`,
+        content: file.content,
+      });
+    }
+  }
+  return files;
+}
+
+async function planMigration(
+  root: string,
+  component: PlacementMigrationComponent,
+  destinations: PlannedDest[],
+  report: string[],
+): Promise<PlacementPlan["writes"][number]> {
+  const outer = bareDest(component.outermostDest);
+  const site = `${SKILLS_DIR}/${component.skill}/${outer}`;
+  const files = compositeFiles(component.outermostDest, destinations);
+  const finalAtOuter = destinations.find(
+    (destination) =>
+      bareDest(destination.mapping.dest) === outer &&
+      destination.mapping.kind === "file",
+  );
+  const planned = new Map(files.map((file) => [file.path, file.content]));
+  const oldOwned = new Set<string>();
+
+  for (const old of component.oldDestinations) {
+    const oldDest = bareDest(old.dest);
+    const oldSite = `${SKILLS_DIR}/${old.skill}/${oldDest}`;
+    const oldKind: RawKind = old.dest.endsWith("/") ? "directory" : "file";
+    await assertDestNotIgnored(root, oldSite, oldKind);
+    const observed = await observeDest(root, oldSite);
+    if (observed === null || observed.kind !== oldKind) {
+      throw new ConfigError(
+        `${displayName(oldSite)} no longer has the ${oldKind} placement recorded by the lock`,
+      );
+    }
+    if ((await observedDigest(observed)) !== old.placement.digest) {
+      const relative = relativeTo(component.outermostDest, old.dest);
+      const counted = {
+        ...observed,
+        entries: observed.entries.filter(
+          (entry) =>
+            entry.path !== MARKER_FILE && !observed.ignored.has(entry.path),
+        ),
+      };
+      const expected = files
+        .filter(
+          (file) =>
+            relative === "" ||
+            file.path.startsWith(`${relative}/`) ||
+            file.path === relative,
+        )
+        .map((file) => ({
+          path:
+            oldKind === "file"
+              ? basenameOf(oldDest)
+              : relative === ""
+                ? file.path
+                : file.path.slice(relative.length + 1),
+          content: file.content,
+        }));
+      const disagreement = firstDisagreement(counted, expected);
+      const named =
+        disagreement === null || oldKind === "file"
+          ? oldSite
+          : joinRelative(oldSite, disagreement);
+      throw new ConfigError(
+        `refusing to migrate ${displayName(oldSite)}: ${displayName(named)} differs from the placement recorded by the lock`,
+      );
+    }
+    const prefix = relativeTo(component.outermostDest, old.dest);
+    for (const entry of observed.entries) {
+      oldOwned.add(
+        oldKind === "file"
+          ? prefix
+          : prefix === ""
+            ? entry.path
+            : `${prefix}/${entry.path}`,
+      );
+    }
+    report.push(
+      `cleared: ${displayName(oldSite)}${oldKind === "directory" ? "/" : ""} (${old.placement.contract})`,
+    );
+  }
+
+  const observedOuter = await observeDest(root, site);
+  if (observedOuter !== null) {
+    for (const entry of observedOuter.entries) {
+      const path = observedOuter.kind === "file" ? "" : entry.path;
+      if (oldOwned.has(path)) continue;
+      const content = planned.get(path);
+      if (content !== undefined && sameBytes(content, entry.content)) continue;
+      const named = path === "" ? site : joinRelative(site, path);
+      throw new ConfigError(
+        `refusing to write ${displayName(site)}: ${displayName(named)} is not owned by an old placement or written by this run`,
+      );
+    }
+  }
+
+  return finalAtOuter === undefined
+    ? { site, what: { files } }
+    : { site, what: { content: finalAtOuter.files[0].content } };
 }
 
 /**
@@ -394,6 +616,7 @@ async function planSweep(
   recorded: Placements,
   dests: PlannedDest[],
   report: string[],
+  migrated: Set<string>,
 ): Promise<string[]> {
   // Sameness is the path, not the key: a dest switching kind keeps its path
   // under a new key, and the gate already let the write replace it in place.
@@ -404,6 +627,7 @@ async function planSweep(
   const sweeps: string[] = [];
   for (const skill of Object.keys(recorded).sort(compareStrings)) {
     for (const key of Object.keys(recorded[skill]).sort(compareStrings)) {
+      if (migrated.has(`${skill}\0${key}`)) continue;
       const kind: RawKind = key.endsWith("/") ? "directory" : "file";
       const dest = kind === "directory" ? key.slice(0, -1) : key;
       if (written.has(`${skill}\0${dest}`)) continue;
