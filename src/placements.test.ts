@@ -1111,6 +1111,86 @@ test("unknown user content in a newly owned parent rejects a migration without c
   });
 });
 
+test("an absent outermost migration destination is rebuilt and converges on the next gen", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+          "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
+      ),
+    );
+    await fs.rm(`${root}/${DEST}`, { recursive: true });
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    expect(await fs.readFile(`${root}/${DEST}/lib/helpers.py`, "utf8")).toBe(
+      "HELP = 1\n",
+    );
+    expect(
+      Object.keys((await readLockFile(root)).placements["release-notes"]),
+    ).toStrictEqual([
+      "scripts/_runtime/lib/helpers.py",
+      "scripts/_runtime/runtime.py",
+    ]);
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("a complete final migration artifact with the old lock converges on the next gen", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const oldLock = await fs.readFile(`${root}/vendor-lock.json`);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n",
+      ),
+    );
+    expect((await runCli(["gen", "--root", root])).code).toStrictEqual(0);
+    const finalLock = await readLockFile(root);
+    await fs.writeFile(`${root}/vendor-lock.json`, oldLock);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code, result.stderr.join("\n")).toStrictEqual(0);
+    expect(await readLockFile(root)).toStrictEqual(finalLock);
+    expect(await fs.readFile(`${root}/${DEST}/runtime.py`, "utf8")).toBe(
+      "print('run')\r\n",
+    );
+    expect((await runCli(["verify", "--root", root])).code).toStrictEqual(0);
+  });
+});
+
+test("an abnormal partial migration state is refused before the tree or lock changes", async () => {
+  await withRawTree(async (root) => {
+    await runCli(["gen", "--root", root]);
+    const table = `${root}/vendor-manifest.yaml`;
+    await fs.writeFile(
+      table,
+      (await fs.readFile(table, "utf8")).replace(
+        "      tools/workflow-runtime/: scripts/_runtime/\n",
+        "      tools/workflow-runtime/runtime.py: scripts/_runtime/runtime.py\n" +
+          "      tools/workflow-runtime/lib/helpers.py: scripts/_runtime/lib/helpers.py\n",
+      ),
+    );
+    await fs.rm(`${root}/${DEST}/.vendored`);
+    await fs.rm(`${root}/${DEST}/lib/helpers.py`);
+    const before = await snapshotTree(root);
+
+    const result = await runCli(["gen", "--root", root]);
+    expect(result.code).toStrictEqual(2);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
 test("a run stopped between the copies and the sweep converges on the next gen", async () => {
   await withRawTree(async (root) => {
     await runCli(["gen", "--root", root]);

@@ -504,6 +504,28 @@ function compositeFiles(
   return files;
 }
 
+function holdsExactComposite(
+  observed: ObservedDest,
+  kind: RawKind,
+  files: PlacedFile[],
+): boolean {
+  if (observed.kind !== kind || observed.entries.length !== files.length) {
+    return false;
+  }
+  if (kind === "file") {
+    return (
+      files.length === 1 &&
+      files[0].path === "" &&
+      sameBytes(observed.entries[0].content, files[0].content)
+    );
+  }
+  const planned = new Map(files.map((file) => [file.path, file.content]));
+  return observed.entries.every((entry) => {
+    const content = planned.get(entry.path);
+    return content !== undefined && sameBytes(entry.content, content);
+  });
+}
+
 async function planMigration(
   root: string,
   component: PlacementMigrationComponent,
@@ -518,8 +540,35 @@ async function planMigration(
       bareDest(destination.mapping.dest) === outer &&
       destination.mapping.kind === "file",
   );
+  const finalKind: RawKind = finalAtOuter === undefined ? "directory" : "file";
   const planned = new Map(files.map((file) => [file.path, file.content]));
   const oldOwned = new Set<string>();
+  const observedOuter = await observeDest(root, site);
+  const alreadyComplete =
+    observedOuter !== null &&
+    holdsExactComposite(observedOuter, finalKind, files);
+
+  if (observedOuter === null || alreadyComplete) {
+    for (const old of component.oldDestinations) {
+      const oldDest = bareDest(old.dest);
+      const oldSite = `${SKILLS_DIR}/${old.skill}/${oldDest}`;
+      const oldKind: RawKind = old.dest.endsWith("/") ? "directory" : "file";
+      report.push(
+        `cleared: ${displayName(oldSite)}${oldKind === "directory" ? "/" : ""} (${old.placement.contract})${observedOuter === null ? "; already absent" : ""}`,
+      );
+    }
+    if (alreadyComplete) {
+      for (const destination of destinations) {
+        const suffix = destination.mapping.kind === "directory" ? "/" : "";
+        report.push(
+          `claimed: ${displayName(destination.site)}${suffix} (${destination.placement.contract})`,
+        );
+      }
+    }
+    return finalAtOuter === undefined
+      ? { site, what: { files } }
+      : { site, what: { content: finalAtOuter.files[0].content } };
+  }
 
   for (const old of component.oldDestinations) {
     const oldDest = bareDest(old.dest);
@@ -581,18 +630,15 @@ async function planMigration(
     );
   }
 
-  const observedOuter = await observeDest(root, site);
-  if (observedOuter !== null) {
-    for (const entry of observedOuter.entries) {
-      const path = observedOuter.kind === "file" ? "" : entry.path;
-      if (oldOwned.has(path)) continue;
-      const content = planned.get(path);
-      if (content !== undefined && sameBytes(content, entry.content)) continue;
-      const named = path === "" ? site : joinRelative(site, path);
-      throw new ConfigError(
-        `refusing to write ${displayName(site)}: ${displayName(named)} is not owned by an old placement or written by this run`,
-      );
-    }
+  for (const entry of observedOuter.entries) {
+    const path = observedOuter.kind === "file" ? "" : entry.path;
+    if (oldOwned.has(path)) continue;
+    const content = planned.get(path);
+    if (content !== undefined && sameBytes(content, entry.content)) continue;
+    const named = path === "" ? site : joinRelative(site, path);
+    throw new ConfigError(
+      `refusing to write ${displayName(site)}: ${displayName(named)} is not owned by an old placement or written by this run`,
+    );
   }
 
   return finalAtOuter === undefined
