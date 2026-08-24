@@ -3,9 +3,10 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
-import { planExpansion } from "./gen.ts";
+import { planExpansion, vendorDirOf } from "./gen.ts";
 import { contractDigest } from "./digest.ts";
-import { parseDeclaration } from "./sources.ts";
+import { parseDeclaration, reservedDestRefusal } from "./sources.ts";
+import { SKILLS_DIR } from "./declaration.ts";
 import {
   append,
   escapeThrough,
@@ -1443,4 +1444,20 @@ test("gen refuses a stale mapping it cannot take out rather than reporting one i
       await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8"),
     ).toStrictEqual(table);
   });
+});
+
+test("a raw dest is refused at the position the document copies are written to", () => {
+  // The two sides of this used to name "references/vendor" separately: one
+  // building the directory the document copies go into, the other refusing a
+  // raw dest that would land on them. Drifted apart, nothing would have said
+  // so until a raw contract overwrote a document copy — the one collision the
+  // sweep cannot see, because each side believes it owns the path. They share
+  // the constant now, and this is what says they still mean the same position.
+  const skill = "review-writer";
+  const documents = vendorDirOf(skill);
+  expect(documents.startsWith(`${SKILLS_DIR}/${skill}/`)).toStrictEqual(true);
+
+  const dest = documents.slice(`${SKILLS_DIR}/${skill}/`.length);
+  expect(reservedDestRefusal(dest)).not.toBeNull();
+  expect(reservedDestRefusal(`${dest}/nested.md`)).not.toBeNull();
 });

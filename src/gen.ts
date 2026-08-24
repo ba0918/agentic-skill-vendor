@@ -85,9 +85,8 @@ import {
   withContractMapping,
   withoutContractMapping,
   TOOL_DIR,
+  VENDOR_SUBPATH,
 } from "./sources.ts";
-
-const VENDOR_SUBPATH = "references/vendor";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
