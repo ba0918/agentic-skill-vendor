@@ -31,6 +31,7 @@ import {
 } from "./raw.ts";
 import { compareStrings } from "./digest.ts";
 import type { RawMapping } from "./sources.ts";
+import { createDistributionIgnore } from "./distribution-ignore.ts";
 
 /**
  * The files of every mapping of one raw-byte contract, or null where any src
@@ -44,6 +45,8 @@ export async function readRawMaterials(
   id: string,
   mappings: RawMapping[],
   applyIgnoreRules: boolean,
+  sharedIgnore: readonly string[] = [],
+  contractIgnore: readonly string[] = [],
 ): Promise<RawMaterial[] | RawAbsence> {
   const materials: RawMaterial[] = [];
   const absent: string[] = [];
@@ -51,7 +54,14 @@ export async function readRawMaterials(
     const files =
       mapping.kind === "file"
         ? await readFileSrc(root, mapping.src, applyIgnoreRules)
-        : await readDirectorySrc(root, id, mapping.src, applyIgnoreRules);
+        : await readDirectorySrc(
+            root,
+            id,
+            mapping.src,
+            applyIgnoreRules,
+            sharedIgnore,
+            contractIgnore,
+          );
     if (files === null || files.length === 0) {
       absent.push(srcKeyOf(mapping));
       continue;
@@ -104,6 +114,8 @@ async function readDirectorySrc(
   id: string,
   src: string,
   applyIgnoreRules: boolean,
+  sharedIgnore: readonly string[],
+  contractIgnore: readonly string[],
 ): Promise<RawFile[] | null> {
   await assertPlainChain(root, src);
   if (!(await isDirectoryOrAbsent(root, src))) return null;
@@ -128,13 +140,23 @@ async function readDirectorySrc(
   const rules = applyIgnoreRules
     ? await readIgnoreRules(root, ancestorDirectories(src))
     : { excludes: () => false };
-  const files: RawFile[] = [];
-  for (const path of found) {
-    if (rules.excludes(joinRelative(src, path))) continue;
-    files.push({
+  const repositoryPaths = found.filter(
+    (path) => !rules.excludes(joinRelative(src, path)),
+  );
+  const distribution = createDistributionIgnore(sharedIgnore, contractIgnore);
+  const selected = repositoryPaths.filter(
+    (path) => !distribution.excludes(path),
+  );
+  if (repositoryPaths.length > 0 && selected.length === 0) {
+    throw new ConfigError(
+      `${displayName(src)}/: distribution ignore rules exclude every file ` +
+        `of directory mapping ${id}`,
+    );
+  }
+  return await Promise.all(
+    selected.map(async (path) => ({
       relative: path,
       content: await readBytes(`${dir}/${path}`, joinRelative(src, path)),
-    });
-  }
-  return files;
+    })),
+  );
 }

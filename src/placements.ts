@@ -108,7 +108,14 @@ export async function readRawContracts(
     if (rows === undefined) continue;
     const source = declaration.contracts[id].source;
     if (source === LOCAL_SOURCE) {
-      const read = await readRawMaterials(root, id, rows, true);
+      const read = await readRawMaterials(
+        root,
+        id,
+        rows,
+        true,
+        declaration.ignore,
+        declaration.contracts[id].ignore,
+      );
       contracts.set(
         id,
         Array.isArray(read)
@@ -132,7 +139,14 @@ export async function readRawContracts(
       ...mapping,
       src: `${revision}/${mapping.src}`,
     }));
-    const read = await readRawMaterials(root, id, inCache, false);
+    const read = await readRawMaterials(
+      root,
+      id,
+      inCache,
+      false,
+      declaration.ignore,
+      declaration.contracts[id].ignore,
+    );
     contracts.set(id, {
       local: false,
       // The src the material is framed under is the source's own path, not
