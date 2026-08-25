@@ -10,6 +10,7 @@ import {
 import { gitHubOver } from "./github.ts";
 import { parseDeclaration } from "../contracts/source-schema.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
+import { collectSources } from "./source-collection.ts";
 import {
   escapeThrough,
   snapshotTree,
@@ -29,12 +30,42 @@ const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";
 const CONTRACT = "# TDD Contract\n\nWrite the test first.\n";
 const CASE = "A case the contract has to satisfy.\n";
 
-test("remote source resolution does not depend on a concrete transport adapter", async () => {
+test("remote source collection does not depend on a concrete transport adapter", async () => {
   const source = await fs.readFile(
-    new URL("./resolvecmd.ts", import.meta.url),
+    new URL("./source-collection.ts", import.meta.url),
     "utf8",
   );
   expect(source).not.toContain('from "./github.ts"');
+});
+
+test("source collection refuses a snapshot that differs from the lock pin", async () => {
+  const declaration = parseDeclaration(
+    [
+      "sources:",
+      "  workflow:",
+      `    repository: ${REPOSITORY}`,
+      "    ref: main",
+      "contracts:",
+      "  tdd-contract:",
+      "    source: workflow",
+      "",
+    ].join("\n"),
+  );
+  const snapshot = {
+    revision: "0".repeat(40),
+    objectFormat: "sha1" as const,
+    blobs: [],
+    async fileAt(): Promise<Uint8Array> {
+      throw new Error("unexpected file read");
+    },
+    async close(): Promise<void> {},
+  };
+
+  await expect(
+    collectSources(new Map([["workflow", snapshot]]), declaration, {
+      workflow: { repository: REPOSITORY, revision: REVISION },
+    }),
+  ).rejects.toThrow("the snapshot opened for workflow");
 });
 
 function workflow(

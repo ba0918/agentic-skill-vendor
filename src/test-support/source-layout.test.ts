@@ -686,7 +686,7 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
     ],
     [
       "src/remote/resolvecmd.ts",
-      /function (?:updateRequests|fetchRequests|writeLockSources|collectSources|placeInCache|legacyCollectSources)/,
+      /function (?:updateRequests|fetchRequests|writeLockSources|collectSources|placeInCache|mapDeclaredContracts|resolveSources|requirePinnedSnapshot|collectContract|collectRawMapping|fetchChecked|legacyCollectSources)/,
       "resolvecmd owns extracted logic",
     ],
   ];
@@ -778,6 +778,51 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
       /function unusedReport/,
       "unused resolution report owner",
     ],
+    [
+      "src/remote/source-collection.ts",
+      /function collectSources/,
+      "remote source collection owner",
+    ],
+    [
+      "src/remote/source-collection.ts",
+      /function mapDeclaredContracts/,
+      "remote mapping plan owner",
+    ],
+    [
+      "src/remote/source-collection.ts",
+      /function requirePinnedSnapshot/,
+      "remote pin validation owner",
+    ],
+    [
+      "src/remote/source-collection.ts",
+      /function collectContract/,
+      "remote document collection owner",
+    ],
+    [
+      "src/remote/source-collection.ts",
+      /function collectRawMapping/,
+      "remote raw collection owner",
+    ],
+    [
+      "src/remote/source-collection.ts",
+      /function fetchChecked/,
+      "remote git object verification owner",
+    ],
+    [
+      "src/remote/cache-write.ts",
+      /function placeInCache/,
+      "remote verified cache publication owner",
+    ],
+    [
+      "src/remote/lock-update.ts",
+      /function resolveSources/,
+      "remote pin resolution owner",
+    ],
+    [
+      "src/remote/lock-update.ts",
+      /function writeLockSources/,
+      "remote lock write owner",
+    ],
   ];
   for (const [path, pattern, message] of ownerContracts) {
     if (!pattern.test(sources.get(path) ?? "")) violations.push(message);
@@ -804,6 +849,30 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
     )
   ) {
     violations.push("generation plan re-exports lock diagnostics");
+  }
+  const remoteOrchestrator = sources.get("src/remote/resolvecmd.ts") ?? "";
+  if (/SourceCollectors|sourceCollectors/.test(remoteOrchestrator)) {
+    violations.push("resolvecmd wires a source collection callback facade");
+  }
+  if (
+    !/from "\.\/source-collection\.ts"/.test(remoteOrchestrator) ||
+    !/\bcollectSources\b/.test(remoteOrchestrator) ||
+    !/\bmapDeclaredContracts\b/.test(remoteOrchestrator)
+  ) {
+    violations.push("resolvecmd bypasses the source collection owner");
+  }
+  if (
+    !/from "\.\/lock-update\.ts"/.test(remoteOrchestrator) ||
+    !/\bresolveSources\b/.test(remoteOrchestrator) ||
+    !/\bwriteLockSources\b/.test(remoteOrchestrator)
+  ) {
+    violations.push("resolvecmd bypasses the remote lock owner");
+  }
+  if (
+    !/from "\.\/cache-write\.ts"/.test(remoteOrchestrator) ||
+    !/\bplaceInCache\b/.test(remoteOrchestrator)
+  ) {
+    violations.push("resolvecmd bypasses verified cache publication");
   }
   return violations.sort();
 }
