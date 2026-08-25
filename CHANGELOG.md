@@ -7,6 +7,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-26
+
 ### Added
 
 - Remote sources now support arbitrary Git hosts over allowlisted SSH, scp-style SSH, and
@@ -175,7 +177,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A fixture tree under `fixtures/contracts-basic/good/` that verifies clean, which CI runs
   `verify` and `lint-selfcontain` against so that an unapproved change fails the build.
 
-[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ba0918/agentic-skill-vendor/compare/v0.2.0...v0.3.0
