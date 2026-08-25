@@ -15,6 +15,7 @@ import {
 import {
   DECLARATION_FILE,
   originPathOf,
+  readDeclarationText,
   type Declaration,
   type RawMapping,
 } from "../contracts/sources.ts";
@@ -22,11 +23,7 @@ import type { TreeState } from "../distribution/tree-materials.ts";
 import { ConfigError } from "../errors.ts";
 import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import { IGNORE_FILE } from "../filesystem/ignore.ts";
-import {
-  dirNameOf,
-  isRegularFileOrAbsent,
-  readTextFile,
-} from "../filesystem/walk.ts";
+import { dirNameOf, isRegularFileOrAbsent } from "../filesystem/walk.ts";
 import { compareStrings } from "../ordering.ts";
 import type { CachedRevision } from "./cache-write.ts";
 import {
@@ -70,7 +67,7 @@ export async function mapDeclaredContracts(
       snapshot.blobs.map((entry) => entry.path),
     );
   }
-  let text = declarationText ?? (await readDeclarationText(root));
+  let text = declarationText ?? (await readDeclarationText(root)) ?? "";
   const before = text;
   const report: string[] = [];
   for (const id of unmapped) {
@@ -100,11 +97,6 @@ export async function mapDeclaredContracts(
     text,
     report: [...report, ...unlocated],
   };
-}
-
-async function readDeclarationText(root: string): Promise<string> {
-  if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) return "";
-  return await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE);
 }
 
 export async function collectSources(

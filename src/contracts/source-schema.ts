@@ -14,6 +14,7 @@ import {
   LOCAL_SOURCE,
   type RawKind,
   type RawMapping,
+  readDeclarationText,
   type SourceRecord,
   TOOL_DIR,
   VENDOR_SUBPATH,
@@ -53,6 +54,11 @@ export function parseDeclaration(text: string): Declaration {
 /** A declaration registering nothing and mapping nothing. */
 export function emptyDeclaration(): Declaration {
   return { sources: emptyRecord(), contracts: emptyRecord(), ignore: [] };
+}
+
+export async function readDeclaration(root: string): Promise<Declaration> {
+  const text = await readDeclarationText(root);
+  return text === null ? emptyDeclaration() : parseDeclaration(text);
 }
 
 function readSourceRecords(value: unknown): Record<string, SourceRecord> {

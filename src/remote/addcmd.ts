@@ -15,10 +15,10 @@ import {
   assertRepository,
   assertSourceName,
   parseDeclaration,
+  readDeclaration,
 } from "../contracts/source-schema.ts";
-import { DECLARATION_FILE, readDeclaration } from "../contracts/sources.ts";
+import { DECLARATION_FILE, readDeclarationText } from "../contracts/sources.ts";
 import { withSourceRegistration } from "../contracts/source-edit.ts";
-import { isRegularFileOrAbsent, readTextFile } from "../filesystem/walk.ts";
 
 /**
  * Registers `repository` as a source and does what update does afterwards.
@@ -77,6 +77,5 @@ export async function commandAdd(
 
 /** The declaration as it stands, or an empty document where there is none. */
 async function currentText(root: string): Promise<string> {
-  if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) return "";
-  return await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE);
+  return (await readDeclarationText(root)) ?? "";
 }

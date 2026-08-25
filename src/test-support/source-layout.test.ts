@@ -568,7 +568,6 @@ function sameDirectoryCycleEdges(sources: Map<string, string>): string[] {
   for (const [importer, source] of sources) {
     if (!isProduction(importer)) continue;
     const directory = dirname(importer);
-    if (directory !== "src/distribution") continue;
     for (const specifier of relativeImports(source)) {
       const imported = importedPath(importer, specifier);
       if (dirname(imported) !== directory || !sources.has(imported)) continue;
@@ -623,14 +622,18 @@ function sourceOwnershipViolations(sources: Map<string, string>): string[] {
   const violations: string[] = [];
   if (!/interface Declaration/.test(model))
     violations.push("shared source model");
-  if (!/function readDeclaration/.test(model))
-    violations.push("source read boundary");
+  if (!/function readDeclarationText/.test(model))
+    violations.push("source text read boundary");
+  if (/function readDeclaration\(/.test(model))
+    violations.push("model owns parse and read composition");
   if (/filesystem\/walk\.ts/.test(schema))
     violations.push("schema reaches filesystem");
   if (/interface Declaration/.test(schema))
     violations.push("schema owns model");
   if (!/function parseDeclaration/.test(schema))
     violations.push("schema parser");
+  if (!/function readDeclaration\(/.test(schema))
+    violations.push("schema read composition");
   if (!/function withContractMapping/.test(edit))
     violations.push("line editor");
   return violations;
@@ -911,9 +914,20 @@ test("contract discovery owns discovery without a same-directory module cycle", 
 });
 
 test("source schema and line editing have final owners", async () => {
-  expect(sourceOwnershipViolations(await repositorySources())).toStrictEqual(
-    [],
-  );
+  const sources = await repositorySources();
+  expect(sourceOwnershipViolations(sources)).toStrictEqual([]);
+  expect(sameDirectoryCycleEdges(sources)).toStrictEqual([]);
+});
+
+test("a same-directory contracts cycle names every edge", () => {
+  const sources = new Map([
+    ["src/contracts/sources.ts", 'import "./source-schema.ts";'],
+    ["src/contracts/source-schema.ts", 'import "./sources.ts";'],
+  ]);
+  expect(sameDirectoryCycleEdges(sources)).toStrictEqual([
+    "src/contracts/source-schema.ts -> src/contracts/sources.ts",
+    "src/contracts/sources.ts -> src/contracts/source-schema.ts",
+  ]);
 });
 
 test("manifest exports only its filesystem and top-level lock boundary", async () => {

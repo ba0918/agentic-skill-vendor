@@ -11,11 +11,8 @@ import type {
   Placements,
   Resolutions,
 } from "../contracts/lock-model.ts";
-import {
-  type ContractLocation,
-  type Declaration,
-  readDeclaration,
-} from "../contracts/sources.ts";
+import type { ContractLocation, Declaration } from "../contracts/sources.ts";
+import { readDeclaration } from "../contracts/source-schema.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,

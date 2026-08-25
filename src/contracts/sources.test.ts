@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "../errors.ts";
-import { parseDeclaration } from "./source-schema.ts";
-import { readDeclaration } from "./sources.ts";
+import { parseDeclaration, readDeclaration } from "./source-schema.ts";
 import {
   withContractMapping,
   withoutContractMapping,

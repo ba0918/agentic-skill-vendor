@@ -1,10 +1,9 @@
-import { contractPath } from "./digest.ts";
 import {
   assertPlainChain,
   isRegularFileOrAbsent,
   readTextFile,
 } from "../filesystem/walk.ts";
-import { emptyDeclaration, parseDeclaration } from "./source-schema.ts";
+import { contractPath } from "./digest.ts";
 
 export const DECLARATION_FILE = "vendor-manifest.yaml";
 export const LOCAL_SOURCE = "local";
@@ -48,12 +47,12 @@ export function originPathOf(
   return origin?.path ?? contractPath(id);
 }
 
-export async function readDeclaration(root: string): Promise<Declaration> {
+export async function readDeclarationText(
+  root: string,
+): Promise<string | null> {
   await assertPlainChain(root, DECLARATION_FILE);
   if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) {
-    return emptyDeclaration();
+    return null;
   }
-  return parseDeclaration(
-    await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE),
-  );
+  return await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE);
 }
