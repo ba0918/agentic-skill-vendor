@@ -85,7 +85,7 @@ import { declaredIds } from "../contracts/declaration.ts";
  * placed. A list of files with nothing saying which revision each belongs to
  * would leave the placement deciding it again from the paths.
  */
-interface CachedRevision {
+export interface CachedRevision {
   site: string;
   files: PlacedFile[];
 }
@@ -218,13 +218,13 @@ async function updateTree(
   return 0;
 }
 
-interface SnapshotRequest {
+export interface SnapshotRequest {
   name: string;
   repository: string;
   target: SnapshotTarget;
 }
 
-function updateRequests(declaration: Declaration): SnapshotRequest[] {
+export function updateRequests(declaration: Declaration): SnapshotRequest[] {
   return Object.keys(declaration.sources)
     .sort(compareStrings)
     .map((name) => {
@@ -237,7 +237,7 @@ function updateRequests(declaration: Declaration): SnapshotRequest[] {
     });
 }
 
-function fetchRequests(
+export function fetchRequests(
   declaration: Declaration,
   sources: LockSources,
 ): SnapshotRequest[] {
@@ -462,7 +462,7 @@ function resolveSources(
  * differing from what the tree renders to — a violation raised by the command
  * that had just put the tree right.
  */
-async function writeLockSources(
+export async function writeLockSources(
   root: string,
   state: TreeState,
   sources: LockSources,
@@ -490,7 +490,7 @@ async function writeLockSources(
  * files hashes to — and that is why it stops the run instead of being reported
  * as a violation.
  */
-async function collectSources(
+export async function collectSources(
   snapshots: Map<string, RemoteSnapshot>,
   declaration: Declaration,
   sources: LockSources,
@@ -834,7 +834,7 @@ async function fetchChecked(
  * holding whichever files had arrived first — and every later command reads a
  * directory standing at that place as a revision that was taken up whole.
  */
-async function placeInCache(
+export async function placeInCache(
   root: string,
   revisions: CachedRevision[],
 ): Promise<void> {
