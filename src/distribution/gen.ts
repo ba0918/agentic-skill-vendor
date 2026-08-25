@@ -40,11 +40,11 @@ import {
 import {
   assertRawCacheHolds,
   deriveRawResolutions,
-  buildPlacementPlan as planPlacements,
   presentRawIds,
   rawClosureViolations,
   type RawContracts,
 } from "./placements.ts";
+import { planPlacements } from "./placement-plan.ts";
 import {
   type ContractLocation,
   type Declaration,

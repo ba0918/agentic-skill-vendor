@@ -23,7 +23,6 @@ import {
   basenameOf,
   MARKER_FILE,
   placedPathOf,
-  placementDigest,
   placementKeyOf,
   rawContractDigest,
   type RawMaterial,
@@ -58,11 +57,7 @@ import {
 } from "../filesystem/ignore.ts";
 import { framedDigest } from "../contracts/raw.ts";
 import type { RawKind } from "../contracts/source-schema.ts";
-import {
-  derivePlacementMigrationComponents,
-  type PlacementMigrationComponent,
-  type RecordedDestination,
-} from "../contracts/placement-ownership.ts";
+import type { PlacementMigrationComponent } from "../contracts/placement-ownership.ts";
 
 /**
  * What one raw-byte contract's material is, and who answers for it.
@@ -232,7 +227,7 @@ export interface PlacementPlan {
 }
 
 /** What stands at a dest right now: its kind and every file under it. */
-interface ObservedDest {
+export interface ObservedDest {
   kind: RawKind;
   /** Every file, the ignored ones included; "" names a file dest itself. */
   entries: { path: string; content: Uint8Array }[];
@@ -244,7 +239,7 @@ interface ObservedDest {
  * Reads what stands at a dest, or null where nothing does. A link at the
  * site or on the way to it is refused by the primitives underneath.
  */
-async function observeDest(
+export async function observeDest(
   root: string,
   site: string,
 ): Promise<ObservedDest | null> {
@@ -292,7 +287,7 @@ async function observeDest(
  * The placement digest of what stands at a dest: the ignored files and the
  * marker left out, a file dest named by its own name.
  */
-async function observedDigest(observed: ObservedDest): Promise<string> {
+export async function observedDigest(observed: ObservedDest): Promise<string> {
   return await framedDigest(
     observed.entries.filter(
       (entry) =>
@@ -326,7 +321,7 @@ function firstDisagreement(
   return null;
 }
 
-function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
 
@@ -337,144 +332,6 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
  * exactly what the run writes, ignored files included — the recovery path,
  * which the run reports as a claim.
  */
-export async function buildPlacementPlan(
-  root: string,
-  skills: SkillDeclaration[],
-  raws: RawContracts,
-  resolutions: Record<string, Resolution>,
-  recorded: Placements,
-): Promise<PlacementPlan> {
-  const dests: PlannedDest[] = [];
-  const placements: Placements = emptyRecord();
-  const report: string[] = [];
-  for (const skill of skills) {
-    for (const id of [...skill.contracts].sort(compareStrings)) {
-      const materials = raws.get(id)?.materials ?? null;
-      if (materials === null) continue;
-      for (const material of materials) {
-        const key = placementKeyOf(material.mapping);
-        const site = `${SKILLS_DIR}/${skill.name}/${material.mapping.dest}`;
-        const files = placedFilesOf(material, id, resolutions[id].digest);
-        const placement: Placement = {
-          contract: id,
-          src: srcKeyOf(material.mapping),
-          digest: await placementDigest(material),
-        };
-        await assertNotIgnored(root, site, material.mapping.kind, files);
-        dests.push({
-          skill: skill.name,
-          key,
-          site,
-          mapping: material.mapping,
-          files,
-          placement,
-        });
-        placements[skill.name] ??= emptyRecord();
-        placements[skill.name][key] = placement;
-      }
-    }
-  }
-
-  const finalPaths = new Set(
-    dests.map((dest) => `${dest.skill}\0${dest.mapping.dest}`),
-  );
-  const oldDestinations: RecordedDestination[] = [];
-  for (const skill of Object.keys(recorded).sort(compareStrings)) {
-    for (const key of Object.keys(recorded[skill]).sort(compareStrings)) {
-      const dest = key.endsWith("/") ? key.slice(0, -1) : key;
-      if (finalPaths.has(`${skill}\0${dest}`)) continue;
-      oldDestinations.push({
-        skill,
-        dest: key,
-        placement: recorded[skill][key],
-      });
-    }
-  }
-  const components = derivePlacementMigrationComponents(
-    oldDestinations,
-    dests.map((dest) => ({
-      skill: dest.skill,
-      contract: dest.placement.contract,
-      dest: dest.mapping.dest,
-    })),
-  );
-  const destinationIdentity = (
-    skill: string,
-    contract: string,
-    dest: string,
-  ): string => `${skill}\0${contract}\0${dest}`;
-  const finalByIdentity = new Map(
-    dests.map((dest) => [
-      destinationIdentity(
-        dest.skill,
-        dest.placement.contract,
-        dest.mapping.dest,
-      ),
-      dest,
-    ]),
-  );
-  const migratedOld = new Set<string>();
-  const migratedFinal = new Set<string>();
-  const writes: PlacementPlan["writes"] = [];
-  for (const component of components) {
-    for (const old of component.oldDestinations) {
-      migratedOld.add(`${old.skill}\0${old.dest}`);
-    }
-    const members: PlannedDest[] = [];
-    for (const final of component.finalDestinations) {
-      const identity = destinationIdentity(
-        final.skill,
-        final.contract,
-        final.dest,
-      );
-      const member = finalByIdentity.get(identity);
-      if (member === undefined) {
-        throw new ConfigError(
-          `cannot plan migration destination ${displayName(final.dest)} in skill ${displayName(final.skill)}`,
-        );
-      }
-      members.push(member);
-      migratedFinal.add(identity);
-    }
-    writes.push(await planMigration(root, component, members, report));
-  }
-  for (const dest of dests) {
-    if (
-      migratedFinal.has(
-        destinationIdentity(
-          dest.skill,
-          dest.placement.contract,
-          dest.mapping.dest,
-        ),
-      )
-    ) {
-      continue;
-    }
-    const claimed = await assertWritableDest(
-      root,
-      dest.site,
-      recorded[dest.skill] ?? emptyRecord(),
-      dest.mapping,
-      dest.files,
-    );
-    if (claimed) {
-      const suffix = dest.mapping.kind === "directory" ? "/" : "";
-      report.push(
-        `claimed: ${displayName(dest.site)}${suffix} (${dest.placement.contract})`,
-      );
-    }
-    writes.push({
-      site: dest.site,
-      what:
-        dest.mapping.kind === "directory"
-          ? { files: dest.files }
-          : { content: dest.files[0].content },
-    });
-  }
-  const sweeps = await planSweep(root, recorded, dests, report, migratedOld);
-  return { dests, writes, placements, sweeps, report };
-}
-
 function relativeTo(outer: string, path: string): string {
   const root = finalDestPath(outer);
   const nested = finalDestPath(path);
@@ -524,7 +381,7 @@ function holdsExactComposite(
   });
 }
 
-async function planMigration(
+export async function planMigration(
   root: string,
   component: PlacementMigrationComponent,
   destinations: PlannedDest[],
@@ -652,7 +509,7 @@ async function planMigration(
  * A dest already gone is the state the sweep asks for, reported as such so
  * the lock forgetting it leaves a line in the output.
  */
-async function planSweep(
+export async function planSweep(
   root: string,
   recorded: Placements,
   dests: PlannedDest[],
@@ -739,7 +596,7 @@ function destIgnoreLevels(site: string): string[] {
  * counts it, the dest's recomputation does not. Both are refused where the
  * rule is, rather than carried as a state.
  */
-async function assertNotIgnored(
+export async function assertNotIgnored(
   root: string,
   site: string,
   kind: RawKind,
@@ -764,7 +621,7 @@ async function assertNotIgnored(
  * Refuses a dest the tree's own ignore rules would hide, for gen and verify
  * alike, and hands back the rules for the caller's own further questions.
  */
-async function assertDestNotIgnored(
+export async function assertDestNotIgnored(
   root: string,
   site: string,
   kind: RawKind,
@@ -784,7 +641,7 @@ async function assertDestNotIgnored(
  * The gate. Returns true when the dest was taken over by condition 3 — a
  * claim the run reports — and refuses where no condition holds.
  */
-async function assertWritableDest(
+export async function assertWritableDest(
   root: string,
   site: string,
   recordedForSkill: Record<string, Placement>,
@@ -828,7 +685,7 @@ async function assertWritableDest(
 }
 
 /** The files a dest holds, the marker included for a directory dest. */
-function placedFilesOf(
+export function placedFilesOf(
   material: RawMaterial,
   id: string,
   contractDigest: string,
@@ -862,7 +719,7 @@ export function isRawId(
  * The placements the declarations and the table say each skill should have:
  * dest → contract and src, without a digest, since the digest is the lock's.
  */
-function expectedPlacements(
+export function expectedPlacements(
   skills: SkillDeclaration[],
   declaration: Declaration,
 ): Map<string, Map<string, { contract: string; src: string }>> {
@@ -892,7 +749,7 @@ function expectedPlacements(
  * The file a drifted dest disagrees on, where the canonical material is at
  * hand to say; empty otherwise, since the lock pins a digest and nothing more.
  */
-function driftDetail(
+export function driftDetail(
   raws: RawContracts,
   contract: string,
   dest: string,
@@ -923,7 +780,7 @@ function driftDetail(
   return ` — ${displayName(named)} differs`;
 }
 
-function selectionRemovalDetail(
+export function selectionRemovalDetail(
   raws: RawContracts,
   declaration: Declaration,
   contract: string,
@@ -966,129 +823,6 @@ function selectionRemovalDetail(
  * withdrawn skill is not named twice. The second check walks the lock's
  * placements, not the table's: what was written is what the lock remembers.
  */
-export async function checkPlacementViolations(
-  root: string,
-  skills: SkillDeclaration[],
-  declaration: Declaration,
-  placements: Placements,
-  resolutions: Record<string, Resolution>,
-  raws: RawContracts,
-): Promise<string[]> {
-  const violations: string[] = [];
-  const expected = expectedPlacements(skills, declaration);
-  const disputed = new Set<string>();
-  // A declared id whose table row is gone is already a closure gap; its
-  // placements are left to that report rather than named a second time.
-  const rowless = new Set(
-    declaredIds(skills).filter((id) => declaration.contracts[id] === undefined),
-  );
-  const skillNames = new Set([...expected.keys(), ...Object.keys(placements)]);
-  for (const skill of [...skillNames].sort(compareStrings)) {
-    const want = expected.get(skill) ?? new Map();
-    const have = placements[skill] ?? emptyRecord();
-    const keys = new Set([...want.keys(), ...Object.keys(have)]);
-    for (const key of [...keys].sort(compareStrings)) {
-      const site = displayName(`${SKILLS_DIR}/${skill}/${key}`);
-      const w = want.get(key);
-      const h = have[key];
-      if (w === undefined && rowless.has(h.contract)) {
-        continue;
-      }
-      if (w === undefined) {
-        violations.push(
-          `placement: ${LOCK_PREFIX} records ${site} for ${h.contract}, which ` +
-            `no declaration places there any more; run gen to clear it`,
-        );
-        disputed.add(`${skill}\0${key}`);
-      } else if (h === undefined) {
-        violations.push(
-          `placement: ${site} is declared for ${w.contract} but ${LOCK_PREFIX} ` +
-            `records nothing there; run gen to place it`,
-        );
-      } else if (h.contract !== w.contract || h.src !== w.src) {
-        violations.push(
-          `placement: ${LOCK_PREFIX} records ${site} as ${h.contract} from ` +
-            `${h.src}, the table places ${w.contract} from ${w.src}; run gen`,
-        );
-        disputed.add(`${skill}\0${key}`);
-      }
-    }
-  }
-  for (const skill of Object.keys(placements).sort(compareStrings)) {
-    for (const key of Object.keys(placements[skill]).sort(compareStrings)) {
-      if (disputed.has(`${skill}\0${key}`)) continue;
-      const placement = placements[skill][key];
-      const kind: RawKind = key.endsWith("/") ? "directory" : "file";
-      const dest = kind === "directory" ? key.slice(0, -1) : key;
-      const site = `${SKILLS_DIR}/${skill}/${dest}`;
-      await assertDestNotIgnored(root, site, kind);
-      const observed = await observeDest(root, site);
-      if (observed === null) {
-        violations.push(`drift: ${displayName(site)} is missing`);
-        continue;
-      }
-      if (observed.kind !== kind) {
-        throw new ConfigError(
-          `${displayName(site)}: ${LOCK_PREFIX} records a ${kind} there, ` +
-            `found a ${observed.kind}`,
-        );
-      }
-      const digest = await observedDigest(observed);
-      const detail = driftDetail(
-        raws,
-        placement.contract,
-        dest,
-        kind,
-        observed,
-        site,
-      );
-      const removed = selectionRemovalDetail(
-        raws,
-        declaration,
-        placement.contract,
-        dest,
-        kind,
-        observed,
-        site,
-      );
-      if (digest !== placement.digest) {
-        violations.push(
-          `drift: ${displayName(site)} holds files digesting to ${digest}, ` +
-            `the lock pins ${placement.digest}` +
-            detail,
-        );
-      } else if (removed !== "") {
-        violations.push(
-          `drift: ${displayName(site)} differs from the currently selected ` +
-            `canonical files${removed}; run gen to replace it`,
-        );
-      }
-      if (kind === "directory") {
-        const contract = resolutions[placement.contract];
-        const marker = observed.entries.find((e) => e.path === MARKER_FILE);
-        const wanted =
-          contract === undefined
-            ? null
-            : new TextEncoder().encode(
-                vendorHeader(placement.contract, contract.digest),
-              );
-        if (
-          wanted !== null &&
-          (marker === undefined || !sameBytes(marker.content, wanted))
-        ) {
-          violations.push(
-            `drift: ${displayName(`${site}/${MARKER_FILE}`)} does not carry ` +
-              `the marker generated for ${contract.digest}`,
-          );
-        }
-      }
-    }
-  }
-  return violations;
-}
-
-const LOCK_PREFIX = "vendor-lock.json";
-
 /**
  * Refuses a table row whose kind disagrees with what the lock remembers the
  * contract as. Both directions: a raw-byte row over a document resolution,
