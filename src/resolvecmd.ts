@@ -35,12 +35,12 @@ import {
   type GitObjectFormat,
 } from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
-import { requireOrdinaryFile } from "./github.ts";
-import type {
-  RemoteClient,
-  RemoteSnapshot,
-  SnapshotTarget,
-  TreeBlob,
+import {
+  requireOrdinaryFile,
+  type RemoteClient,
+  type RemoteSnapshot,
+  type SnapshotTarget,
+  type TreeBlob,
 } from "./remote.ts";
 import {
   assertPinnedRepositories,

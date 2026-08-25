@@ -24,6 +24,14 @@ const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";
 const CONTRACT = "# TDD Contract\n\nWrite the test first.\n";
 const CASE = "A case the contract has to satisfy.\n";
 
+test("remote source resolution does not depend on a concrete transport adapter", async () => {
+  const source = await fs.readFile(
+    new URL("./resolvecmd.ts", import.meta.url),
+    "utf8",
+  );
+  expect(source).not.toContain('from "./github.ts"');
+});
+
 function workflow(
   files?: Record<string, string>,
 ): Record<string, FakeRepository> {

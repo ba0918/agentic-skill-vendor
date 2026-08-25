@@ -281,19 +281,30 @@ test("the commands that work offline reach no network, environment or subprocess
   // offline command that imported the network layer would add a module the
   // list does not name, so the scan would walk past the very code it was
   // written to catch and report a clean boundary.
-  const NETWORK_MODULE = "github.ts";
-  // The two the walk itself rests on. A closure that stopped at the entry
-  // point, or one that never found the network layer where it does sit, would
-  // pass everything below without looking at it.
-  expect(
-    (await importClosureOf("resolvecmd.ts")).has(NETWORK_MODULE),
-  ).toStrictEqual(true);
+  const CONCRETE_REMOTE_MODULES = ["github.ts", "gitprocess.ts"];
+  // The probes keep the closure scan and the dynamic adapter boundary honest.
+  // Without them, either scan could stop early and still report offline code
+  // as isolated.
+  const onlineClosure = await importClosureOf("cli.ts");
+  expect(onlineClosure.has("github.ts")).toStrictEqual(true);
+  const onlineSource = await fs.readFile(
+    new URL("./cli.ts", import.meta.url),
+    "utf8",
+  );
+  expect(onlineSource).toContain('import("./git.ts")');
+  expect(onlineSource).toContain('import("./gitprocess.ts")');
   expect((await importClosureOf("lint.ts")).has("digest.ts")).toStrictEqual(
     true,
   );
+  const resolverClosure = await importClosureOf("resolvecmd.ts");
+  for (const name of CONCRETE_REMOTE_MODULES) {
+    expect(resolverClosure.has(name), name).toStrictEqual(false);
+  }
   for (const entry of ["gen.ts", "verify.ts", "lint.ts", "selftest.ts"]) {
     const closure = await importClosureOf(entry);
-    expect(closure.has(NETWORK_MODULE), entry).toStrictEqual(false);
+    for (const name of CONCRETE_REMOTE_MODULES) {
+      expect(closure.has(name), `${entry} -> ${name}`).toStrictEqual(false);
+    }
     for (const name of closure) {
       const source = await fs.readFile(
         new URL(`./${name}`, import.meta.url),
