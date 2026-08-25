@@ -555,6 +555,59 @@ function treeMaterialOwnershipViolations(
   return violations;
 }
 
+function sameDirectoryCycleEdges(sources: Map<string, string>): string[] {
+  const adjacency = new Map<string, Set<string>>();
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer)) continue;
+    const directory = dirname(importer);
+    if (directory !== "src/distribution") continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (dirname(imported) !== directory || !sources.has(imported)) continue;
+      const edges = adjacency.get(importer) ?? new Set<string>();
+      edges.add(imported);
+      adjacency.set(importer, edges);
+    }
+  }
+  const reaches = (from: string, target: string): boolean => {
+    const pending = [from];
+    const seen = new Set<string>();
+    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+      if (node === target) return true;
+      if (seen.has(node)) continue;
+      seen.add(node);
+      pending.push(...(adjacency.get(node) ?? []));
+    }
+    return false;
+  };
+  return [...adjacency]
+    .flatMap(([from, tos]) =>
+      [...tos]
+        .filter((to) => reaches(to, from))
+        .map((to) => `${from} -> ${to}`),
+    )
+    .sort();
+}
+
+function discoveryOwnershipViolations(sources: Map<string, string>): string[] {
+  const old = sources.get("src/distribution/gen.ts") ?? "";
+  const owner = sources.get("src/distribution/contract-discovery.ts") ?? "";
+  const names = [
+    "vendorDirOf",
+    "readContracts",
+    "locateContracts",
+    "listVendorEntries",
+  ];
+  return names.flatMap((name) => {
+    const violations: string[] = [];
+    if (new RegExp(`function ${name}`).test(old))
+      violations.push(`gen ${name}`);
+    if (!new RegExp(`function ${name}`).test(owner))
+      violations.push(`owner ${name}`);
+    return violations;
+  });
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -580,6 +633,12 @@ test("gen and verify share one tree-material preparation owner", async () => {
   expect(
     treeMaterialOwnershipViolations(await repositorySources()),
   ).toStrictEqual([]);
+});
+
+test("contract discovery owns discovery without a same-directory module cycle", async () => {
+  const sources = await repositorySources();
+  expect(discoveryOwnershipViolations(sources)).toStrictEqual([]);
+  expect(sameDirectoryCycleEdges(sources)).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {

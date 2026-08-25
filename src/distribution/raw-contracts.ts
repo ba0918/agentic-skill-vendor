@@ -10,4 +10,8 @@ export {
   rawMappingsOf,
   readRawContracts,
 } from "./placements.ts";
-export type { RawContracts, RawReading } from "./placements.ts";
+export type {
+  ConformancePosition,
+  RawContracts,
+  RawReading,
+} from "./placements.ts";

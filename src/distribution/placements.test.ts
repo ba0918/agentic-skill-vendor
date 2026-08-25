@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { conformanceDirectoriesOf } from "./gen.ts";
+import { conformanceDirectoriesOf } from "./contract-discovery.ts";
 import { assertSrcsClearOfConformance } from "./placements.ts";
 import {
   type ContractLocation,

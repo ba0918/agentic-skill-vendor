@@ -25,7 +25,7 @@ import {
   conformanceDirectoriesOf,
   locateContracts,
   readContracts,
-} from "./gen.ts";
+} from "./contract-discovery.ts";
 import {
   assertKindsAgree,
   assertSrcsClearOfConformance,
