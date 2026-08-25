@@ -14,6 +14,7 @@ import { commandGen } from "./gen.ts";
 import { gitHubOver } from "./github.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import { commandVerify } from "./verify.ts";
+import { readStandardInput, requireUsableToken } from "./token.ts";
 import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 
@@ -31,9 +32,13 @@ const USAGE = [
   "",
   "options:",
   "  --root <path>            the tree to work on (default: .)",
+  "  --token-stdin            read a GitHub token from standard input",
   "",
   "add, update and fetch are the commands that reach a network. gen, verify,",
-  "lint-selfcontain and self-test read and write the tree and nothing else.",
+  "lint-selfcontain and self-test read and write the tree and nothing else,",
+  "and refuse --token-stdin for that reason.",
+  "",
+  "  gh auth token | agentic-skill-vendor update --token-stdin",
   "",
   "exit codes: 0 nothing to report, 1 violations listed on stdout,",
   "            2 a refusal or an internal error described on stderr",
@@ -43,11 +48,13 @@ interface Invocation {
   command: string;
   root: string;
   operands: string[];
+  tokenStdin: boolean;
 }
 
 function parseArguments(argv: string[]): Invocation | "help" {
   let root = ".";
   let command: string | null = null;
+  let tokenStdin = false;
   const operands: string[] = [];
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index];
@@ -66,6 +73,11 @@ function parseArguments(argv: string[]): Invocation | "help" {
         throw new ConfigError("--root needs a path");
       }
       root = value.replace(/\/+$/, "") || "/";
+    } else if (token === "--token-stdin") {
+      // A flag rather than a value: the credential itself never appears in an
+      // argument list, where it would stand in the process listing for the
+      // length of the run and in the shell history for good.
+      tokenStdin = true;
     } else if (token.startsWith("-")) {
       throw new ConfigError(`unknown option: ${token}\n${USAGE}`);
     } else if (command === null) {
@@ -75,7 +87,7 @@ function parseArguments(argv: string[]): Invocation | "help" {
     }
   }
   if (command === null) throw new ConfigError(`no command given\n${USAGE}`);
-  return { command, root, operands };
+  return { command, root, operands, tokenStdin };
 }
 
 /**
@@ -92,6 +104,26 @@ function parseArguments(argv: string[]): Invocation | "help" {
 function refuseOperands(operands: string[]): void {
   if (operands.length === 0) return;
   throw new ConfigError(`unexpected argument: ${operands[0]}\n${USAGE}`);
+}
+
+/**
+ * Refuses `--token-stdin` where the command it was given to reaches no
+ * network.
+ *
+ * A credential is a statement about a request, and gen, verify,
+ * lint-selfcontain and self-test make none. Taken quietly, the flag would say
+ * that these commands can be authenticated — which is the boundary this tool
+ * states about them, that they read and write the tree and nothing else,
+ * contradicted in the one place a person would look to check it. Standard
+ * input is not read either: the refusal comes first, so a pipeline feeding a
+ * mistyped command keeps whatever it was carrying.
+ */
+function refuseToken(command: string, tokenStdin: boolean): void {
+  if (!tokenStdin) return;
+  throw new ConfigError(
+    `--token-stdin is not a flag ${command} takes: it reaches no network, ` +
+      `and only add, update and fetch do\n${USAGE}`,
+  );
 }
 
 /**
@@ -124,6 +156,7 @@ export async function run(
   out: Sink,
   err: Sink,
   transport: typeof fetch = fetch,
+  readStdin: () => string = readStandardInput,
 ): Promise<number> {
   try {
     const invocation = parseArguments(argv);
@@ -131,32 +164,53 @@ export async function run(
       out(USAGE);
       return 0;
     }
+    // Read where the flag was given and nowhere else, and judged before any
+    // command holds it: a value that could put headers of its own into a
+    // request is stopped with nothing sent. Asked for by the three commands
+    // that reach a network, so a run refused for the flag — or for a stray
+    // argument beside it — never touches the stream, and a pipeline feeding a
+    // mistyped command keeps what it was carrying.
+    const takeToken = (): string | undefined =>
+      invocation.tokenStdin ? requireUsableToken(readStdin()) : undefined;
     switch (invocation.command) {
       case "add":
+        requireRepository(invocation.operands);
         return await commandAdd(
           invocation.root,
           out,
-          gitHubOver(transport),
-          requireRepository(invocation.operands),
+          gitHubOver(transport, takeToken()),
+          invocation.operands[0],
           invocation.operands[1],
         );
       case "update":
         refuseOperands(invocation.operands);
-        return await commandUpdate(invocation.root, out, gitHubOver(transport));
+        return await commandUpdate(
+          invocation.root,
+          out,
+          gitHubOver(transport, takeToken()),
+        );
       case "fetch":
         refuseOperands(invocation.operands);
-        return await commandFetch(invocation.root, out, gitHubOver(transport));
+        return await commandFetch(
+          invocation.root,
+          out,
+          gitHubOver(transport, takeToken()),
+        );
       case "gen":
         refuseOperands(invocation.operands);
+        refuseToken(invocation.command, invocation.tokenStdin);
         return await commandGen(invocation.root, out);
       case "verify":
         refuseOperands(invocation.operands);
+        refuseToken(invocation.command, invocation.tokenStdin);
         return await commandVerify(invocation.root, out);
       case "lint-selfcontain":
         refuseOperands(invocation.operands);
+        refuseToken(invocation.command, invocation.tokenStdin);
         return await commandLint(invocation.root, out);
       case "self-test":
         refuseOperands(invocation.operands);
+        refuseToken(invocation.command, invocation.tokenStdin);
         return await commandSelfTest(out);
       default:
         throw new ConfigError(

@@ -178,12 +178,28 @@ export function requireOrdinaryFile(blob: TreeBlob, named: string): void {
 const FILE_LIMIT = 1024 * 1024;
 const LISTING_LIMIT = 8 * 1024 * 1024;
 
-/** The client over one transport. The transport is the only injected part. */
-export function gitHubOver(transport: typeof fetch): GitHubClient {
+/**
+ * The client over one transport.
+ *
+ * The transport is injected so that every test drives the real
+ * request-building and the real response-judging without a network. The token
+ * is optional and travels no further than the header this builds: it is read
+ * from standard input at the command boundary, held for the length of one run,
+ * written nowhere, and named by no refusal. Absent — which is every run that
+ * did not ask for it — the requests are byte for byte the unauthenticated ones
+ * this tool has always made.
+ */
+export function gitHubOver(
+  transport: typeof fetch,
+  token?: string,
+): GitHubClient {
   return {
     async commitOf(repository, ref) {
       const url = commitUrl(repository, ref);
-      const document = requireObject(await readJson(transport, url), url);
+      const document = requireObject(
+        await readJson(transport, url, token),
+        url,
+      );
       const sha = document["sha"];
       if (typeof sha !== "string" || !OBJECT_ID_FORM.test(sha)) {
         throw new ConfigError(
@@ -194,7 +210,10 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
     },
     async defaultBranchOf(repository) {
       const url = repositoryUrl(repository);
-      const document = requireObject(await readJson(transport, url), url);
+      const document = requireObject(
+        await readJson(transport, url, token),
+        url,
+      );
       const branch = document["default_branch"];
       // Held to the shape a ref read out of the declaration is held to. This
       // value is written into that same table as an unquoted scalar, so a name
@@ -211,7 +230,10 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
     },
     async blobsAt(repository, revision) {
       const url = treeUrl(repository, revision);
-      const document = requireObject(await readJson(transport, url), url);
+      const document = requireObject(
+        await readJson(transport, url, token),
+        url,
+      );
       // A listing the service cut short looks exactly like a repository
       // holding fewer files. Read as complete, a contract's conformance tests
       // would be pinned as absent and the tree would verify clean against a
@@ -294,6 +316,7 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
         transport,
         rawUrl(repository, revision, path),
         FILE_LIMIT,
+        token,
       );
     },
   };
@@ -303,9 +326,10 @@ export function gitHubOver(transport: typeof fetch): GitHubClient {
 async function readJson(
   transport: typeof fetch,
   url: string,
+  token: string | undefined,
 ): Promise<unknown> {
   const text = new TextDecoder().decode(
-    await request(transport, url, LISTING_LIMIT),
+    await request(transport, url, LISTING_LIMIT, token),
   );
   try {
     return JSON.parse(text);
@@ -327,14 +351,35 @@ async function request(
   transport: typeof fetch,
   url: string,
   limit: number,
+  token: string | undefined,
 ): Promise<Uint8Array> {
   let response: Response;
   try {
     // The redirect is asked for rather than left to the default, and that is
     // the half that closes the hole: followed, the chain would be walked by
     // the runtime and only its last answer would ever reach the check below.
-    response = await transport(url, { redirect: "manual" });
+    // No header at all where no token was given, rather than an empty one.
+    // A credential spelled as nothing reaches the host as neither an
+    // authenticated request nor an anonymous one, and the answer to it would
+    // be read here as the source not holding what was asked for.
+    //
+    // The token is judged before it gets here — printable ASCII, no line
+    // break — because a header field is terminated by CRLF and a value
+    // carrying one puts headers of its own into the request.
+    response = await transport(url, {
+      redirect: "manual",
+      ...(token === undefined
+        ? {}
+        : { headers: { authorization: `Bearer ${token}` } }),
+    });
   } catch (cause) {
+    if (token !== undefined) {
+      throw new ConfigError(
+        `cannot reach ${url}: the authenticated request failed before a ` +
+          "response arrived; transport details are omitted so they cannot " +
+          "repeat the credential",
+      );
+    }
     throw new ConfigError(`cannot reach ${url}: ${describeCause(cause)}`);
   }
   // A redirect is refused rather than followed. The two hosts are fixed here,
@@ -342,30 +387,63 @@ async function request(
   // chain alone: a Location naming any third-party host would be asked next
   // and whatever it answered would be read as the source's own bytes.
   if (response.status >= 300 && response.status < 400) {
+    const destination =
+      token === undefined
+        ? `, redirecting to ${JSON.stringify(response.headers.get("location"))}`
+        : ", redirecting to a location omitted because an authenticated " +
+          "response can repeat the credential there";
     throw new ConfigError(
-      `${url}: answered ${response.status}, redirecting to ` +
-        `${JSON.stringify(response.headers.get("location"))}; this tool ` +
+      `${url}: answered ${response.status}${destination}; this tool ` +
         `talks to two fixed hosts and follows no redirect, and these ` +
         `endpoints do not normally answer with one`,
     );
   }
   if (!response.ok) {
-    // The likeliest cause is named where it applies, as a cause rather than as
-    // the cause. Every request this tool makes is unauthenticated, so the
-    // hourly allowance is the refusal a person will usually have met, and
-    // "answered 403" alone sends them looking for a permission problem that is
-    // not there. It is not the only thing that answers this way: anything
-    // standing between the run and the host — a proxy, an egress filter — can
-    // refuse with the same status, and a message that named the rate limit
-    // outright sent a reader to wait out an allowance that was never spent.
-    const refused =
-      response.status === 403 || response.status === 429
-        ? "; unauthenticated requests to this host are rate limited by the " +
-          "hour, and anything filtering outbound traffic answers the same way"
-        : "";
+    const refused = refusalNote(response.status, token !== undefined);
     throw new ConfigError(`${url}: answered ${response.status}${refused}`);
   }
   return await readCapped(response, url, limit);
+}
+
+/**
+ * The likeliest cause of a refused request, named as a cause rather than as
+ * the cause.
+ *
+ * Unauthenticated, the hourly allowance is the refusal a person will usually
+ * have met, and "answered 403" alone sends them looking for a permission
+ * problem that is not there. It is not the only thing that answers that way:
+ * anything standing between the run and the host — a proxy, an egress filter —
+ * refuses with the same status, and a message that named the rate limit
+ * outright sent a reader to wait out an allowance that was never spent.
+ *
+ * Authenticated, 401 and 404 point first to a credential that cannot reach the
+ * repository or has expired. The 404 belongs in the same note because the raw
+ * content host answers it for a credential it cannot validate even where the
+ * file is public. A 403 or 429 may instead be an authenticated rate limit, so
+ * that possibility stays visible beside credential and traffic-filter causes.
+ * The run refuses every one of them rather than reading a failed request as
+ * "the source holds no such file"; this line says where to look without
+ * pretending one cause is certain.
+ */
+function refusalNote(status: number, authenticated: boolean): string {
+  if (!authenticated) {
+    return status === 403 || status === 429
+      ? "; unauthenticated requests to this host are rate limited by the " +
+          "hour, and anything filtering outbound traffic answers the same way"
+      : "";
+  }
+  if (![401, 403, 404, 429].includes(status)) return "";
+  const rateLimit =
+    status === 403 || status === 429
+      ? "; an authenticated GitHub rate limit may also be exhausted"
+      : "";
+  return (
+    "; the token this run was given may not reach this repository or may " +
+    "have expired — the raw content host answers 404 to a credential it " +
+    "cannot use, even for a file it would serve without one — and anything " +
+    "filtering outbound traffic answers the same way" +
+    rateLimit
+  );
 }
 
 /**

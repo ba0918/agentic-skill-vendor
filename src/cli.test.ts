@@ -298,3 +298,85 @@ test("the commands that work offline reach no network, environment or subprocess
     }
   }
 });
+
+const OFFLINE_COMMANDS = ["gen", "verify", "lint-selfcontain", "self-test"];
+const NETWORK_COMMANDS = ["update", "fetch"];
+
+test("--token-stdin is refused by every command that reaches no network", async () => {
+  // The flag is a statement about a request, and these four make none. Taken
+  // quietly, it would tell a reader that `verify` can be authenticated — and
+  // the boundary this tool states, that gen and verify read the tree and
+  // nothing else, is the thing that claim quietly contradicts.
+  for (const command of OFFLINE_COMMANDS) {
+    const result = await runCli([command, "--token-stdin"], undefined, () => {
+      throw new Error("standard input was read for an offline command");
+    });
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("--token-stdin");
+    expect(result.stderr.join("\n")).toContain(command);
+  }
+});
+
+test("standard input is not read by a command that was not given the flag", async () => {
+  // A command reading standard input it was never asked to read hangs a
+  // pipeline that had other plans for the stream. The seam here fails the run
+  // if it is touched at all.
+  await withGoodTree(async (root) => {
+    const result = await runCli(["verify", "--root", root], undefined, () => {
+      throw new Error("standard input was read");
+    });
+    expect(result.code).toStrictEqual(0);
+  });
+});
+
+test("a token that cannot become a header stops the run before any request", async () => {
+  // Judged at the boundary, so a value that could put headers of its own into
+  // a request never reaches the transport. The refusing transport below is
+  // what says no request was made: reached, it throws something that is not a
+  // ConfigError and the exit code would not be 2.
+  for (const command of NETWORK_COMMANDS) {
+    const result = await runCli(
+      [command, "--token-stdin"],
+      undefined,
+      () => "ghp_first\nX-Injected: yes",
+    );
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("position 10");
+    expect(result.stderr.join("\n")).not.toContain("X-Injected");
+  }
+});
+
+test("an empty standard input is refused rather than sent as a credential", async () => {
+  for (const command of NETWORK_COMMANDS) {
+    const result = await runCli(
+      [command, "--token-stdin"],
+      undefined,
+      () => "",
+    );
+    expect(result.code).toStrictEqual(2);
+    expect(result.stderr.join("\n")).toContain("nothing on standard input");
+  }
+});
+
+test("invalid add operands are refused before standard input is read", async () => {
+  for (const operands of [[], ["owner/repo", "name", "extra"]]) {
+    let reads = 0;
+    const result = await runCli(
+      ["add", ...operands, "--token-stdin"],
+      undefined,
+      () => {
+        reads += 1;
+        return "ghp_TestOnlyCredentialValue";
+      },
+    );
+    expect(result.code).toStrictEqual(2);
+    expect(reads).toStrictEqual(0);
+  }
+});
+
+test("the usage text says which commands the token is for", async () => {
+  const result = await runCli(["--help"]);
+  const usage = result.stdout.join("\n");
+  expect(usage).toContain("--token-stdin");
+  expect(usage).toContain("add, update and fetch");
+});

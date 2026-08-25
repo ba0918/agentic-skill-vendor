@@ -85,9 +85,8 @@ import {
   withContractMapping,
   withoutContractMapping,
   TOOL_DIR,
+  VENDOR_SUBPATH,
 } from "./sources.ts";
-
-const VENDOR_SUBPATH = "references/vendor";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
@@ -663,6 +662,45 @@ function rewriteReport(recorded: Resolutions, derived: Resolutions): string[] {
 }
 
 /**
+ * The resolutions the rewritten lock keeps that no skill declares any more.
+ *
+ * Withdrawing a declaration while the canonical text stays is not a
+ * retirement — the text is still there, so the lock goes on resolving the id —
+ * and every run after the withdrawal answered 0 over a resolution nothing
+ * depends on, in silence. The only place that state was visible was what was
+ * missing from the lock's own `dependencies`, and nobody reads a lock for
+ * what is not in it.
+ *
+ * Reported rather than removed. What a withdrawal takes away is the copy, and
+ * the copy is already gone; dropping the digest as well would decide that a
+ * contract briefly out of use is a contract to be re-adopted from scratch when
+ * it comes back. The exit code is untouched for the same reason: this is a
+ * state to notice, not a tree that disagrees with itself.
+ *
+ * Reported every run rather than once, because it is a standing state and not
+ * an event — the run that first reaches it is rarely the run somebody reads.
+ *
+ * A canonical text nothing has ever declared says nothing here, and that is
+ * the point of reading `derived` rather than the contracts directory: a
+ * resolution exists only for an id the lock or a declaration already named, so
+ * the contracts a repository holds purely for other repositories to fetch —
+ * the permanent state of a source repository — stay quiet.
+ */
+function unusedReport(
+  skills: SkillDeclaration[],
+  derived: Resolutions,
+): string[] {
+  const declared = new Set(declaredIds(skills));
+  return Object.keys(derived)
+    .sort(compareStrings)
+    .filter((id) => !declared.has(id))
+    .map(
+      (id) =>
+        `unused: ${id} (no skill declares it; its resolution stays in the lock)`,
+    );
+}
+
+/**
  * What one contract's resolution changed, one line per value that moved.
  *
  * Two values can move independently, so they are reported independently rather
@@ -848,6 +886,7 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   for (const line of table.report) out(line);
   for (const line of plan.report) out(line);
   for (const line of rewriteReport(recorded, derived)) out(line);
+  for (const line of unusedReport(skills, derived)) out(line);
   return 0;
 }
 
