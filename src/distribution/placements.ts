@@ -17,6 +17,7 @@ import type {
   Resolution,
 } from "../contracts/manifest.ts";
 import { cacheRevisionDirOf } from "../contracts/cache.ts";
+import { finalDestPath } from "../contracts/placement-ownership.ts";
 import { LOCAL_SOURCE } from "../contracts/sources.ts";
 import {
   basenameOf,
@@ -473,13 +474,9 @@ export async function planPlacements(
   return { dests, writes, placements, sweeps, report };
 }
 
-function bareDest(dest: string): string {
-  return dest.endsWith("/") ? dest.slice(0, -1) : dest;
-}
-
 function relativeTo(outer: string, path: string): string {
-  const root = bareDest(outer);
-  const nested = bareDest(path);
+  const root = finalDestPath(outer);
+  const nested = finalDestPath(path);
   return nested === root ? "" : nested.slice(root.length + 1);
 }
 
@@ -532,12 +529,12 @@ async function planMigration(
   destinations: PlannedDest[],
   report: string[],
 ): Promise<PlacementPlan["writes"][number]> {
-  const outer = bareDest(component.outermostDest);
+  const outer = finalDestPath(component.outermostDest);
   const site = `${SKILLS_DIR}/${component.skill}/${outer}`;
   const files = compositeFiles(component.outermostDest, destinations);
   const finalAtOuter = destinations.find(
     (destination) =>
-      bareDest(destination.mapping.dest) === outer &&
+      finalDestPath(destination.mapping.dest) === outer &&
       destination.mapping.kind === "file",
   );
   const finalKind: RawKind = finalAtOuter === undefined ? "directory" : "file";
@@ -549,7 +546,7 @@ async function planMigration(
 
   if (observedOuter === null || alreadyComplete) {
     for (const old of component.oldDestinations) {
-      const oldDest = bareDest(old.dest);
+      const oldDest = finalDestPath(old.dest);
       const oldSite = `${SKILLS_DIR}/${old.skill}/${oldDest}`;
       const oldKind: RawKind = old.dest.endsWith("/") ? "directory" : "file";
       report.push(
@@ -570,7 +567,7 @@ async function planMigration(
   }
 
   for (const old of component.oldDestinations) {
-    const oldDest = bareDest(old.dest);
+    const oldDest = finalDestPath(old.dest);
     const oldSite = `${SKILLS_DIR}/${old.skill}/${oldDest}`;
     const oldKind: RawKind = old.dest.endsWith("/") ? "directory" : "file";
     await assertDestNotIgnored(root, oldSite, oldKind);
