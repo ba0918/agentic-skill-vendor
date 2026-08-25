@@ -335,8 +335,15 @@ GitHub-API credential only.
 
 One generic source has cumulative limits of 120 seconds, 256 MiB for its temporary bare
 repository, 1 MiB for one extracted file and 256 MiB for all extracted files. A timeout,
-capacity failure or acquisition error terminates the isolated Git process group, removes its
-temporary repository, and leaves the existing cache, manifest and lock unchanged. Both SHA-1
+capacity failure or acquisition error normally terminates the detached Git process group and
+deletes its temporary bare repository. If the OS cannot confirm that the process group has
+stopped, the tool fails safely and retains that exact temporary bare repository under the OS
+temporary directory with the `agentic-skill-git-` prefix instead of deleting it. In either case,
+the existing cache, manifest and lock remain unchanged, and raw child stderr is suppressed. To
+recover a retained repository, first confirm that its related process group has stopped, then
+manually delete only that exact retained directory; recursive removal is allowed for that exact
+directory after confirmation. Never recursively clean the OS temporary root or a parent directory,
+choose a target with a glob, or rely on unresolved variables. Both SHA-1
 and SHA-256 Git object formats are verified; a SHA-256 source records `objectFormat: sha256`
 beside its 64-digit revision in the lock.
 

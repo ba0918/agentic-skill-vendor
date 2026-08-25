@@ -147,9 +147,15 @@ tags follow that value; they are not separate version declarations.
   ignoring it, so their narrower boundary is stated in the one place a person checks it.
 - Every generic Git session is a detached process group and a temporary bare repository. Its
   cumulative defaults are 120 seconds, 256 MiB of temporary disk, 1 MiB per extracted file
-  and 256 MiB across extracted files. A failed process, timeout or capacity excess terminates
-  descendants before temporary cleanup and cannot write cache, manifest or lock state. Raw
-  child diagnostics are suppressed; recovery points users to ordinary Git/OpenSSH setup.
+  and 256 MiB across extracted files. A failed process, timeout or capacity excess normally
+  terminates the detached group and deletes its temporary bare repository. If the OS cannot
+  confirm that the group has stopped, the tool fails safely and retains that exact repository
+  under the OS temporary directory with the `agentic-skill-git-` prefix. Cache, manifest and
+  lock state remain unchanged, and raw child diagnostics are suppressed. Recovery requires
+  first confirming that the related group has stopped, then manually deleting only that exact
+  retained directory; recursive removal is allowed for that exact directory after confirmation.
+  Never recursively clean the OS temporary root or a parent directory, choose a target with a
+  glob, or rely on unresolved variables.
 - The lock records what was resolved and nothing else — no tool version, no repository URL, no
   derivable path. Every one of those was a value no check consumed, and the tool's own
   version put a byte nobody verified into a byte-for-byte comparison: releasing a new

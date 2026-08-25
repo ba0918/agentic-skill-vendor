@@ -64,8 +64,9 @@ GitHub API transport の `--token-stdin` は従来どおり GitHub の固定 hos
 
 汎用 Git transport は、標準入力が対話端末かどうかにかかわらず常に非対話で実行する。
 Git の terminal prompt と OpenSSH の対話認証を無効化し、子 process の標準入力を閉じる。
-これにより、全実行を独立した process group に置き、timeout または容量超過時に子孫を
-終了してから一時 repository を破棄できる。
+これにより、全実行を独立した detached process group に置き、timeout または容量超過時に
+子孫を終了する。OS が process group の停止を確認できる場合は、一時 bare repository を
+通常どおり削除する。確認できない場合は安全側に倒し、削除せずに保持する。
 
 SSH agent、秘密鍵、既知の host key、保存済み credential helper など、通常の
 `git pull` が入力なしで使える認証状態はそのまま再利用する。追加の username、password、
@@ -149,8 +150,15 @@ server が partial clone を無視した場合も同じ上限を適用する。�
 上限の緩和は、実行者が command line で明示した場合だけ許す。manifest は上限を
 緩和できない。
 
-timeout、容量超過、または取得失敗では、Git、SSH、credential helperを含むprocess
-groupを終了する。一時bare repositoryを破棄し、既存cache、manifest、lockを変更しない。
+timeout、容量超過、または取得失敗では、Git、SSH、credential helperを含む detached
+process group の終了を試みる。OS が停止を確認できる場合は、一時bare repositoryを通常どおり
+削除する。確認できない場合は安全側に倒し、OS の一時ディレクトリ配下にある
+`agentic-skill-git-` prefix の当該一時bare repositoryを削除せず保持する。どちらの場合も
+既存cache、manifest、lockを変更せず、生の子 process 標準エラーを報告へ転載しない。保持物を
+復旧するには、まず関連する process group が停止したことを確認し、その後、その正確な保持
+ディレクトリだけを手動で削除する。停止確認後は、その正確なディレクトリだけを対象にした
+再帰削除を許可するが、OS の一時ディレクトリの root や親ディレクトリを再帰削除せず、glob や
+未解決の変数で対象を選ばない。
 
 ## error
 

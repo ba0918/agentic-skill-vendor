@@ -152,6 +152,14 @@ revision のキャッシュディレクトリは一時名の下で完全に構�
 「その revision の取得は完全」を意味し、ファイル単位の中途半端なキャッシュ状態は
 存在しない。
 
+汎用 Git transport の取得失敗時に使う一時bare repositoryは、通常は process group の停止を
+OS が確認してから削除する。停止を確認できない場合は安全側に倒し、OS の一時ディレクトリ
+配下にある `agentic-skill-git-` prefix の当該 repository を保持する。この場合も cache、
+manifest、lock は変更しない。保持物を削除するには、まず関連する process group の停止を確認し、
+その後、その正確な保持ディレクトリだけを手動で削除する。停止確認後は、その正確な
+ディレクトリだけを対象にした再帰削除を許可するが、OS の一時ディレクトリの root や親
+ディレクトリを再帰削除せず、glob や未解決の変数で対象を選ばない。
+
 キャッシュでリンクを拒否する位置は、revision ディレクトリ自身の位置と、そこへ至る親の
 連なり(`.agentic-skill-vendor/` 自身、キャッシュディレクトリ、source 名のディレクトリ)で
 ある。staging の残骸を捨てる再帰削除も同じ連なりを先に検査する。これらの位置に立つ
@@ -234,6 +242,11 @@ git-transports.md で定義する。
 汎用 Git transport は常に非対話で実行する。通常の `git pull` が入力なしで成功する
 SSH agent、秘密鍵、`known_hosts`、保存済み credential helper は再利用するが、初回認証や
 host key 確認の prompt はツール内で扱わない。必要な初回設定は通常の Git/OpenSSH で済ませる。
+取得失敗時も生の子 process 標準エラーは報告へ転載しない。停止を確認できた通常の失敗では
+一時bare repositoryを削除し、確認できない場合だけ `agentic-skill-git-` prefix の当該保持物を
+残す。復旧時は関連 process group の停止を先に確認してから、その正確なディレクトリだけを
+手動で削除する。停止確認後の再帰削除はそのディレクトリに限り許可し、OS の一時ディレクトリ
+の root や親ディレクトリを再帰削除せず、glob や未解決の変数で対象を選ばない。
 
 `add`、`update`、`fetch` だけが network へ到達する。汎用 Git source がある場合、この 3
 command だけが Git subprocess を起動できる。`gen`、`verify`、`lint-selfcontain`、
