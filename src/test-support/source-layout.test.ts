@@ -93,8 +93,7 @@ const EXPECTED_SOURCE_FILES = [
   "src/test-support/fixtures.ts",
   "src/test-support/imports.ts",
   "src/test-support/remote.ts",
-  "src/test-support/testing.test.ts",
-  "src/test-support/testing.ts",
+  "src/test-support/filesystem.test.ts",
 ] as const;
 
 const PHASE2_TARGET_MODULES = [
@@ -629,6 +628,19 @@ function sourceOwnershipViolations(sources: Map<string, string>): string[] {
   return violations;
 }
 
+function testSupportBarrelViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  if (sources.has("src/test-support/testing.ts"))
+    violations.push("testing barrel");
+  for (const [path, source] of sources) {
+    if (path === "src/test-support/source-layout.test.ts") continue;
+    if (/from ["'](?:\.\/|\.\.\/test-support\/)testing\.ts["']/.test(source)) {
+      violations.push(path);
+    }
+  }
+  return violations.sort();
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -664,6 +676,12 @@ test("contract discovery owns discovery without a same-directory module cycle", 
 
 test("source schema and line editing have final owners", async () => {
   expect(sourceOwnershipViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("test helpers have no compatibility barrel or callers", async () => {
+  expect(testSupportBarrelViolations(await repositorySources())).toStrictEqual(
     [],
   );
 });

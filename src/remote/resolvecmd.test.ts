@@ -12,16 +12,17 @@ import { parseDeclaration } from "../contracts/source-schema.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import {
   escapeThrough,
-  fakeGitHub,
-  type FakeRepository,
+  snapshotTree,
+  writeFile,
+} from "../test-support/filesystem.ts";
+import { fakeGitHub, type FakeRepository } from "../test-support/remote.ts";
+import {
   readLockFile,
   rejectedBy,
-  runCli,
-  snapshotTree,
-  withGoodTree,
-  writeFile,
   writeLockFile,
-} from "../test-support/testing.ts";
+} from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";

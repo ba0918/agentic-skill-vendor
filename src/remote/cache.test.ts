@@ -7,7 +7,8 @@ import {
   cacheSiteOf,
 } from "../contracts/cache.ts";
 import { workDirectoryIsIgnored } from "../filesystem/workdir.ts";
-import { withEmptyDir, writeFile } from "../test-support/testing.ts";
+import { withEmptyDir } from "../test-support/fixtures.ts";
+import { writeFile } from "../test-support/filesystem.ts";
 import { TEMPORARY_SUFFIX } from "../filesystem/walk.ts";
 
 test("a fetched file is placed under its source and the revision it came from", () => {

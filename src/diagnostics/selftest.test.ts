@@ -2,12 +2,9 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { Sink } from "../errors.ts";
-import {
-  runCli,
-  snapshotTree,
-  withEmptyDir,
-  withGoodTree,
-} from "../test-support/testing.ts";
+import { runCli } from "../test-support/cli.ts";
+import { snapshotTree } from "../test-support/filesystem.ts";
+import { withEmptyDir, withGoodTree } from "../test-support/fixtures.ts";
 
 const SOURCE_DIR = fileURLToPath(new URL("..", import.meta.url));
 const MODULES = fileURLToPath(new URL("../../node_modules", import.meta.url));

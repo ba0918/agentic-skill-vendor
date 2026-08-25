@@ -9,12 +9,12 @@ import {
 import { contractPath } from "./digest.ts";
 import {
   escapeThrough,
-  rejectedBy,
   replaceWithSymlink,
   snapshotTree,
-  withGoodTree,
   writeFile,
-} from "../test-support/testing.ts";
+} from "../test-support/filesystem.ts";
+import { rejectedBy } from "../test-support/assertions.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const encoder = new TextEncoder();
 

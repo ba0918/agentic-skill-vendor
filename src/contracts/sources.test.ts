@@ -6,7 +6,8 @@ import {
   withoutContractMapping,
   withSourceRegistration,
 } from "./source-edit.ts";
-import { thrownBy, withEmptyDir } from "../test-support/testing.ts";
+import { thrownBy } from "../test-support/assertions.ts";
+import { withEmptyDir } from "../test-support/fixtures.ts";
 
 test("a declaration is read as the sources it registers and the origin of each contract", () => {
   const declaration = parseDeclaration(

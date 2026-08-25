@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "../errors.ts";
 import { readRawMaterials } from "./rawsource.ts";
-import { withEmptyDir, writeFile } from "../test-support/testing.ts";
+import { withEmptyDir } from "../test-support/fixtures.ts";
+import { writeFile } from "../test-support/filesystem.ts";
 
 test("distribution exclusions narrow directory mappings but not explicit file mappings", async () => {
   await withEmptyDir(async (root) => {

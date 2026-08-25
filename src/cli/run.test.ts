@@ -1,17 +1,16 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { importClosureOf } from "../test-support/imports.ts";
 import {
-  importClosureOf,
   fakeGitHub,
-  readLockFile,
   remoteSource,
-  runCli,
-  snapshotTree,
   withFetchedTree,
-  withEmptyDir,
-  withGoodTree,
-} from "../test-support/testing.ts";
+} from "../test-support/remote.ts";
+import { readLockFile } from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { snapshotTree } from "../test-support/filesystem.ts";
+import { withEmptyDir, withGoodTree } from "../test-support/fixtures.ts";
 import { run, startedThisProgram } from "../cli.ts";
 import { gitObjectIdOf } from "../contracts/digest.ts";
 import type { RemoteClient, SnapshotTarget } from "../remote/remote.ts";

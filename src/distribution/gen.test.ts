@@ -14,19 +14,20 @@ import { SKILLS_DIR } from "../contracts/declaration.ts";
 import {
   append,
   escapeThrough,
-  kindsOf,
   PERMISSIONS_APPLY,
-  readLockFile,
   replaceWithSymlink,
-  runCli,
   snapshotTree,
-  REMOTE,
-  withFetchedTree,
-  withGoodTree,
   withUnreadable,
   writeFile,
+} from "../test-support/filesystem.ts";
+import {
+  kindsOf,
+  readLockFile,
   writeLockFile,
-} from "../test-support/testing.ts";
+} from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { REMOTE, withFetchedTree } from "../test-support/remote.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const LOCK = "vendor-lock.json";

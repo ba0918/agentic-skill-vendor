@@ -3,13 +3,10 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirNameOf } from "../filesystem/walk.ts";
-import {
-  kindsOf,
-  replaceWithSymlink,
-  runCli,
-  withGoodTree,
-  writeFile,
-} from "../test-support/testing.ts";
+import { kindsOf } from "../test-support/assertions.ts";
+import { replaceWithSymlink, writeFile } from "../test-support/filesystem.ts";
+import { runCli } from "../test-support/cli.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 async function lint(root: string) {
   return await runCli(["lint-selfcontain", "--root", root]);

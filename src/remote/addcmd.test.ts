@@ -5,16 +5,11 @@ import { cacheSiteOf } from "../contracts/cache.ts";
 import { gitHubOver } from "./github.ts";
 import { commandAdd } from "./addcmd.ts";
 import { parseDeclaration } from "../contracts/source-schema.ts";
-import {
-  fakeGitHub,
-  type FakeRepository,
-  readLockFile,
-  rejectedBy,
-  runCli,
-  snapshotTree,
-  withGoodTree,
-  writeFile,
-} from "../test-support/testing.ts";
+import { fakeGitHub, type FakeRepository } from "../test-support/remote.ts";
+import { readLockFile, rejectedBy } from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { snapshotTree, writeFile } from "../test-support/filesystem.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";

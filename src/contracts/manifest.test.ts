@@ -9,14 +9,10 @@ import {
   renderExpectedLock,
   type Resolutions,
 } from "./manifest.ts";
-import {
-  readLockFile,
-  runCli,
-  snapshotTree,
-  withEmptyDir,
-  withGoodTree,
-  writeLockFile,
-} from "../test-support/testing.ts";
+import { readLockFile, writeLockFile } from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { snapshotTree } from "../test-support/filesystem.ts";
+import { withEmptyDir, withGoodTree } from "../test-support/fixtures.ts";
 
 const LOCK = "vendor-lock.json";
 
