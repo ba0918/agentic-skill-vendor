@@ -8,7 +8,8 @@
 // placement's digest names them relative to the dest, so a copy can be judged
 // against it from the copy alone.
 
-import { compareStrings, concatBytes, digestOfBytes } from "./digest.ts";
+import { concatBytes, digestOfBytes } from "./digest.ts";
+import { compareStrings } from "../ordering.ts";
 import type { RawMapping } from "./sources.ts";
 
 /** One file of a raw-byte contract: where it sits relative to its src. */

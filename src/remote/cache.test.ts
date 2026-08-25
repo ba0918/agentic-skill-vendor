@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
+import { pruneCache } from "./cache.ts";
 import {
   CACHE_DIR,
-  cacheIsIgnored,
   cacheRevisionDirOf,
   cacheSiteOf,
-  pruneCache,
-} from "./cache.ts";
+} from "../contracts/cache.ts";
+import { workDirectoryIsIgnored } from "../filesystem/workdir.ts";
 import { withEmptyDir, writeFile } from "../test-support/testing.ts";
 import { TEMPORARY_SUFFIX } from "../filesystem/walk.ts";
 
@@ -75,10 +75,10 @@ test("the cache counts as ignored only where the tree's own rules exclude it", a
   // the same way git would judge it.
   await withEmptyDir(async (root) => {
     await writeFile(`${root}/${CACHE_DIR}/workflow/keep.md`, "cached\n");
-    expect(await cacheIsIgnored(root)).toStrictEqual(false);
+    expect(await workDirectoryIsIgnored(root, CACHE_DIR)).toStrictEqual(false);
 
     await writeFile(`${root}/.gitignore`, "/.agentic-skill-vendor/\n");
-    expect(await cacheIsIgnored(root)).toStrictEqual(true);
+    expect(await workDirectoryIsIgnored(root, CACHE_DIR)).toStrictEqual(true);
   });
 });
 

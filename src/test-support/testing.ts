@@ -3,11 +3,8 @@ import { tmpdir } from "node:os";
 import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "../cli.ts";
-import {
-  compareStrings,
-  gitObjectIdOf,
-  sha256Hex,
-} from "../contracts/digest.ts";
+import { gitObjectIdOf, sha256Hex } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import type { RemoteClient } from "../remote/remote.ts";
 
 const LOCK_FILE = "vendor-lock.json";

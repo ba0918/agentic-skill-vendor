@@ -20,7 +20,8 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
-import { assertValidContractId, compareStrings } from "./digest.ts";
+import { assertValidContractId } from "./digest.ts";
+import { compareStrings } from "../ordering.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
   type ContractLocation,

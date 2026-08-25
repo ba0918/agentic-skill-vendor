@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "../errors.ts";
-import { cacheSiteOf } from "./cache.ts";
+import { cacheSiteOf } from "../contracts/cache.ts";
 import { gitHubOver } from "./github.ts";
 import { commandAdd } from "./addcmd.ts";
 import { parseDeclaration } from "../contracts/sources.ts";

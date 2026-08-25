@@ -4,7 +4,8 @@
 // that it stays meaningful while the others are failing.
 
 import type { Sink } from "../errors.ts";
-import { compareStrings, digestOfBytes } from "../contracts/digest.ts";
+import { digestOfBytes } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import {
   decodeUtf8,
   displayName,

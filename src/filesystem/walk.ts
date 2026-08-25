@@ -26,7 +26,7 @@
 import * as fs from "node:fs/promises";
 import type { Stats } from "node:fs";
 import { ConfigError, describeCause } from "../errors.ts";
-import { compareStrings } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 
 /**
  * True when the reason a file system call failed is that nothing is there.

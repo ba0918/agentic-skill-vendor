@@ -14,6 +14,7 @@ const EXPECTED_SOURCE_FILES = [
   "src/cli/run.ts",
   "src/contracts/conformance.test.ts",
   "src/contracts/conformance.ts",
+  "src/contracts/cache.ts",
   "src/contracts/declaration.test.ts",
   "src/contracts/declaration.ts",
   "src/contracts/digest.test.ts",
@@ -49,6 +50,9 @@ const EXPECTED_SOURCE_FILES = [
   "src/filesystem/ignore.ts",
   "src/filesystem/walk.test.ts",
   "src/filesystem/walk.ts",
+  "src/filesystem/workdir.ts",
+  "src/ordering.test.ts",
+  "src/ordering.ts",
   "src/records.test.ts",
   "src/records.ts",
   "src/remote/addcmd.test.ts",
@@ -187,12 +191,7 @@ const REMOTE_MODULES = new Set([
   "token.ts",
 ]);
 
-const TEMPORARY_FEATURE_EDGES = new Set([
-  "src/filesystem/walk.ts -> src/contracts/digest.ts",
-  "src/filesystem/ignore.ts -> src/contracts/digest.ts",
-  "src/distribution/gen.ts -> src/remote/cache.ts",
-  "src/distribution/placements.ts -> src/remote/cache.ts",
-]);
+const TEMPORARY_FEATURE_EDGES = new Set<string>();
 
 function featureOf(path: string): Feature {
   const directory = path.split("/")[1];
@@ -207,7 +206,12 @@ function featureOf(path: string): Feature {
     return directory;
   }
   if (path === "src/cli.ts") return "entrypoint";
-  if (path === "src/errors.ts" || path === "src/records.ts") return "root";
+  if (
+    path === "src/errors.ts" ||
+    path === "src/ordering.ts" ||
+    path === "src/records.ts"
+  )
+    return "root";
   const name = path.slice(path.lastIndexOf("/") + 1);
   if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
   if (CONTRACT_MODULES.has(name)) return "contracts";
@@ -448,7 +452,12 @@ function aggregatorIndexFiles(sources: Map<string, string>): string[] {
 }
 
 function unknownProductionRoots(paths: Iterable<string>): string[] {
-  const allowed = new Set(["src/cli.ts", "src/errors.ts", "src/records.ts"]);
+  const allowed = new Set([
+    "src/cli.ts",
+    "src/errors.ts",
+    "src/ordering.ts",
+    "src/records.ts",
+  ]);
   return [...paths]
     .filter(
       (path) =>

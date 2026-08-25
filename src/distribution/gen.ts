@@ -15,10 +15,10 @@ import { ConfigError, describeCause, type Sink } from "../errors.ts";
 import {
   canonicalBody,
   CONTRACTS_DIR,
-  compareStrings,
   contractPath,
   digestOfText,
 } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import {
   assertPlainContractPaths,
   conformanceDigest,
@@ -50,7 +50,11 @@ import {
   finalRawDestinations,
 } from "../contracts/placement-ownership.ts";
 export { vendorHeader } from "./header.ts";
-import { cacheSiteOf, isIgnored, unignoredWarning } from "../remote/cache.ts";
+import { cacheSiteOf } from "../contracts/cache.ts";
+import {
+  unignoredWorkDirectoryWarning,
+  workDirectoryIsIgnored,
+} from "../filesystem/workdir.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -354,7 +358,9 @@ export async function executePlan(
     await atomicWriteFile(root, file.site, file.content);
   }
   if (plan.placed.length > 0 || plan.sweeps.length > 0) {
-    if (!(await isIgnored(root, TOOL_DIR))) out(unignoredWarning(TOOL_DIR));
+    if (!(await workDirectoryIsIgnored(root, TOOL_DIR))) {
+      out(unignoredWorkDirectoryWarning(TOOL_DIR));
+    }
   }
   if (plan.placed.length > 0) await prepareStaging(root);
   for (const dest of plan.placed) {

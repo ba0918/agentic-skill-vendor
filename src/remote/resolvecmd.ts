@@ -21,19 +21,18 @@
 // from whatever the cache held, and a tree between the two could be moved by
 // neither.
 
+import { pruneCache } from "./cache.ts";
+import { CACHE_DIR, cacheRevisionDirOf } from "../contracts/cache.ts";
 import {
-  cacheIsIgnored,
-  cacheRevisionDirOf,
-  CACHE_DIR,
-  unignoredWarning,
-  pruneCache,
-} from "./cache.ts";
+  unignoredWorkDirectoryWarning,
+  workDirectoryIsIgnored,
+} from "../filesystem/workdir.ts";
 import {
-  compareStrings,
   contractPath,
   gitObjectIdOf,
   type GitObjectFormat,
 } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import { ConfigError, type Sink } from "../errors.ts";
 import {
   requireOrdinaryFile,
@@ -852,6 +851,6 @@ async function placeInCache(
  * to build at all.
  */
 async function warnUnlessIgnored(root: string, out: Sink): Promise<void> {
-  if (await cacheIsIgnored(root)) return;
-  out(unignoredWarning(CACHE_DIR));
+  if (await workDirectoryIsIgnored(root, CACHE_DIR)) return;
+  out(unignoredWorkDirectoryWarning(CACHE_DIR));
 }

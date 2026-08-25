@@ -8,7 +8,7 @@
 // path, and writes it only after the path holds what the memory will say.
 
 import { ConfigError } from "../errors.ts";
-import { compareStrings } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import { createDistributionIgnore } from "../contracts/distribution-ignore.ts";
 import type {
   LockSources,
@@ -16,7 +16,7 @@ import type {
   Placements,
   Resolution,
 } from "../contracts/manifest.ts";
-import { cacheRevisionDirOf } from "../remote/cache.ts";
+import { cacheRevisionDirOf } from "../contracts/cache.ts";
 import { LOCAL_SOURCE } from "../contracts/sources.ts";
 import {
   basenameOf,
