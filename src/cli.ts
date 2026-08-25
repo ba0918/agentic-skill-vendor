@@ -170,14 +170,22 @@ export async function run(
       out(USAGE);
       return 0;
     }
-    // Read where the flag was given and nowhere else, and judged before any
-    // command holds it: a value that could put headers of its own into a
-    // request is stopped with nothing sent. Asked for by the three commands
-    // that reach a network, so a run refused for the flag — or for a stray
-    // argument beside it — never touches the stream, and a pipeline feeding a
-    // mistyped command keeps what it was carrying.
-    const takeToken = (): string | undefined =>
-      invocation.tokenStdin ? requireUsableToken(readStdin()) : undefined;
+    // Deferred until a GitHub source is actually selected: a generic-only run
+    // must not consume a credential it cannot use. Memoized because a run may
+    // route several sources through GitHub, while standard input can be read
+    // only once. Validation still happens before the first request, so a value
+    // that could put headers of its own into that request is stopped unsent.
+    let tokenTaken = false;
+    let token: string | undefined;
+    const takeToken = (): string | undefined => {
+      if (!tokenTaken) {
+        tokenTaken = true;
+        token = invocation.tokenStdin
+          ? requireUsableToken(readStdin())
+          : undefined;
+      }
+      return token;
+    };
     switch (invocation.command) {
       case "add":
         requireRepository(invocation.operands);
@@ -243,9 +251,8 @@ function networkRemote(
   takeToken: () => string | undefined,
   genericRemote: RemoteClientFactory,
 ): RemoteClient {
-  const token = takeToken();
   return routedRemoteClient({
-    github: async () => gitHubOver(transport, token),
+    github: async () => gitHubOver(transport, takeToken()),
     git: genericRemote,
   });
 }

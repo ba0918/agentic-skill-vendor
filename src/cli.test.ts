@@ -352,28 +352,34 @@ test("a token that cannot become a header stops the run before any request", asy
   // a request never reaches the transport. The refusing transport below is
   // what says no request was made: reached, it throws something that is not a
   // ConfigError and the exit code would not be 2.
-  for (const command of NETWORK_COMMANDS) {
-    const result = await runCli(
-      [command, "--token-stdin"],
-      undefined,
-      () => "ghp_first\nX-Injected: yes",
-    );
-    expect(result.code).toStrictEqual(2);
-    expect(result.stderr.join("\n")).toContain("position 10");
-    expect(result.stderr.join("\n")).not.toContain("X-Injected");
-  }
+  await withFetchedTree(async (root) => {
+    for (const command of NETWORK_COMMANDS) {
+      const github = fakeGitHub(remoteSource());
+      const result = await runCli(
+        [command, "--token-stdin", "--root", root],
+        github.fetch,
+        () => "ghp_first\nX-Injected: yes",
+      );
+      expect(result.code).toStrictEqual(2);
+      expect(result.stderr.join("\n")).toContain("position 10");
+      expect(result.stderr.join("\n")).not.toContain("X-Injected");
+    }
+  });
 });
 
 test("an empty standard input is refused rather than sent as a credential", async () => {
-  for (const command of NETWORK_COMMANDS) {
-    const result = await runCli(
-      [command, "--token-stdin"],
-      undefined,
-      () => "",
-    );
-    expect(result.code).toStrictEqual(2);
-    expect(result.stderr.join("\n")).toContain("nothing on standard input");
-  }
+  await withFetchedTree(async (root) => {
+    for (const command of NETWORK_COMMANDS) {
+      const github = fakeGitHub(remoteSource());
+      const result = await runCli(
+        [command, "--token-stdin", "--root", root],
+        github.fetch,
+        () => "",
+      );
+      expect(result.code).toStrictEqual(2);
+      expect(result.stderr.join("\n")).toContain("nothing on standard input");
+    }
+  });
 });
 
 test("invalid add operands are refused before standard input is read", async () => {
@@ -390,6 +396,51 @@ test("invalid add operands are refused before standard input is read", async () 
     expect(result.code).toStrictEqual(2);
     expect(reads).toStrictEqual(0);
   }
+});
+
+test("an invalid add repository is refused before standard input is read", async () => {
+  let reads = 0;
+  const result = await runCli(
+    ["add", "not-a-repository", "--token-stdin"],
+    undefined,
+    () => {
+      reads += 1;
+      return "test-only-token";
+    },
+  );
+  expect(result.code).toStrictEqual(2);
+  expect(result.stderr.join("\n")).toContain("repository");
+  expect(reads).toStrictEqual(0);
+});
+
+test("an invalid repository-derived source name is refused before standard input is read", async () => {
+  let reads = 0;
+  const result = await runCli(
+    ["add", "owner/Invalid.Name", "--token-stdin"],
+    undefined,
+    () => {
+      reads += 1;
+      return "test-only-token";
+    },
+  );
+  expect(result.code).toStrictEqual(2);
+  expect(result.stderr.join("\n")).toContain("source name");
+  expect(reads).toStrictEqual(0);
+});
+
+test("an invalid explicit source name is refused before standard input is read", async () => {
+  let reads = 0;
+  const result = await runCli(
+    ["add", "owner/repository", "Invalid.Name", "--token-stdin"],
+    undefined,
+    () => {
+      reads += 1;
+      return "test-only-token";
+    },
+  );
+  expect(result.code).toStrictEqual(2);
+  expect(result.stderr.join("\n")).toContain("source name");
+  expect(reads).toStrictEqual(0);
 });
 
 test("the usage text says which commands the token is for", async () => {
@@ -539,7 +590,7 @@ test("fetch restores a generic source at the lock pin", async () => {
   });
 });
 
-test("a GitHub token is never passed to the generic Git capability", async () => {
+test("a valid generic Git source does not consume GitHub token input", async () => {
   await withGoodTree(async (root) => {
     const remote = fakeGenericRemote();
     await addGenericSource(root, remote);
@@ -555,6 +606,58 @@ test("a GitHub token is never passed to the generic Git capability", async () =>
         expect(argumentsPassed).toEqual([]);
         return remote.client;
       },
+    );
+    expect(result.code, result.stderr.join("\n")).toBe(0);
+    expect(reads).toBe(0);
+  });
+});
+
+test("a mixed GitHub and generic Git update reads token input only once", async () => {
+  await withGoodTree(async (root) => {
+    await declareGenericContract(root);
+    const skill = `${root}/skills/release-notes/SKILL.md`;
+    await fs.writeFile(
+      skill,
+      (await fs.readFile(skill, "utf8")).replace(
+        `    - ${GENERIC_ID}\n`,
+        `    - ${GENERIC_ID}\n    - tdd-contract\n`,
+      ),
+    );
+    await fs.writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  github:",
+        "    repository: ba0918/agentic-workflow",
+        "    ref: main",
+        "  github-other:",
+        "    repository: example/other-contracts",
+        "    ref: main",
+        "  generic:",
+        `    repository: ${GENERIC_REPOSITORY}`,
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    const otherRevision = "c".repeat(40);
+    const github = fakeGitHub({
+      ...remoteSource(),
+      "example/other-contracts": {
+        defaultBranch: "main",
+        refs: { main: otherRevision },
+        files: { [otherRevision]: { "README.md": "# Other contracts\n" } },
+      },
+    });
+    const generic = fakeGenericRemote();
+    let reads = 0;
+    const result = await runCli(
+      ["update", "--token-stdin", "--root", root],
+      github.fetch,
+      () => {
+        reads += 1;
+        return "test-only-token";
+      },
+      async () => generic.client,
     );
     expect(result.code, result.stderr.join("\n")).toBe(0);
     expect(reads).toBe(1);
