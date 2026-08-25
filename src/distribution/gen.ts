@@ -53,54 +53,6 @@ import {
 } from "./tree-materials.ts";
 
 /**
- * The bytes of a vendored copy: the three facts the specification fixes, then
- * the canonical body.
- *
- * No source path and no time of generation appear. A path would make the copy
- * depend on where it came from, and a timestamp would make two runs over
- * unchanged input produce different files.
- */
-/**
- * Copies first, then the lock, then the removals.
- *
- * A run stopped part way therefore never loses a file it had not yet replaced,
- * and the state it leaves is one verify reports as a violation rather than one
- * that looks finished.
- *
- * A removal that fails is reported rather than passed over. Because removals
- * run last, stopping here abandons nothing: every copy and the lock are already
- * written, and what the refusal names is the one file the run could not clear.
- * Silence cost more than it saved — gen answered 0 while verify reported the
- * leftover as an extra, and running gen again answered 0 again, so the tree
- * stayed in a state one command called clean and the other called a violation.
- */
-/**
- * Removes every site, attempting each before reporting any, so one file that
- * cannot be cleared does not leave the rest standing behind it. The refusal
- * names the first failure, or null where all went.
- */
-/**
- * The declared contracts whose canonical text the tree does not hold.
- *
- * The one gate gen applies before it writes anything. The canonical text is the
- * authority over what the lock records, so there is nothing else for gen to
- * refuse: a contract the lock says nothing about, or says something else about,
- * is a lock gen rewrites rather than a state it stops on. Text that is not
- * there is different in kind — it cannot be rewritten from, and a run that
- * carried on would drop the resolution of a contract a skill still declares.
- */
-/**
- * The lock the canonical text implies: one resolution per contract the tree
- * holds text for, its digest recomputed and its conformance digest taken as the
- * tree has it.
- *
- * Derived rather than carried across, because the canonical text is the
- * authority and the lock is the snapshot of it (the relation package.json has
- * to a lockfile). A contract whose text is gone is left out, which is what
- * retires its resolution.
- */
-
-/**
  * Refuses a run whose declared remote contracts are not in the cache.
  *
  * A refusal, not a violation: the tree is not wrong, it is incomplete, and one

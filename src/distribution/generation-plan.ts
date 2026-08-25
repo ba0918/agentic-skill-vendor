@@ -18,6 +18,10 @@ import { presentRawIds, type RawContracts } from "./raw-contracts.ts";
 import { planPlacements } from "./placement-plan.ts";
 import { vendorHeader } from "./header.ts";
 
+/**
+ * No source path or generation time is included: either would make unchanged
+ * canonical input render different vendored bytes.
+ */
 export function renderVendorFile(
   id: string,
   digest: string,

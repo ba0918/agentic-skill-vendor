@@ -59,6 +59,10 @@ export interface PlacementPlan {
   report: string[];
 }
 
+/**
+ * Unrecorded content is never overwritten merely because its destination was
+ * selected; byte equality is accepted only as the recovery path for a claim.
+ */
 export async function planPlacements(
   root: string,
   skills: SkillDeclaration[],

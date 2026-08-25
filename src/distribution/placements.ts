@@ -1,12 +1,3 @@
-// placements.ts — distributing raw-byte contracts: what gen writes at each
-// skill's dests, what it records about them, and what it may replace.
-//
-// A document contract lands in a directory the tool owns whole, so the tool
-// can list it to learn what it wrote. A raw-byte contract lands where the
-// table says, and the only memory of what was written there is the lock's
-// placements. Everything in this module reads that memory before it touches a
-// path, and writes it only after the path holds what the memory will say.
-
 import { ConfigError } from "../errors.ts";
 import type { Placement } from "../contracts/lock-model.ts";
 import { basenameOf, MARKER_FILE } from "../contracts/raw.ts";
@@ -127,14 +118,6 @@ export function firstDisagreement(
 export function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, index) => byte === b[index]);
 }
-
-/**
- * Every dest the declared raw-byte contracts land at, with the gate applied
- * in order: the dest is absent; or the lock records a placement at that path
- * for this skill and the dest still digests to it; or the dest already holds
- * exactly what the run writes, ignored files included — the recovery path,
- * which the run reports as a claim.
- */
 
 /**
  * The .gitignore levels that have a say over a dest: the root down to the

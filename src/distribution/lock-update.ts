@@ -14,6 +14,10 @@ import { displayName } from "../filesystem/walk.ts";
 import type { CanonicalContract } from "./contract-discovery.ts";
 import { lockedOrDeclared } from "./tree-materials.ts";
 
+/**
+ * Missing canonical text is a gate: carrying on would drop the resolution of
+ * a contract a skill still declares.
+ */
 export function closureViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
@@ -72,6 +76,10 @@ function staleLockRemedy(location: ContractLocation | undefined): string {
     : "run gen to record the current text";
 }
 
+/**
+ * Recomputes each resolution because canonical text, rather than the recorded
+ * lock, is authoritative; absent text therefore retires its resolution.
+ */
 export async function deriveResolutions(
   root: string,
   contracts: Map<string, CanonicalContract | null>,

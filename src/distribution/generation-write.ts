@@ -10,6 +10,11 @@ import {
 import { placeViaStaging, prepareStaging } from "./staging.ts";
 import type { WritePlan } from "./generation-plan.ts";
 
+/**
+ * Publishes replacements before the lock and removes obsolete copies last, so
+ * interruption cannot make an unfinished tree look complete or lose an old
+ * copy before its replacement exists.
+ */
 export async function executePlan(
   root: string,
   plan: WritePlan,
@@ -31,6 +36,10 @@ export async function executePlan(
   if (failed !== null) throw failed;
 }
 
+/**
+ * Attempts every removal rather than returning early, so one blocked path does
+ * not leave unrelated obsolete copies standing indefinitely.
+ */
 async function removeEach(
   root: string,
   sites: string[],
