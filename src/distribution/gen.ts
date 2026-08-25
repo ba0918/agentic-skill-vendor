@@ -11,40 +11,28 @@
 // all" instead of restating it.
 
 import { ConfigError, type Sink } from "../errors.ts";
-import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import { contractPath } from "../contracts/digest.ts";
 import { compareStrings } from "../ordering.ts";
 import { conformanceDigest } from "../contracts/conformance.ts";
-import {
-  displayName,
-  isRegularFileOrAbsent,
-  readTextFile,
-} from "../filesystem/walk.ts";
+import { isRegularFileOrAbsent, readTextFile } from "../filesystem/walk.ts";
 import {
   declaredIds,
-  dependentIndex,
   type SkillDeclaration,
 } from "../contracts/declaration.ts";
 import { emptyRecord } from "../records.ts";
-import { vendorHeader } from "./header.ts";
 export { vendorHeader } from "./header.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
   type LockSources,
-  type Placements,
-  renderExpectedLock,
   type Resolution,
   type Resolutions,
 } from "../contracts/manifest.ts";
 import {
   assertRawCacheHolds,
   deriveRawResolutions,
-  presentRawIds,
   rawClosureViolations,
-  type RawContracts,
 } from "./placements.ts";
-import { planPlacements } from "./placement-plan.ts";
 import {
   type ContractLocation,
   type Declaration,
@@ -61,16 +49,11 @@ import {
   withoutContractMapping,
 } from "../contracts/source-edit.ts";
 import {
-  lockedOrDeclared,
   prepareTreeMaterials,
   readTreeState,
   type TreeState,
 } from "./tree-materials.ts";
-import {
-  type CanonicalContract,
-  listVendorEntries,
-  vendorDirOf,
-} from "./contract-discovery.ts";
+import type { CanonicalContract } from "./contract-discovery.ts";
 
 /**
  * The bytes of a vendored copy: the three facts the specification fixes, then
@@ -80,118 +63,6 @@ import {
  * depend on where it came from, and a timestamp would make two runs over
  * unchanged input produce different files.
  */
-export function renderVendorFile(
-  id: string,
-  digest: string,
-  body: string,
-): string {
-  return vendorHeader(id, digest) + body;
-}
-
-/**
- * Every path in a plan is relative to the tree, never absolute. The plan is
- * then a statement about the tree rather than about where the tree happens to
- * sit, and it is the same relative path that every refusal quotes back.
- */
-interface WritePlan {
-  files: { site: string; content: Uint8Array }[];
-  /** Raw-byte dests, placed via the staging directory rather than in place. */
-  placed: {
-    site: string;
-    what: { files: PlacedFile[] } | { content: Uint8Array };
-  }[];
-  /** Raw-byte dests to clear: before the lock, which is their only memory. */
-  sweeps: string[];
-  lock: { site: string; content: Uint8Array };
-  removals: string[];
-  report: string[];
-}
-
-/**
- * Builds every byte the run will write before writing any of them, so that a
- * tree is never half-updated because of something the run could have known in
- * advance.
- */
-export async function buildExpansionPlan(
-  root: string,
-  skills: SkillDeclaration[],
-  contracts: Map<string, CanonicalContract | null>,
-  resolutions: Resolutions,
-  sources: LockSources,
-  locations: Map<string, ContractLocation>,
-  declaration: Declaration,
-  raws: RawContracts = new Map(),
-  placements: Placements = emptyRecord(),
-): Promise<WritePlan> {
-  const encoder = new TextEncoder();
-  const files: WritePlan["files"] = [];
-  const placedDests: WritePlan["placed"] = [];
-  const removals: string[] = [];
-  const placed = await planPlacements(
-    root,
-    skills,
-    raws,
-    resolutions,
-    placements,
-  );
-  placedDests.push(...placed.writes);
-  for (const skill of skills) {
-    const expected = new Set<string>();
-    for (const id of skill.contracts) {
-      if (raws.has(id)) continue;
-      const contract = contracts.get(id);
-      // gen refuses a missing canonical text before planning, so neither
-      // spelling is reachable from it; a future caller that forgets the
-      // closure check is refused here instead of writing a manifest that
-      // silently dropped the contract.
-      if (contract === undefined) {
-        throw new ConfigError(
-          `cannot plan ${id}: its canonical text was never read`,
-        );
-      }
-      if (contract === null) {
-        throw new ConfigError(
-          `cannot plan ${id}: its canonical text is absent`,
-        );
-      }
-      expected.add(`${id}.md`);
-      files.push({
-        site: `${vendorDirOf(skill.name)}/${id}.md`,
-        content: encoder.encode(
-          renderVendorFile(id, contract.digest, contract.body),
-        ),
-      });
-    }
-    for (const name of await listVendorEntries(root, skill.name)) {
-      if (!expected.has(name)) {
-        removals.push(`${vendorDirOf(skill.name)}/${name}`);
-      }
-    }
-  }
-  return {
-    files,
-    placed: placedDests,
-    lock: {
-      site: LOCK_FILE,
-      content: encoder.encode(
-        await renderExpectedLock(
-          root,
-          skills,
-          resolutions,
-          sources,
-          locations,
-          declaration,
-          placed.placements,
-          presentRawIds(raws),
-        ),
-      ),
-    },
-    sweeps: placed.sweeps,
-    removals,
-    report: placed.report,
-  };
-}
-
 /**
  * Copies first, then the lock, then the removals.
  *
@@ -221,130 +92,6 @@ export async function buildExpansionPlan(
  * there is different in kind — it cannot be rewritten from, and a run that
  * carried on would drop the resolution of a contract a skill still declares.
  */
-export function legacyClosureViolations(
-  skills: SkillDeclaration[],
-  contracts: Map<string, CanonicalContract | null>,
-  locations: Map<string, ContractLocation>,
-): string[] {
-  const violations: string[] = [];
-  const dependentsOfId = dependentIndex(skills);
-  for (const id of declaredIds(skills)) {
-    if ((contracts.get(id) ?? null) !== null) continue;
-    // A raw-byte contract is answered for by the placements module's own
-    // closure check; it never had a single site to name here.
-    if (!locations.has(id) && !contracts.has(id)) continue;
-    // A contract fetched from elsewhere is not a closure gap when the cache is
-    // empty: the tree does hold its text, in a repository the declaration
-    // names, and what is missing is a fetch rather than a document. Reported
-    // here, a clean checkout would fail for a state it is supposed to be in.
-    if (locations.get(id)?.local === false) continue;
-    const dependents = (dependentsOfId.get(id) ?? [])
-      .map(displayName)
-      .join(", ");
-    const site = locations.get(id)?.site ?? contractPath(id);
-    violations.push(
-      `closure: ${id} is declared by ${dependents} but ${site} does not exist`,
-    );
-  }
-  return violations;
-}
-
-/**
- * What the lock records, against what the canonical text says.
- *
- * verify's half alone: gen answers these by writing the lock the canonical text
- * implies, so it can never report one. What this catches is the tree gen was
- * never run over — the edit landed, the lock still records the text before it —
- * which is the state continuous integration exists to fail on.
- *
- * A local contract whose canonical text is absent is passed over rather than
- * reported twice: it is already named as a closure gap, and the lock cannot be
- * judged against text the tree does not hold. A contract fetched from another
- * repository is not passed over, because nothing else speaks for it: the
- * closure check stays deliberately silent there — a clean checkout holds no
- * cache — and the tree an `add` leaves behind, with the mapping and the pin
- * written and no `gen` behind them, then passed every check while the copy the
- * skill declares had never been generated. What the lock records for a declared
- * contract is a fact about the lock, and it is decidable without the text.
- *
- * Stated here rather than in verify.ts, its one caller, because it and the
- * closure check are two halves of one answer — whether the lock agrees with the
- * canonical text — and the halves have to move together. Split across modules,
- * a change to which contracts one of them walks would land in one half and not
- * the other, and the gap would read as a clean tree.
- */
-export function legacyLockViolations(
-  skills: SkillDeclaration[],
-  contracts: Map<string, CanonicalContract | null>,
-  resolutions: Resolutions,
-  locations: Map<string, ContractLocation>,
-): string[] {
-  const violations: string[] = [];
-  // The same contracts gen would rewrite the lock over, not the declared ones
-  // alone. Walked over the declarations only, this judged a narrower set than
-  // gen acts on: editing the canonical text of a contract nothing declares any
-  // more left the tree reported as clean, and the next gen recorded the new
-  // digest with nothing having said the text moved.
-  for (const id of lockedOrDeclared(skills, resolutions)) {
-    if (!locations.has(id)) continue;
-    const contract = contracts.get(id) ?? null;
-    const resolution = resolutions[id];
-    // Only a declaration can be unresolved: it is the declaration that asks for
-    // a pin, and an id reached through the lock has one by definition. Reported
-    // for a contract nothing declares, every stray document under contracts/
-    // would become a violation.
-    if (resolution === undefined) {
-      // Asked before the missing text is passed over, and that order is the
-      // whole finding: a local contract with no text is already a closure gap,
-      // while a remote one is a state the closure check keeps silent about, so
-      // ordered the other way round the lock recording nothing for it was
-      // reported by no check at all.
-      if (contract === null && locations.get(id)?.local !== false) continue;
-      violations.push(
-        `unresolved: ${id} has no entry in ${LOCK_FILE}; run gen to record one`,
-      );
-      continue;
-    }
-    if (contract === null) continue;
-    if (resolution.digest !== contract.digest) {
-      const location = locations.get(id);
-      const site = location?.site ?? contractPath(id);
-      violations.push(
-        `stale-lock: ${id} is recorded as ${resolution.digest} but ${site} ` +
-          `is ${contract.digest}; ${staleLockRemedy(location)}`,
-      );
-    }
-  }
-  return violations;
-}
-
-/**
- * The way back out of a stale lock, which depends on who is authority over the
- * text.
- *
- * A local contract's text was edited by a person in this tree, so recording it
- * is the whole of the answer. A fetched contract's canonical text is in another
- * repository, and what stands here is a copy this tool throws away: told to run
- * gen, a person adopts whatever sits in that copy, and the cache is never
- * committed, so the bytes being adopted appear in no diff anybody reviews. The
- * fetch named instead rebuilds that copy from the commit the lock pins, judged
- * against the object ids the commit itself gives its files.
- *
- * The fetch is not named alone. The ordinary way into this state is an update
- * that moved the pin with no gen behind it yet, where the cache already holds
- * exactly what the commit does — a fetch changes nothing and the finding stands,
- * which would send the reader round the same loop for good.
- */
-function staleLockRemedy(location: ContractLocation | undefined): string {
-  if (location?.local === false) {
-    return (
-      `run fetch to rebuild the cache from the commit the lock pins, then ` +
-      `gen to record what that commit holds`
-    );
-  }
-  return "run gen to record the current text";
-}
-
 /**
  * The lock the canonical text implies: one resolution per contract the tree
  * holds text for, its digest recomputed and its conformance digest taken as the
