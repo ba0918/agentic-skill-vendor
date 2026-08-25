@@ -4,8 +4,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
 import {
-  atomicWriteDirectory,
-  atomicWriteFile,
   decodeUtf8,
   ensureParentDirectory,
   isDirectoryOrAbsent,
@@ -13,6 +11,7 @@ import {
   readEntries,
   walkFiles,
 } from "./walk.ts";
+import { atomicWriteDirectory, atomicWriteFile } from "./atomic-write.ts";
 import {
   PERMISSIONS_APPLY,
   rejectedBy,

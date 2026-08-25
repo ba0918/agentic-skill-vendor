@@ -61,13 +61,15 @@ import {
   withContractMapping,
 } from "../contracts/sources.ts";
 import {
-  atomicWriteDirectory,
-  atomicWriteFile,
   dirNameOf,
   isRegularFileOrAbsent,
   type PlacedFile,
   readTextFile,
 } from "../filesystem/walk.ts";
+import {
+  atomicWriteDirectory,
+  atomicWriteFile,
+} from "../filesystem/atomic-write.ts";
 import {
   locateTreeContracts,
   readTreeState,

@@ -27,7 +27,6 @@ import {
 import {
   assertPlainChain,
   assertTreeRoot,
-  atomicWriteFile,
   displayName,
   type PlacedFile,
   isDirectoryOrAbsent,
@@ -35,6 +34,7 @@ import {
   listEntries,
   readTextFile,
 } from "../filesystem/walk.ts";
+import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import {
   declaredIds,
   dependentIndex,
