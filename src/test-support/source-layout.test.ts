@@ -641,6 +641,62 @@ function testSupportBarrelViolations(sources: Map<string, string>): string[] {
   return violations.sort();
 }
 
+function remainingOwnerViolations(sources: Map<string, string>): string[] {
+  const checks: Array<[string, RegExp, string]> = [
+    [
+      "src/distribution/placements.ts",
+      /function (?:planPlacements|placementViolations)/,
+      "placements owns extracted logic",
+    ],
+    [
+      "src/distribution/gen.ts",
+      /function (?:planExpansion|executePlan|closureViolations|lockViolations)/,
+      "gen owns extracted logic",
+    ],
+    [
+      "src/contracts/manifest.ts",
+      /function (?:validatePlacements|validateSources|validateResolutions|pickObject|requireDigest)/,
+      "manifest owns serialized validation",
+    ],
+    [
+      "src/filesystem/walk.ts",
+      /function (?:atomicWriteFile|atomicWriteDirectory|assertReplaceableDirectory|assertWritableTarget)/,
+      "walk owns atomic writes",
+    ],
+    [
+      "src/remote/resolvecmd.ts",
+      /function (?:updateRequests|fetchRequests|writeLockSources|collectSources|placeInCache)/,
+      "resolvecmd owns extracted logic",
+    ],
+  ];
+  const violations = checks.flatMap(([path, pattern, message]) =>
+    pattern.test(sources.get(path) ?? "") ? [message] : [],
+  );
+  const facades = [
+    ["src/distribution/raw-contracts.ts", "placements.ts"],
+    ["src/distribution/placement-plan.ts", "placements.ts"],
+    ["src/distribution/placement-verify.ts", "placements.ts"],
+    ["src/distribution/generation-plan.ts", "gen.ts"],
+    ["src/distribution/generation-write.ts", "gen.ts"],
+    ["src/distribution/lock-update.ts", "gen.ts"],
+    ["src/filesystem/atomic-write.ts", "walk.ts"],
+    ["src/remote/snapshot-plan.ts", "resolvecmd.ts"],
+    ["src/remote/source-collection.ts", "resolvecmd.ts"],
+    ["src/remote/cache-write.ts", "resolvecmd.ts"],
+    ["src/remote/lock-update.ts", "resolvecmd.ts"],
+  ] as const;
+  for (const [path, oldOwner] of facades) {
+    if (
+      new RegExp(
+        `export(?:\\s+type)?\\s+\\{[\\s\\S]*?\\}\\s+from\\s+"\\./${oldOwner.replace(".", "\\.")}"`,
+      ).test(sources.get(path) ?? "")
+    ) {
+      violations.push(`${path} re-exports ${oldOwner}`);
+    }
+  }
+  return violations.sort();
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -684,6 +740,10 @@ test("test helpers have no compatibility barrel or callers", async () => {
   expect(testSupportBarrelViolations(await repositorySources())).toStrictEqual(
     [],
   );
+});
+
+test("remaining Phase 2 modules own their implementations", async () => {
+  expect(remainingOwnerViolations(await repositorySources())).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {
