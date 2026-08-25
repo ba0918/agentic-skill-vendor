@@ -10,10 +10,10 @@
 // they are an independent statement of the answer rather than a recording of
 // whatever the implementation happened to produce.
 
-import type { Sink } from "./errors.ts";
-import { contractDigest, DIGEST_PREFIX } from "./contracts/digest.ts";
-import { conformanceDigestOfEntries } from "./contracts/conformance.ts";
-import { renderVendorFile } from "./distribution/gen.ts";
+import type { Sink } from "../errors.ts";
+import { contractDigest, DIGEST_PREFIX } from "../contracts/digest.ts";
+import { conformanceDigestOfEntries } from "../contracts/conformance.ts";
+import { renderVendorFile } from "../distribution/gen.ts";
 
 const SELF_TEST_DOCUMENT =
   '---\r\nversion: "1"\r\n---\r\n\r\nHello  \r\nWorld\r\n\r\n\r\n';

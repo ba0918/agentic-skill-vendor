@@ -11,13 +11,17 @@ import {
   withFetchedTree,
   withEmptyDir,
   withGoodTree,
-} from "./test-support/testing.ts";
-import { run, startedThisProgram } from "./cli.ts";
-import { gitObjectIdOf } from "./contracts/digest.ts";
-import type { RemoteClient, SnapshotTarget } from "./remote/remote.ts";
+} from "../test-support/testing.ts";
+import { run, startedThisProgram } from "../cli.ts";
+import { gitObjectIdOf } from "../contracts/digest.ts";
+import type { RemoteClient, SnapshotTarget } from "../remote/remote.ts";
 
-const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
-const CLI_PATH = fileURLToPath(new URL("./cli.ts", import.meta.url));
+const SOURCE = await fs.readFile(new URL("./run.ts", import.meta.url), "utf8");
+const ENTRY_SOURCE = await fs.readFile(
+  new URL("../cli.ts", import.meta.url),
+  "utf8",
+);
+const CLI_PATH = fileURLToPath(new URL("../cli.ts", import.meta.url));
 
 test("an unknown command is a usage error", async () => {
   const result = await runCli(["frobnicate"]);
@@ -70,9 +74,10 @@ test("every command the entry point names is answered by a module of its own", (
   // path they end in — so the import list is read as the list of names it is,
   // not as one name per module.
   const imported = new Set(
-    [...SOURCE.matchAll(/import \{([^}]+)\} from "\.\/[^"]+\.ts";/g)].flatMap(
-      (match) =>
-        match[1].split(",").map((name) => name.trim().replace(/^type /, "")),
+    [
+      ...SOURCE.matchAll(/import \{([^}]+)\} from "\.{1,2}\/[^"]+\.ts";/g),
+    ].flatMap((match) =>
+      match[1].split(",").map((name) => name.trim().replace(/^type /, "")),
     ),
   );
   // The statements a case runs before it delegates — the refusal of an
@@ -112,12 +117,12 @@ test("the entry point reaches the file system only to answer whether it was star
   // work: it decides whether this module is the program the runtime started,
   // before any command runs. Listing it by name is what keeps the exception
   // from widening — a second binding on that same import fails this.
-  expect(SOURCE).not.toContain('from "./filesystem/walk.ts"');
-  expect(SOURCE.match(/import \* as \w+ from "node:fs[^"]*";/g)).toStrictEqual(
-    null,
-  );
+  expect(SOURCE).not.toContain("filesystem/walk.ts");
+  expect(
+    ENTRY_SOURCE.match(/import \* as \w+ from "node:fs[^"]*";/g),
+  ).toStrictEqual(null);
   const bound = [
-    ...SOURCE.matchAll(/import \{([^}]*)\} from "node:fs[^"]*";/g),
+    ...ENTRY_SOURCE.matchAll(/import \{([^}]*)\} from "node:fs[^"]*";/g),
   ].flatMap((match) => match[1].split(",").map((name) => name.trim()));
   expect(bound).toStrictEqual(["realpathSync"]);
 });
@@ -288,11 +293,11 @@ test("the commands that work offline reach no network, environment or subprocess
   const onlineClosure = await importClosureOf("cli.ts");
   expect(onlineClosure.has("remote/github.ts")).toStrictEqual(true);
   const onlineSource = await fs.readFile(
-    new URL("./cli.ts", import.meta.url),
+    new URL("./run.ts", import.meta.url),
     "utf8",
   );
-  expect(onlineSource).toContain('import("./remote/git.ts")');
-  expect(onlineSource).toContain('import("./remote/gitprocess.ts")');
+  expect(onlineSource).toContain('import("../remote/git.ts")');
+  expect(onlineSource).toContain('import("../remote/gitprocess.ts")');
   expect(
     (await importClosureOf("distribution/lint.ts")).has("contracts/digest.ts"),
   ).toStrictEqual(true);
@@ -304,7 +309,7 @@ test("the commands that work offline reach no network, environment or subprocess
     "distribution/gen.ts",
     "distribution/verify.ts",
     "distribution/lint.ts",
-    "selftest.ts",
+    "diagnostics/selftest.ts",
   ]) {
     const closure = await importClosureOf(entry);
     for (const name of CONCRETE_REMOTE_MODULES) {
@@ -312,7 +317,7 @@ test("the commands that work offline reach no network, environment or subprocess
     }
     for (const name of closure) {
       const source = await fs.readFile(
-        new URL(`./${name}`, import.meta.url),
+        new URL(`../${name}`, import.meta.url),
         "utf8",
       );
       expect(/\bfetch\s*\(/.test(source), name).toStrictEqual(false);

@@ -1,18 +1,18 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { Sink } from "./errors.ts";
+import type { Sink } from "../errors.ts";
 import {
   runCli,
   snapshotTree,
   withEmptyDir,
   withGoodTree,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
-const SOURCE_DIR = fileURLToPath(new URL(".", import.meta.url));
-const MODULES = fileURLToPath(new URL("../node_modules", import.meta.url));
+const SOURCE_DIR = fileURLToPath(new URL("..", import.meta.url));
+const MODULES = fileURLToPath(new URL("../../node_modules", import.meta.url));
 const PACKAGE_MANIFEST = fileURLToPath(
-  new URL("../package.json", import.meta.url),
+  new URL("../../package.json", import.meta.url),
 );
 const ENTRY = "cli.ts";
 
