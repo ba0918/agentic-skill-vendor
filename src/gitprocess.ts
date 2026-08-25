@@ -125,13 +125,12 @@ export function createGitProcessRunner(
   const createBudget = (): GitSourceBudget => ({ startedAt: host.now() });
   return {
     createBudget,
-    async begin({ interactive, budget = createBudget() }) {
+    async begin({ budget = createBudget() }) {
       const temporaryDirectory = await host.createTemporaryDirectory();
       return new BoundedGitProcessSession(
         host,
         limits,
         temporaryDirectory,
-        interactive,
         budget,
       );
     },
@@ -143,7 +142,6 @@ class BoundedGitProcessSession implements GitProcessSession {
   readonly #host: GitProcessHost;
   readonly #limits: Readonly<GitLimits>;
   readonly #temporaryDirectory: string;
-  readonly #interactive: boolean;
   #aggregateBytes = 0;
   #closed = false;
 
@@ -151,13 +149,11 @@ class BoundedGitProcessSession implements GitProcessSession {
     host: GitProcessHost,
     limits: Readonly<GitLimits>,
     temporaryDirectory: string,
-    interactive: boolean,
     budget: GitSourceBudget,
   ) {
     this.#host = host;
     this.#limits = limits;
     this.#temporaryDirectory = temporaryDirectory;
-    this.#interactive = interactive;
     this.#startedAt = budget.startedAt;
   }
 
@@ -265,10 +261,7 @@ class BoundedGitProcessSession implements GitProcessSession {
   }
 
   #invocation(command: GitProcessCommand): ProcessInvocation {
-    const environment = safeEnvironment(
-      this.#host.environment(),
-      this.#interactive,
-    );
+    const environment = safeEnvironment(this.#host.environment());
     const repositoryArgument =
       command.kind === "repository"
         ? [`--git-dir=${this.#temporaryDirectory}/repository.git`]
@@ -285,8 +278,8 @@ class BoundedGitProcessSession implements GitProcessSession {
       environment,
       shell: false,
       detached: true,
-      stdin: this.#interactive ? "inherit" : "ignore",
-      stderr: this.#interactive ? "inherit" : "ignore",
+      stdin: "ignore",
+      stderr: "ignore",
     };
   }
 
@@ -319,18 +312,16 @@ class BoundedGitProcessSession implements GitProcessSession {
 
 function safeEnvironment(
   inherited: Readonly<Record<string, string>>,
-  interactive: boolean,
 ): Record<string, string> {
   const safe: Record<string, string> = {};
   for (const [name, value] of Object.entries(inherited)) {
     if (DANGEROUS_ENVIRONMENT.some((pattern) => pattern.test(name))) continue;
     safe[name] = value;
   }
-  if (!interactive) {
-    safe.GIT_TERMINAL_PROMPT = "0";
-    safe.GCM_INTERACTIVE = "never";
-    safe.SSH_ASKPASS_REQUIRE = "never";
-  }
+  safe.GIT_TERMINAL_PROMPT = "0";
+  safe.GCM_INTERACTIVE = "never";
+  safe.SSH_ASKPASS_REQUIRE = "never";
+  safe.GIT_SSH_COMMAND = "ssh -oBatchMode=yes";
   return safe;
 }
 

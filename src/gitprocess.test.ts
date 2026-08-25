@@ -123,7 +123,7 @@ test("uses shell-free fixed repository arguments and preserves only trusted conf
   expect(fetch.environment.GIT_TERMINAL_PROMPT).toBe("0");
 });
 
-test("lets an interactive terminal inherit prompts while non-interactive runs cannot wait for input", async () => {
+test("disables terminal and SSH prompts in every terminal context while retaining non-prompting authentication", async () => {
   const interactiveHost = new FakeHost();
   const interactive = await createGitProcessRunner(interactiveHost).begin({
     interactive: true,
@@ -134,11 +134,24 @@ test("lets an interactive terminal inherit prompts while non-interactive runs ca
     stage: "ref resolution",
     outputLimit: 100,
   });
-  expect(interactiveHost.invocations[0].stdin).toBe("inherit");
-  expect(interactiveHost.invocations[0].stderr).toBe("inherit");
-  expect(
-    interactiveHost.invocations[0].environment.GIT_TERMINAL_PROMPT,
-  ).toBeUndefined();
+  expect(interactiveHost.invocations[0].stdin).toBe("ignore");
+  expect(interactiveHost.invocations[0].stderr).toBe("ignore");
+  expect(interactiveHost.invocations[0].environment.GIT_TERMINAL_PROMPT).toBe(
+    "0",
+  );
+  expect(interactiveHost.invocations[0].environment.GCM_INTERACTIVE).toBe(
+    "never",
+  );
+  expect(interactiveHost.invocations[0].environment.SSH_ASKPASS_REQUIRE).toBe(
+    "never",
+  );
+  expect(interactiveHost.invocations[0].environment.GIT_SSH_COMMAND).toBe(
+    "ssh -oBatchMode=yes",
+  );
+  expect(interactiveHost.invocations[0].environment.SSH_AUTH_SOCK).toBe(
+    "/trusted/agent",
+  );
+  expect(interactiveHost.invocations[0].environment.HOME).toBe("/trusted/home");
 
   const batchHost = new FakeHost();
   const batch = await createGitProcessRunner(batchHost).begin({
@@ -153,6 +166,9 @@ test("lets an interactive terminal inherit prompts while non-interactive runs ca
   expect(batchHost.invocations[0].stdin).toBe("ignore");
   expect(batchHost.invocations[0].stderr).toBe("ignore");
   expect(batchHost.invocations[0].environment.GIT_TERMINAL_PROMPT).toBe("0");
+  expect(batchHost.invocations[0].environment.GIT_SSH_COMMAND).toBe(
+    "ssh -oBatchMode=yes",
+  );
 });
 
 test("stops streaming before one file is buffered past its cap", async () => {
