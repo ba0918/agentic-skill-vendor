@@ -18,11 +18,13 @@ import { conformanceDigest } from "../contracts/conformance.ts";
 import {
   assertPlainChain,
   displayName,
-  type PlacedFile,
   isRegularFileOrAbsent,
   readTextFile,
 } from "../filesystem/walk.ts";
-import { atomicWriteFile } from "../filesystem/atomic-write.ts";
+import {
+  atomicWriteFile,
+  type PlacedFile,
+} from "../filesystem/atomic-write.ts";
 import {
   declaredIds,
   dependentIndex,

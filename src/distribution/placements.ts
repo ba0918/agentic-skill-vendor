@@ -44,11 +44,11 @@ import {
   displayName,
   isDirectoryOrAbsent,
   kindAt,
-  type PlacedFile,
   readBytes,
   dirNameOf,
   walkFiles,
 } from "../filesystem/walk.ts";
+import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import {
   ancestorDirectories,
   type IgnoreRules,

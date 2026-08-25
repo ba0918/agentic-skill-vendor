@@ -63,12 +63,12 @@ import { withContractMapping } from "../contracts/source-edit.ts";
 import {
   dirNameOf,
   isRegularFileOrAbsent,
-  type PlacedFile,
   readTextFile,
 } from "../filesystem/walk.ts";
 import {
   atomicWriteDirectory,
   atomicWriteFile,
+  type PlacedFile,
 } from "../filesystem/atomic-write.ts";
 import {
   locateTreeContracts,
