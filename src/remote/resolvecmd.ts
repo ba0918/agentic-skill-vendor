@@ -13,11 +13,7 @@ import {
 } from "../filesystem/workdir.ts";
 import { pruneCache } from "./cache.ts";
 import { placeInCache } from "./cache-write.ts";
-import {
-  resolvedReport,
-  resolveSources,
-  writeLockSources,
-} from "./lock-update.ts";
+import { resolveSources, writeLockSources } from "./lock-update.ts";
 import type { RemoteClient, RemoteSnapshot } from "./remote.ts";
 import {
   fetchRequests,
@@ -77,7 +73,12 @@ async function updateTree(
     client,
     updateRequests(state.declaration),
     async (snapshots) => {
-      const resolution = resolveSources(snapshots, state.declaration);
+      const resolution = resolveSources(
+        snapshots,
+        state.declaration,
+        state.sources,
+      );
+      for (const line of resolution.report) out(line);
       const mapping = await mapDeclaredContracts(
         root,
         snapshots,
@@ -90,14 +91,6 @@ async function updateTree(
         resolution.sources,
       );
       return { resolution, mapping, revisions };
-    },
-    (name, snapshot) => {
-      const line = resolvedReport(
-        name,
-        state.sources[name]?.revision,
-        snapshot.revision,
-      );
-      if (line !== null) out(line);
     },
   );
 
@@ -125,7 +118,6 @@ async function withSnapshots<T>(
   client: RemoteClient,
   requests: SnapshotRequest[],
   use: (snapshots: Map<string, RemoteSnapshot>) => Promise<T>,
-  opened?: (name: string, snapshot: RemoteSnapshot) => void,
 ): Promise<T> {
   const snapshots = new Map<string, RemoteSnapshot>();
   let cleanupFailure: unknown;
@@ -134,7 +126,6 @@ async function withSnapshots<T>(
       for (const request of requests) {
         const snapshot = await client.open(request.repository, request.target);
         snapshots.set(request.name, snapshot);
-        opened?.(request.name, snapshot);
       }
       return await use(snapshots);
     } finally {

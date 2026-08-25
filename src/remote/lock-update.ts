@@ -13,6 +13,7 @@ import type { RemoteSnapshot } from "./remote.ts";
 
 export interface SourceResolutionPlan {
   sources: LockSources;
+  report: string[];
 }
 
 export function resolvedReport(
@@ -29,8 +30,10 @@ export function resolvedReport(
 export function resolveSources(
   snapshots: Map<string, RemoteSnapshot>,
   declaration: Declaration,
+  recorded: LockSources,
 ): SourceResolutionPlan {
   const sources: LockSources = emptyRecord();
+  const report: string[] = [];
   for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
     const source = declaration.sources[name];
     const snapshot = snapshots.get(name);
@@ -38,6 +41,8 @@ export function resolveSources(
       throw new ConfigError(`no snapshot was opened for the source ${name}`);
     }
     const revision = snapshot.revision;
+    const line = resolvedReport(name, recorded[name]?.revision, revision);
+    if (line !== null) report.push(line);
     sources[name] = {
       repository: source.repository,
       revision,
@@ -46,7 +51,7 @@ export function resolveSources(
         : {}),
     };
   }
-  return { sources };
+  return { sources, report };
 }
 
 export async function writeLockSources(

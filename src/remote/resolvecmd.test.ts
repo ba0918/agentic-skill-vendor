@@ -671,9 +671,9 @@ test("update closes an opened snapshot when the next source cannot open", async 
     await expect(
       commandUpdate(root, (line) => lines.push(line), client),
     ).rejects.toThrow("injected open failure");
-    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
-      `resolved: first ${REVISION} (initial resolution)`,
-    ]);
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual(
+      [],
+    );
     expect(closed).toStrictEqual(1);
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
