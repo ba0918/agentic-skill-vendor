@@ -9,6 +9,7 @@ import {
   treeUrl,
 } from "./github.ts";
 import { fakeGitHub, rejectedBy } from "./testing.ts";
+import type { RemoteClient, TreeBlob } from "./remote.ts";
 
 test("every request is built against the two hosts the tool talks to", () => {
   // The host is never taken from anything the tree says. A declaration that
@@ -45,6 +46,54 @@ test("a branch name spelled with a separator keeps its separator in the request"
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";
 const REPOSITORY = "ba0918/agentic-workflow";
 
+async function revisionOf(
+  client: RemoteClient,
+  repository: string,
+  ref: string,
+): Promise<string> {
+  const snapshot = await client.open(repository, { kind: "ref", ref });
+  try {
+    return snapshot.revision;
+  } finally {
+    await snapshot.close();
+  }
+}
+
+async function blobsAt(
+  client: RemoteClient,
+  repository: string,
+  revision: string,
+): Promise<TreeBlob[]> {
+  const snapshot = await client.open(repository, {
+    kind: "pin",
+    revision,
+    objectFormat: "sha1",
+  });
+  try {
+    return snapshot.blobs;
+  } finally {
+    await snapshot.close();
+  }
+}
+
+async function fileAt(
+  client: RemoteClient,
+  repository: string,
+  revision: string,
+  path: string,
+): Promise<Uint8Array> {
+  const snapshot = await client.open(repository, {
+    kind: "pin",
+    revision,
+    objectFormat: "sha1",
+  });
+  try {
+    return await snapshot.fileAt(path);
+  } finally {
+    await snapshot.close();
+  }
+}
+
 function workflowRepository() {
   return {
     [REPOSITORY]: {
@@ -62,15 +111,44 @@ function workflowRepository() {
   };
 }
 
+test("opening a ref returns one snapshot that owns its listing and blob reads", async () => {
+  const github = fakeGitHub(workflowRepository());
+  const snapshot = await gitHubOver(github.fetch).open(REPOSITORY, {
+    kind: "ref",
+    ref: "main",
+  });
+
+  expect(snapshot.revision).toStrictEqual(REVISION);
+  expect(snapshot.objectFormat).toStrictEqual("sha1");
+  expect(snapshot.blobs.map((entry) => entry.path)).toStrictEqual([
+    "README.md",
+    "contracts/tdd-contract.md",
+    "contracts/tdd-contract/conformance/cases/first.md",
+  ]);
+  expect(
+    new TextDecoder().decode(
+      await snapshot.fileAt("contracts/tdd-contract.md"),
+    ),
+  ).toStrictEqual("# TDD Contract\n\nWrite the test first.\n");
+  await snapshot.close();
+
+  expect(github.requested).toStrictEqual([
+    `https://api.github.com/repos/${REPOSITORY}/commits/main`,
+    `https://api.github.com/repos/${REPOSITORY}/git/trees/${REVISION}?recursive=1`,
+    `https://raw.githubusercontent.com/${REPOSITORY}/${REVISION}/contracts/tdd-contract.md`,
+  ]);
+});
+
 test("a ref is resolved to the commit it names right now", async () => {
   // The lock records a commit and never a branch, so this is where a moving
   // name is turned into a fixed one — the moment a version is adopted.
   const github = fakeGitHub(workflowRepository());
   expect(
-    await gitHubOver(github.fetch).commitOf(REPOSITORY, "main"),
+    await revisionOf(gitHubOver(github.fetch), REPOSITORY, "main"),
   ).toStrictEqual(REVISION);
   expect(github.requested).toStrictEqual([
     `https://api.github.com/repos/${REPOSITORY}/commits/main`,
+    `https://api.github.com/repos/${REPOSITORY}/git/trees/${REVISION}?recursive=1`,
   ]);
 });
 
@@ -88,7 +166,7 @@ test("the files one commit holds are listed and the directories are left out", a
   // holds a contract at the conventional position, and which conformance files
   // sit beside it. A directory entry answers neither.
   const github = fakeGitHub(workflowRepository());
-  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  const listed = await blobsAt(gitHubOver(github.fetch), REPOSITORY, REVISION);
   expect(listed.map((entry) => entry.path)).toStrictEqual([
     "README.md",
     "contracts/tdd-contract.md",
@@ -98,7 +176,8 @@ test("the files one commit holds are listed and the directories are left out", a
 
 test("a file is fetched as the bytes the commit holds", async () => {
   const github = fakeGitHub(workflowRepository());
-  const bytes = await gitHubOver(github.fetch).fileAt(
+  const bytes = await fileAt(
+    gitHubOver(github.fetch),
     REPOSITORY,
     REVISION,
     "contracts/tdd-contract.md",
@@ -116,7 +195,7 @@ test("a listing the service had to cut short is refused rather than read as comp
     [REPOSITORY]: { ...workflowRepository()[REPOSITORY], truncated: true },
   });
   const error = await rejectedBy(
-    () => gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION),
+    () => blobsAt(gitHubOver(github.fetch), REPOSITORY, REVISION),
     ConfigError,
   );
   expect(error.message).toContain("truncated");
@@ -127,7 +206,7 @@ test("a request the service did not answer is refused, naming the status", async
   // closure gap about a repository the run never reached.
   const github = fakeGitHub(workflowRepository());
   const error = await rejectedBy(
-    () => gitHubOver(github.fetch).commitOf("ba0918/absent", "main"),
+    () => revisionOf(gitHubOver(github.fetch), "ba0918/absent", "main"),
     ConfigError,
   );
   expect(error.message).toContain("404");
@@ -146,7 +225,8 @@ test("an answer far larger than any contract this tool distributes is refused", 
   });
   const error = await rejectedBy(
     () =>
-      gitHubOver(github.fetch).fileAt(
+      fileAt(
+        gitHubOver(github.fetch),
         REPOSITORY,
         REVISION,
         "contracts/huge.md",
@@ -174,7 +254,7 @@ test("an answer that is not shaped like the API's own is refused, never guessed 
         headers: { "content-type": "application/json" },
       })) as unknown as typeof fetch;
     await rejectedBy(
-      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      () => revisionOf(gitHubOver(transport), REPOSITORY, "main"),
       ConfigError,
     );
   }
@@ -190,7 +270,7 @@ test("a refusal names the rate limit as a cause, never as the cause", async () =
     const transport = (async () =>
       new Response("", { status })) as unknown as typeof fetch;
     const error = await rejectedBy(
-      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      () => revisionOf(gitHubOver(transport), REPOSITORY, "main"),
       ConfigError,
     );
     expect(error.message).toContain(`answered ${status}`);
@@ -203,7 +283,7 @@ test("a refusal that is not a refused request carries no rate limit note", async
   const transport = (async () =>
     new Response("", { status: 404 })) as unknown as typeof fetch;
   const error = await rejectedBy(
-    () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+    () => revisionOf(gitHubOver(transport), REPOSITORY, "main"),
     ConfigError,
   );
   expect(error.message).toContain("answered 404");
@@ -217,7 +297,7 @@ test("a body that is not JSON at all is refused as an unreadable answer", async 
       headers: { "content-type": "text/html" },
     })) as unknown as typeof fetch;
   const error = await rejectedBy(
-    () => gitHubOver(transport).blobsAt(REPOSITORY, REVISION),
+    () => blobsAt(gitHubOver(transport), REPOSITORY, REVISION),
     ConfigError,
   );
   expect(error.message).toContain("unreadable JSON");
@@ -241,7 +321,7 @@ test("the listing carries the path a commit gives each entry rather than judging
     },
   });
 
-  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  const listed = await blobsAt(gitHubOver(github.fetch), REPOSITORY, REVISION);
 
   expect(listed.map((entry) => entry.path)).toStrictEqual([
     "contracts/tdd-contract.md",
@@ -254,7 +334,7 @@ test("the listing carries the object id the commit gives each file", async () =>
   // same answer that says the file exists. Asked for separately, the two could
   // describe different commits.
   const github = fakeGitHub(workflowRepository());
-  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  const listed = await blobsAt(gitHubOver(github.fetch), REPOSITORY, REVISION);
   const readme = listed.find((entry) => entry.path === "README.md");
   expect(readme?.objectId).toStrictEqual(
     await gitObjectIdOf(new TextEncoder().encode("# Workflow\n")),
@@ -278,7 +358,7 @@ test("the listing carries the mode a commit gives each entry rather than judging
     },
   });
 
-  const listed = await gitHubOver(github.fetch).blobsAt(REPOSITORY, REVISION);
+  const listed = await blobsAt(gitHubOver(github.fetch), REPOSITORY, REVISION);
 
   expect(
     new Map(listed.map((entry) => [entry.path, entry.mode])),
@@ -306,7 +386,7 @@ test("a listing giving an entry no mode at all is refused", async () => {
     )) as unknown as typeof fetch;
 
   const error = await rejectedBy(
-    () => gitHubOver(transport).blobsAt(REPOSITORY, REVISION),
+    () => blobsAt(gitHubOver(transport), REPOSITORY, REVISION),
     ConfigError,
   );
 
@@ -325,7 +405,7 @@ test("an answer that redirects is refused rather than followed", async () => {
       headers: { location: "https://elsewhere.invalid/repos" },
     })) as unknown as typeof fetch;
   const error = await rejectedBy(
-    () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+    () => revisionOf(gitHubOver(transport), REPOSITORY, "main"),
     ConfigError,
   );
   expect(error.message).toContain("redirect");
@@ -341,15 +421,21 @@ test("every request tells the transport not to follow a redirect itself", async 
     init?: RequestInit,
   ) => {
     asked.push(init);
-    return new Response(JSON.stringify({ sha: REVISION }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ sha: REVISION, tree: [], truncated: false }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }) as unknown as typeof fetch;
 
-  await gitHubOver(transport).commitOf(REPOSITORY, "main");
+  await revisionOf(gitHubOver(transport), REPOSITORY, "main");
 
-  expect(asked.map((init) => init?.redirect)).toStrictEqual(["manual"]);
+  expect(asked.map((init) => init?.redirect)).toStrictEqual([
+    "manual",
+    "manual",
+  ]);
 });
 
 const TOKEN = "test-only-credential-value-000000000000";
@@ -380,10 +466,10 @@ test("a run given no token sends no Authorization header at all", async () => {
   // here as the source not holding the contract.
   const seen = await authorizationsDuring(async (transport) => {
     const client = gitHubOver(transport);
-    await client.commitOf(REPOSITORY, "main");
-    await client.fileAt(REPOSITORY, REVISION, "contracts/tdd.md");
+    await revisionOf(client, REPOSITORY, "main");
+    await fileAt(client, REPOSITORY, REVISION, "contracts/tdd.md");
   });
-  expect(seen).toStrictEqual([null, null]);
+  expect(seen).toStrictEqual([null, null, null, null]);
 });
 
 test("the token reaches both hosts, because both of them serve a private source", async () => {
@@ -393,11 +479,13 @@ test("the token reaches both hosts, because both of them serve a private source"
   // fetch one single file of it.
   const seen = await authorizationsDuring(async (transport) => {
     const client = gitHubOver(transport, TOKEN);
-    await client.commitOf(REPOSITORY, "main");
-    await client.blobsAt(REPOSITORY, REVISION);
-    await client.fileAt(REPOSITORY, REVISION, "contracts/tdd.md");
+    await revisionOf(client, REPOSITORY, "main");
+    await blobsAt(client, REPOSITORY, REVISION);
+    await fileAt(client, REPOSITORY, REVISION, "contracts/tdd.md");
   });
   expect(seen).toStrictEqual([
+    `Bearer ${TOKEN}`,
+    `Bearer ${TOKEN}`,
     `Bearer ${TOKEN}`,
     `Bearer ${TOKEN}`,
     `Bearer ${TOKEN}`,
@@ -418,7 +506,7 @@ test("an authenticated refusal names the causes that fit its status", async () =
     const transport = (async () =>
       new Response("", { status })) as unknown as typeof fetch;
     const error = await rejectedBy(
-      () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+      () => revisionOf(gitHubOver(transport, TOKEN), REPOSITORY, "main"),
       ConfigError,
     );
     expect(error.message).toContain(`answered ${status}`);
@@ -444,7 +532,7 @@ test("an unauthenticated run keeps the note it always had, and gains none", asyn
     const transport = (async () =>
       new Response("", { status })) as unknown as typeof fetch;
     const error = await rejectedBy(
-      () => gitHubOver(transport).commitOf(REPOSITORY, "main"),
+      () => revisionOf(gitHubOver(transport), REPOSITORY, "main"),
       ConfigError,
     );
     expect(error.message).toContain(`answered ${status}`);
@@ -463,7 +551,7 @@ test("no refusal puts the token into its message", async () => {
     const transport = (async () =>
       new Response("", { status })) as unknown as typeof fetch;
     const error = await rejectedBy(
-      () => gitHubOver(transport, TOKEN).fileAt(REPOSITORY, REVISION, "a.md"),
+      () => fileAt(gitHubOver(transport, TOKEN), REPOSITORY, REVISION, "a.md"),
       ConfigError,
     );
     expect(error.message).not.toContain(TOKEN);
@@ -481,7 +569,7 @@ test("an authenticated redirect cannot repeat the token from Location", async ()
     })) as unknown as typeof fetch;
 
   const error = await rejectedBy(
-    () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+    () => revisionOf(gitHubOver(transport, TOKEN), REPOSITORY, "main"),
     ConfigError,
   );
 
@@ -500,7 +588,7 @@ test("a transport exception cannot put the token into its message", async () => 
   }) as unknown as typeof fetch;
 
   const error = await rejectedBy(
-    () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+    () => revisionOf(gitHubOver(transport, TOKEN), REPOSITORY, "main"),
     ConfigError,
   );
   expect(error.message).toContain("cannot reach");

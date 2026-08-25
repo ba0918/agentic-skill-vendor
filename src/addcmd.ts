@@ -7,9 +7,10 @@
 // written down, the commit is resolved, the contracts already declared are
 // mapped to it, and their text lands in the cache.
 
-import { commandUpdate } from "./resolvecmd.ts";
+import { commandUpdateWithDeclaration } from "./resolvecmd.ts";
 import { ConfigError, type Sink } from "./errors.ts";
-import type { GitHubClient } from "./github.ts";
+import type { RemoteClient } from "./remote.ts";
+import { sourceNameFromRepository } from "./repository.ts";
 import {
   assertRepository,
   assertSourceName,
@@ -18,11 +19,7 @@ import {
   readDeclaration,
   withSourceRegistration,
 } from "./sources.ts";
-import {
-  atomicWriteFile,
-  isRegularFileOrAbsent,
-  readTextFile,
-} from "./walk.ts";
+import { isRegularFileOrAbsent, readTextFile } from "./walk.ts";
 
 /**
  * Registers `repository` as a source and does what update does afterwards.
@@ -35,12 +32,12 @@ import {
 export async function commandAdd(
   root: string,
   out: Sink,
-  client: GitHubClient,
+  client: RemoteClient,
   repository: string,
   named: string | undefined,
 ): Promise<number> {
   assertRepository(repository);
-  const name = named ?? repository.split("/")[1];
+  const name = named ?? sourceNameFromRepository(repository);
   // Both checks run before anything is written, and that ordering is the whole
   // point of asking here at all: the schema refuses these values anyway, but
   // by then the table on disk would already carry them — a file this command
@@ -50,12 +47,10 @@ export async function commandAdd(
   assertSourceName(name);
   const declaration = await readDeclaration(root);
   if (name in declaration.sources) {
-    // The refusal carries the way on rather than the fact alone. Registering
-    // is the first half of this command, so a run that stopped in the second
-    // leaves the source registered with no commit pinned for it — a tree gen
-    // and verify both call clean, which is why the person reaches for add a
-    // second time. Named nowhere, the one command that completes it has to be
-    // guessed at from a message about a table.
+    // The refusal carries the way on rather than the fact alone. A table may
+    // already contain a source with no pin because it was written by an older
+    // release or by hand. Named nowhere, the command that completes that
+    // partial registration has to be guessed from a message about the table.
     throw new ConfigError(
       `${DECLARATION_FILE} already registers a source called ${name}; run ` +
         `update to resolve its pin and take up what it holds`,
@@ -74,9 +69,11 @@ export async function commandAdd(
   // verify, gen, update, fetch and add stops on it, with hand editing the only
   // way out. Refusing here costs the registration this run was asked for and
   // nothing else.
-  parseDeclaration(text);
-  await atomicWriteFile(root, DECLARATION_FILE, new TextEncoder().encode(text));
-  return await commandUpdate(root, out, client);
+  const revised = parseDeclaration(text);
+  // Acquisition and validation finish before the registration is published.
+  // Written first, a failed Git process would leave the manifest changed even
+  // though neither its cache nor its lock pin existed.
+  return await commandUpdateWithDeclaration(root, out, client, revised, text);
 }
 
 /** The declaration as it stands, or an empty document where there is none. */

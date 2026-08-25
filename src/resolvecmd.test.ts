@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
-import { contractDigest } from "./digest.ts";
+import { contractDigest, gitObjectIdOf } from "./digest.ts";
 import { CACHE_DIR, cacheRevisionDirOf, cacheSiteOf } from "./cache.ts";
 import { gitHubOver } from "./github.ts";
 import { parseDeclaration } from "./sources.ts";
@@ -23,6 +23,14 @@ const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";
 const CONTRACT = "# TDD Contract\n\nWrite the test first.\n";
 const CASE = "A case the contract has to satisfy.\n";
+
+test("remote source resolution does not depend on a concrete transport adapter", async () => {
+  const source = await fs.readFile(
+    new URL("./resolvecmd.ts", import.meta.url),
+    "utf8",
+  );
+  expect(source).not.toContain('from "./github.ts"');
+});
 
 function workflow(
   files?: Record<string, string>,
@@ -387,6 +395,283 @@ test("update resolves the ref to the commit it names and records it in the lock"
       `resolved: workflow ${REVISION} (initial resolution)`,
     );
   });
+});
+
+test("update uses one opened snapshot for its pin, listing and every blob", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const resolved = "a".repeat(40);
+    const bytes = new TextEncoder().encode(CONTRACT);
+    const objectId = await gitObjectIdOf(bytes);
+    let opened = 0;
+    let closed = 0;
+    let reads = 0;
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string, target: unknown) {
+        opened++;
+        expect(repository).toStrictEqual(REPOSITORY);
+        expect(target).toStrictEqual({ kind: "ref", ref: "main" });
+        return {
+          revision: resolved,
+          objectFormat: "sha1" as const,
+          blobs: [
+            {
+              path: "contracts/tdd-contract.md",
+              mode: "100644",
+              objectId,
+            },
+          ],
+          async fileAt(path: string) {
+            reads++;
+            expect(path).toStrictEqual("contracts/tdd-contract.md");
+            return bytes;
+          },
+          async close() {
+            closed++;
+          },
+        };
+      },
+    };
+
+    const lock = await readLockFile(root);
+    delete lock.sources;
+    await writeLockFile(root, lock);
+
+    expect(
+      await commandUpdate(root, (line) => lines.push(line), client),
+    ).toStrictEqual(0);
+    expect((await readLockFile(root)).sources.workflow.revision).toStrictEqual(
+      resolved,
+    );
+    expect(
+      await fs.readFile(
+        `${root}/${cacheSiteOf("workflow", resolved, "contracts/tdd-contract.md")}`,
+        "utf8",
+      ),
+    ).toStrictEqual(CONTRACT);
+    expect({ opened, reads, closed }).toStrictEqual({
+      opened: 1,
+      reads: 1,
+      closed: 1,
+    });
+  });
+});
+
+test("fetch passes the manifest ref with the lock pin to the remote client", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const bytes = new TextEncoder().encode(CONTRACT);
+    const objectId = await gitObjectIdOf(bytes);
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string, target: unknown) {
+        expect(repository).toStrictEqual(REPOSITORY);
+        expect(target).toStrictEqual({
+          kind: "pin",
+          revision: REVISION,
+          objectFormat: "sha1",
+          ref: "main",
+        });
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [
+            {
+              path: "contracts/tdd-contract.md",
+              mode: "100644",
+              objectId,
+            },
+          ],
+          async fileAt() {
+            return bytes;
+          },
+          async close() {},
+        };
+      },
+    };
+
+    expect(
+      await commandFetch(root, (line) => lines.push(line), client),
+    ).toStrictEqual(0);
+  });
+});
+
+test("fetch opens the lock pin and closes the snapshot after a blob failure", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const before = await snapshotTree(root);
+    let closed = 0;
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string, target: unknown) {
+        expect(repository).toStrictEqual(REPOSITORY);
+        expect(target).toStrictEqual({
+          kind: "pin",
+          revision: REVISION,
+          objectFormat: "sha1",
+          ref: "main",
+        });
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [
+            {
+              path: "contracts/tdd-contract.md",
+              mode: "100644",
+              objectId: "0".repeat(40),
+            },
+          ],
+          async fileAt() {
+            throw new ConfigError("injected blob failure");
+          },
+          async close() {
+            closed++;
+            throw new ConfigError("injected cleanup failure");
+          },
+        };
+      },
+    };
+
+    await expect(
+      commandFetch(root, (line) => lines.push(line), client),
+    ).rejects.toThrow("injected blob failure");
+    expect(closed).toStrictEqual(1);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("fetch returns a cleanup failure after a snapshot was used successfully", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const before = await snapshotTree(root);
+    const bytes = new TextEncoder().encode(CONTRACT);
+    const objectId = await gitObjectIdOf(bytes);
+    let closed = 0;
+    const events: string[] = [];
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open() {
+        events.push("open");
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          get blobs() {
+            events.push("list");
+            return [
+              {
+                path: "contracts/tdd-contract.md",
+                mode: "100644",
+                objectId,
+              },
+            ];
+          },
+          async fileAt() {
+            events.push("blob");
+            return bytes;
+          },
+          async close() {
+            events.push("close");
+            closed++;
+            throw new ConfigError("injected cleanup failure");
+          },
+        };
+      },
+    };
+
+    await expect(
+      commandFetch(root, (line) => lines.push(line), client),
+    ).rejects.toThrow("injected cleanup failure");
+    expect(closed).toStrictEqual(1);
+    expect(events).toStrictEqual(["open", "list", "blob", "close"]);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("update closes an opened snapshot when the next source cannot open", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  first:",
+        "    repository: example/first",
+        "    ref: main",
+        "  second:",
+        "    repository: example/second",
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    const before = await snapshotTree(root);
+    let closed = 0;
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string) {
+        if (repository === "example/second") {
+          throw new ConfigError("injected open failure");
+        }
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [],
+          async fileAt() {
+            throw new Error("no blob should be read");
+          },
+          async close() {
+            closed++;
+          },
+        };
+      },
+    };
+
+    await expect(commandUpdate(root, () => {}, client)).rejects.toThrow(
+      "injected open failure",
+    );
+    expect(closed).toStrictEqual(1);
+    expect(await snapshotTree(root)).toStrictEqual(before);
+  });
+});
+
+test("fetch refuses and closes a snapshot that differs from the lock pin", async () => {
+  for (const snapshotIdentity of [
+    { revision: "b".repeat(40), objectFormat: "sha1" as const },
+    { revision: REVISION, objectFormat: "sha256" as const },
+  ]) {
+    await withRemoteTree(async (root, lines) => {
+      const before = await snapshotTree(root);
+      let closed = 0;
+      const client = {
+        async defaultBranchOf() {
+          return "main";
+        },
+        async open() {
+          return {
+            ...snapshotIdentity,
+            blobs: [],
+            async fileAt() {
+              throw new Error("no blob should be read");
+            },
+            async close() {
+              closed++;
+            },
+          };
+        },
+      };
+
+      await expect(
+        commandFetch(root, (line) => lines.push(line), client),
+      ).rejects.toThrow("the snapshot opened for workflow");
+      expect(closed).toStrictEqual(1);
+      expect(await snapshotTree(root)).toStrictEqual(before);
+    });
+  }
 });
 
 test("update takes a source back to the repository the table registers", async () => {

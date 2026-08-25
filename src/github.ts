@@ -21,6 +21,12 @@
 import { ConfigError, describeCause } from "./errors.ts";
 import { concatBytes } from "./digest.ts";
 import { isUsableRef } from "./sources.ts";
+import type {
+  RemoteClient,
+  RemoteSnapshot,
+  SnapshotTarget,
+  TreeBlob,
+} from "./remote.ts";
 
 /** The API host, and the host serving file content at a commit. */
 const API_HOST = "https://api.github.com";
@@ -71,33 +77,7 @@ export function rawUrl(
   )}/${encodePath(path)}`;
 }
 
-/**
- * One entry a commit holds: where it sits, the mode the commit lists it at,
- * and the object id the commit's own listing gives for its bytes.
- *
- * The id travels with the path because the two are one answer. Asked for
- * separately, the pair could describe two different commits, and the check a
- * download is judged against would be judging it against the wrong one.
- *
- * The mode travels with them so that whoever is about to take a file judges
- * it, rather than this listing. The listing covers a whole repository, and
- * which of it this tool consumes is decided far from here.
- */
-export interface TreeBlob {
-  path: string;
-  mode: string;
-  objectId: string;
-}
-
-/**
- * What a run may ask of the network, and nothing else.
- *
- * Four questions, each with one URL behind it. Everything above this interface
- * — which contracts to look for, what to do with the bytes — is decided
- * offline, so the network is never asked anything that depends on what an
- * earlier answer contained.
- */
-export interface GitHubClient {
+interface GitHubOperations {
   /** The branch a repository hands out when a ref is not named. */
   defaultBranchOf(repository: string): Promise<string>;
   /** The commit a ref names right now, as a 40-digit SHA. */
@@ -122,45 +102,7 @@ export interface GitHubClient {
  */
 const OBJECT_ID_FORM = /^[0-9a-f]{40}$/;
 
-/**
- * The modes this tool takes a file at, and the one a directory is listed with.
- *
- * An ordinary file is all this tool fetches. A symlink arriving from upstream
- * would be written into the cache as an ordinary file whose content is the
- * path it points at — the tool refuses a link on every path it reads or writes
- * locally, and one coming over the wire must not slip past that by changing
- * shape. A submodule is not a file at all.
- *
- * Judged by mode rather than by the listing's `type`, because the mode is what
- * distinguishes a symlink from a file: both are listed as blobs.
- */
-const FILE_MODES = ["100644", "100755"];
 const DIRECTORY_MODE = "040000";
-
-/**
- * Refuses an entry a run is about to take unless it is an ordinary file,
- * named by the caller as the file it was going to take.
- *
- * Refused rather than passed over. Leaving the entry out reads exactly like a
- * source that does not hold the file, and a conformance test dropped that way
- * is pinned as absent while upstream has it — which the tree then verifies
- * clean against.
- *
- * Asked of one file at a time rather than of a whole listing, because a
- * listing covers a whole repository. A link the run never reads cannot be
- * mistaken for an absent file, while refusing over one made a documentation
- * shortcut or a vendored subproject anywhere in a source enough to put every
- * contract that source holds out of reach.
- */
-export function requireOrdinaryFile(blob: TreeBlob, named: string): void {
-  if (FILE_MODES.includes(blob.mode)) return;
-  throw new ConfigError(
-    `${named}: listed as ${JSON.stringify(blob.mode)}, and only an ordinary ` +
-      `file (${FILE_MODES.join(" or ")}) is taken; a link or a subproject ` +
-      `standing where this tool reads a file is refused rather than left out, ` +
-      `since a file left out reads as one the source does not hold`,
-  );
-}
 
 /**
  * How much of an answer this tool is willing to read.
@@ -192,8 +134,8 @@ const LISTING_LIMIT = 8 * 1024 * 1024;
 export function gitHubOver(
   transport: typeof fetch,
   token?: string,
-): GitHubClient {
-  return {
+): RemoteClient {
+  const operations: GitHubOperations = {
     async commitOf(repository, ref) {
       const url = commitUrl(repository, ref);
       const document = requireObject(
@@ -318,6 +260,28 @@ export function gitHubOver(
         FILE_LIMIT,
         token,
       );
+    },
+  };
+  return {
+    defaultBranchOf: operations.defaultBranchOf,
+    async open(
+      repository: string,
+      target: SnapshotTarget,
+    ): Promise<RemoteSnapshot> {
+      const revision =
+        target.kind === "ref"
+          ? await operations.commitOf(repository, target.ref)
+          : target.revision;
+      const blobs = await operations.blobsAt(repository, revision);
+      return {
+        revision,
+        objectFormat: "sha1",
+        blobs,
+        async fileAt(path) {
+          return await operations.fileAt(repository, revision, path);
+        },
+        async close() {},
+      };
     },
   };
 }

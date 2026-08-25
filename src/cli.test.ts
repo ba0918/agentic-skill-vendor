@@ -3,11 +3,18 @@ import * as fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   importClosureOf,
+  fakeGitHub,
+  readLockFile,
+  remoteSource,
   runCli,
+  snapshotTree,
+  withFetchedTree,
   withEmptyDir,
   withGoodTree,
 } from "./testing.ts";
 import { run, startedThisProgram } from "./cli.ts";
+import { gitObjectIdOf } from "./digest.ts";
+import type { RemoteClient, SnapshotTarget } from "./remote.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
 const CLI_PATH = fileURLToPath(new URL("./cli.ts", import.meta.url));
@@ -274,19 +281,30 @@ test("the commands that work offline reach no network, environment or subprocess
   // offline command that imported the network layer would add a module the
   // list does not name, so the scan would walk past the very code it was
   // written to catch and report a clean boundary.
-  const NETWORK_MODULE = "github.ts";
-  // The two the walk itself rests on. A closure that stopped at the entry
-  // point, or one that never found the network layer where it does sit, would
-  // pass everything below without looking at it.
-  expect(
-    (await importClosureOf("resolvecmd.ts")).has(NETWORK_MODULE),
-  ).toStrictEqual(true);
+  const CONCRETE_REMOTE_MODULES = ["github.ts", "gitprocess.ts"];
+  // The probes keep the closure scan and the dynamic adapter boundary honest.
+  // Without them, either scan could stop early and still report offline code
+  // as isolated.
+  const onlineClosure = await importClosureOf("cli.ts");
+  expect(onlineClosure.has("github.ts")).toStrictEqual(true);
+  const onlineSource = await fs.readFile(
+    new URL("./cli.ts", import.meta.url),
+    "utf8",
+  );
+  expect(onlineSource).toContain('import("./git.ts")');
+  expect(onlineSource).toContain('import("./gitprocess.ts")');
   expect((await importClosureOf("lint.ts")).has("digest.ts")).toStrictEqual(
     true,
   );
+  const resolverClosure = await importClosureOf("resolvecmd.ts");
+  for (const name of CONCRETE_REMOTE_MODULES) {
+    expect(resolverClosure.has(name), name).toStrictEqual(false);
+  }
   for (const entry of ["gen.ts", "verify.ts", "lint.ts", "selftest.ts"]) {
     const closure = await importClosureOf(entry);
-    expect(closure.has(NETWORK_MODULE), entry).toStrictEqual(false);
+    for (const name of CONCRETE_REMOTE_MODULES) {
+      expect(closure.has(name), `${entry} -> ${name}`).toStrictEqual(false);
+    }
     for (const name of closure) {
       const source = await fs.readFile(
         new URL(`./${name}`, import.meta.url),
@@ -379,4 +397,231 @@ test("the usage text says which commands the token is for", async () => {
   const usage = result.stdout.join("\n");
   expect(usage).toContain("--token-stdin");
   expect(usage).toContain("add, update and fetch");
+});
+
+test("the usage text accepts every supported repository form", async () => {
+  const result = await runCli(["--help"]);
+  const usage = result.stdout.join("\n");
+  expect(usage).toContain("add <repository> [name]");
+  expect(usage).not.toContain("add <owner/repo>");
+});
+
+const GENERIC_REPOSITORY =
+  "ssh://git@example.invalid/group/shared-contracts.git";
+const GENERIC_ID = "generic-contract";
+const GENERIC_REVISION_1 = "a".repeat(40);
+const GENERIC_REVISION_2 = "b".repeat(40);
+
+function fakeGenericRemote(): {
+  client: RemoteClient;
+  move(revision: string, text: string): void;
+} {
+  let head = GENERIC_REVISION_1;
+  const texts = new Map([
+    [GENERIC_REVISION_1, "# Generic contract\n\nFirst revision.\n"],
+  ]);
+  const client: RemoteClient = {
+    async defaultBranchOf(repository) {
+      expect(repository).toBe(GENERIC_REPOSITORY);
+      return "main";
+    },
+    async open(repository, target: SnapshotTarget) {
+      expect(repository).toBe(GENERIC_REPOSITORY);
+      const revision = target.kind === "ref" ? head : target.revision;
+      const text = texts.get(revision);
+      if (text === undefined) throw new Error("injected unavailable revision");
+      const path = `contracts/${GENERIC_ID}.md`;
+      return {
+        revision,
+        objectFormat: "sha1",
+        blobs: [
+          {
+            path,
+            mode: "100644",
+            objectId: await gitObjectIdOf(new TextEncoder().encode(text)),
+          },
+        ],
+        async fileAt(requested) {
+          if (requested !== path) throw new Error("injected missing file");
+          return new TextEncoder().encode(text);
+        },
+        async close() {},
+      };
+    },
+  };
+  return {
+    client,
+    move(revision, text) {
+      head = revision;
+      texts.set(revision, text);
+    },
+  };
+}
+
+async function declareGenericContract(root: string): Promise<void> {
+  const site = `${root}/skills/release-notes/SKILL.md`;
+  await fs.writeFile(
+    site,
+    (await fs.readFile(site, "utf8")).replace(
+      "    - changelog-entry\n",
+      `    - changelog-entry\n    - ${GENERIC_ID}\n`,
+    ),
+  );
+}
+
+async function addGenericSource(
+  root: string,
+  remote: ReturnType<typeof fakeGenericRemote>,
+): Promise<void> {
+  await declareGenericContract(root);
+  const result = await runCli(
+    ["add", GENERIC_REPOSITORY, "--root", root],
+    undefined,
+    undefined,
+    async () => remote.client,
+  );
+  expect(result.code, result.stderr.join("\n")).toBe(0);
+}
+
+test("a generic repository URL can be added without an explicit source name", async () => {
+  await withGoodTree(async (root) => {
+    const remote = fakeGenericRemote();
+    await addGenericSource(root, remote);
+    expect(await fs.readFile(`${root}/vendor-manifest.yaml`, "utf8")).toContain(
+      `  shared-contracts:\n    repository: ${GENERIC_REPOSITORY}`,
+    );
+    expect((await readLockFile(root)).sources["shared-contracts"]).toEqual({
+      repository: GENERIC_REPOSITORY,
+      revision: GENERIC_REVISION_1,
+    });
+  });
+});
+
+test("update moves a generic source to the fetched revision", async () => {
+  await withGoodTree(async (root) => {
+    const remote = fakeGenericRemote();
+    await addGenericSource(root, remote);
+    remote.move(GENERIC_REVISION_2, "# Generic contract\n\nSecond revision.\n");
+    const result = await runCli(
+      ["update", "--root", root],
+      undefined,
+      undefined,
+      async () => remote.client,
+    );
+    expect(result.code, result.stderr.join("\n")).toBe(0);
+    expect(
+      (await readLockFile(root)).sources["shared-contracts"].revision,
+    ).toBe(GENERIC_REVISION_2);
+  });
+});
+
+test("fetch restores a generic source at the lock pin", async () => {
+  await withGoodTree(async (root) => {
+    const remote = fakeGenericRemote();
+    await addGenericSource(root, remote);
+    await fs.rm(`${root}/.agentic-skill-vendor/cache`, {
+      recursive: true,
+      force: true,
+    });
+    const result = await runCli(
+      ["fetch", "--root", root],
+      undefined,
+      undefined,
+      async () => remote.client,
+    );
+    expect(result.code, result.stderr.join("\n")).toBe(0);
+    expect(
+      await fs.readFile(
+        `${root}/.agentic-skill-vendor/cache/shared-contracts/${GENERIC_REVISION_1}/contracts/${GENERIC_ID}.md`,
+        "utf8",
+      ),
+    ).toBe("# Generic contract\n\nFirst revision.\n");
+  });
+});
+
+test("a GitHub token is never passed to the generic Git capability", async () => {
+  await withGoodTree(async (root) => {
+    const remote = fakeGenericRemote();
+    await addGenericSource(root, remote);
+    let reads = 0;
+    const result = await runCli(
+      ["update", "--token-stdin", "--root", root],
+      undefined,
+      () => {
+        reads += 1;
+        return "test-only-token";
+      },
+      async (...argumentsPassed) => {
+        expect(argumentsPassed).toEqual([]);
+        return remote.client;
+      },
+    );
+    expect(result.code, result.stderr.join("\n")).toBe(0);
+    expect(reads).toBe(1);
+  });
+});
+
+test("a failed generic update leaves durable tree state unchanged", async () => {
+  await withGoodTree(async (root) => {
+    const remote = fakeGenericRemote();
+    await addGenericSource(root, remote);
+    const before = await snapshotTree(root);
+    remote.move(GENERIC_REVISION_2, "# moved then made unavailable\n");
+    const failing: RemoteClient = {
+      ...remote.client,
+      open: async () => {
+        throw new Error("injected acquisition failure");
+      },
+    };
+    const result = await runCli(
+      ["update", "--root", root],
+      undefined,
+      undefined,
+      async () => failing,
+    );
+    expect(result.code).toBe(2);
+    expect(await snapshotTree(root)).toEqual(before);
+  });
+});
+
+test("a failed generic add leaves durable tree state unchanged", async () => {
+  await withGoodTree(async (root) => {
+    await declareGenericContract(root);
+    const before = await snapshotTree(root);
+    const remote = fakeGenericRemote();
+    const failing: RemoteClient = {
+      ...remote.client,
+      open: async () => {
+        throw new Error("injected acquisition failure");
+      },
+    };
+    const result = await runCli(
+      ["add", GENERIC_REPOSITORY, "--root", root],
+      undefined,
+      undefined,
+      async () => failing,
+    );
+    expect(result.code).toBe(2);
+    expect(await snapshotTree(root)).toEqual(before);
+  });
+});
+
+test("one CLI run routes mixed GitHub and generic sources to their owning clients", async () => {
+  await withFetchedTree(async (root) => {
+    const generic = fakeGenericRemote();
+    const github = fakeGitHub(remoteSource());
+    await declareGenericContract(root);
+    const result = await runCli(
+      ["add", GENERIC_REPOSITORY, "--root", root],
+      github.fetch,
+      undefined,
+      async () => generic.client,
+    );
+    expect(result.code, result.stderr.join("\n")).toBe(0);
+    expect(github.requested.length).toBeGreaterThan(0);
+    expect(Object.keys((await readLockFile(root)).sources).sort()).toEqual([
+      "shared-contracts",
+      "workflow",
+    ]);
+  });
 });

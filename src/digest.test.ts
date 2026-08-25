@@ -138,6 +138,18 @@ test("a file's git object id is the SHA-1 of its length header and its bytes", a
   );
 });
 
+test("a SHA-256 repository's blob id uses the same Git framing with SHA-256", async () => {
+  const encoder = new TextEncoder();
+  expect(
+    await gitObjectIdOf(encoder.encode("hello world\n"), "sha256"),
+  ).toStrictEqual(
+    "0bd69098bd9b9cc5934a610ab65da429b525361147faa7b5b922919e9a23143d",
+  );
+  expect(await gitObjectIdOf(new Uint8Array(), "sha256")).toStrictEqual(
+    "473a0f4c3be8a93681a267e3b1e9a7dcda1185436fe141f7749120a303721813",
+  );
+});
+
 test("a git object id counts bytes rather than characters", async () => {
   // The header carries the byte length, and a character outside ASCII is more
   // than one byte. Counted as characters, every document carrying one would be

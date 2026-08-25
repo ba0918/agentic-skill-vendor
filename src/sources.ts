@@ -22,6 +22,7 @@ import { SKILLS_DIR } from "./declaration.ts";
 import { MARKER_FILE } from "./raw.ts";
 import { readDistributionIgnore } from "./distribution-ignore.ts";
 import { pathsOverlap } from "./placement-ownership.ts";
+import { assertUsableSourceName, classifyRepository } from "./repository.ts";
 import {
   assertPlainChain,
   isRegularFileOrAbsent,
@@ -57,11 +58,7 @@ export const LOCAL_SOURCE = "local";
  * names: a double dot, an empty segment, a leading dash that would read as an
  * option, and git's own revision punctuation.
  */
-const SOURCE_NAME_FORM = /^[a-z0-9][a-z0-9._-]*$/;
-const REPOSITORY_FORM =
-  /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const REF_FORM = /^[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$|^[A-Za-z0-9]$/;
-const NAME_LIMIT = 64;
 
 /**
  * The directory the tool keeps its own working state in, cache included.
@@ -218,11 +215,9 @@ function readSourceRecords(value: unknown): Record<string, SourceRecord> {
     assertSourceName(name);
     const entry = requireMapping(entries[name], `sources.${name}`);
     sources[name] = {
-      repository: requireForm(
+      repository: requireRepository(
         entry["repository"],
-        REPOSITORY_FORM,
         `sources.${name}.repository`,
-        "an owner/repo pair",
       ),
       ref: requireRef(entry["ref"], `sources.${name}.ref`),
     };
@@ -308,25 +303,25 @@ export function assertSourceName(name: string): void {
         `repository's own contracts and cannot name a source`,
     );
   }
-  if (
-    name.length > NAME_LIMIT ||
-    name.includes("..") ||
-    !SOURCE_NAME_FORM.test(name)
-  ) {
-    throw new ConfigError(
-      `${DECLARATION_FILE}: not a usable source name: ${JSON.stringify(name)}`,
-    );
-  }
+  assertUsableSourceName(name, `${DECLARATION_FILE}: source name`);
 }
 
-/** Refuses a repository written as anything but an owner/repo pair. */
+/** Refuses a repository outside the transport allowlist. */
 export function assertRepository(repository: string): void {
-  requireForm(
-    repository,
-    REPOSITORY_FORM,
-    "the repository to add",
-    "an owner/repo pair",
-  );
+  classifyRepository(repository);
+}
+
+function requireRepository(value: unknown, path: string): string {
+  const repository = requireText(value, path);
+  try {
+    classifyRepository(repository);
+  } catch (cause) {
+    if (cause instanceof ConfigError) {
+      throw new ConfigError(`${DECLARATION_FILE}: ${path}: ${cause.message}`);
+    }
+    throw cause;
+  }
+  return repository;
 }
 
 /**
@@ -384,23 +379,6 @@ export function isTreeRelativePath(path: string): boolean {
       .split("/")
       .every((segment) => segment !== "" && segment !== "." && segment !== "..")
   );
-}
-
-function requireForm(
-  value: unknown,
-  form: RegExp,
-  path: string,
-  wanted: string,
-): string {
-  const text = requireText(value, path);
-  if (!form.test(text)) {
-    throw new ConfigError(
-      `${DECLARATION_FILE}: ${path} must be ${wanted}, found ${JSON.stringify(
-        text,
-      )}`,
-    );
-  }
-  return text;
 }
 
 /**

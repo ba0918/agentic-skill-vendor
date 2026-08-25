@@ -22,10 +22,10 @@
 ```yaml
 sources:
   workflow:
-    repository: ba0918/agentic-workflow   # owner/repo 短縮形のみ。URL は書けない
+    repository: ba0918/agentic-workflow   # owner/repo は従来の GitHub API 経路
     ref: main                             # branch / tag / commit SHA
   meta:
-    repository: ba0918/agentic-meta
+    repository: ssh://git@example.com/team/agentic-meta.git  # 汎用 Git 経路
     ref: main
 
 contracts:
@@ -152,6 +152,14 @@ revision のキャッシュディレクトリは一時名の下で完全に構�
 「その revision の取得は完全」を意味し、ファイル単位の中途半端なキャッシュ状態は
 存在しない。
 
+汎用 Git transport の取得失敗時に使う一時bare repositoryは、通常は process group の停止を
+OS が確認してから削除する。停止を確認できない場合は安全側に倒し、OS の一時ディレクトリ
+配下にある `agentic-skill-git-` prefix の当該 repository を保持する。この場合も cache、
+manifest、lock は変更しない。保持物を削除するには、まず関連する process group の停止を確認し、
+その後、その正確な保持ディレクトリだけを手動で削除する。停止確認後は、その正確な
+ディレクトリだけを対象にした再帰削除を許可するが、OS の一時ディレクトリの root や親
+ディレクトリを再帰削除せず、glob や未解決の変数で対象を選ばない。
+
 キャッシュでリンクを拒否する位置は、revision ディレクトリ自身の位置と、そこへ至る親の
 連なり(`.agentic-skill-vendor/` 自身、キャッシュディレクトリ、source 名のディレクトリ)で
 ある。staging の残骸を捨てる再帰削除も同じ連なりを先に検査する。これらの位置に立つ
@@ -223,14 +231,34 @@ ignore が答えるのは「このリポジトリのチェックアウトがこ�
 - gen / verify: 従来どおりネットワーク・環境変数・サブプロセスに触れない。gen は
   キャッシュ欠損時に fetch の実行を指示して停止し、勝手に最新版を解決することはない
 
-取得は Web 標準の fetch() による HTTPS のみで行い、接続先は GitHub.com の API と
-raw コンテンツ配信(api.github.com / raw.githubusercontent.com)に固定する。public / private
-のどちらのリポジトリも source にでき、private リポジトリと認証が必要な public
-リポジトリには、add / update / fetch の `--token-stdin` で GitHub token を渡す。
-リダイレクトは追跡しない — 3xx 応答は異常として何も書かずに停止する。追跡を許すと、
-固定したはずの接続先が最初の 1 要求にしか効かない。該当エンドポイントは通常
-リダイレクトを返さないため、返ってきた時点で異常として扱ってよい。
-git コマンド等のサブプロセスは取得側でも使わない。
+repository が `owner/repo` 形式の場合は、Web 標準の fetch() を使い、接続先を
+GitHub.com の API と raw content 配信先へ固定する。この経路の認証、redirect 拒否、
+response 検査は従来どおり維持する。
+
+SSH、scp 風 SSH、HTTPS の repository URL には、利用環境の Git/OpenSSH へ委譲する汎用
+Git transport を使う。受理する URL、認証、subprocess、取得版、resource limit の契約は
+git-transports.md で定義する。
+
+汎用 Git transport は常に非対話で実行する。通常の `git pull` が入力なしで成功する
+SSH agent、秘密鍵、`known_hosts`、保存済み credential helper は再利用するが、初回認証や
+host key 確認の prompt はツール内で扱わない。必要な初回設定は通常の Git/OpenSSH で済ませる。
+取得失敗時も生の子 process 標準エラーは報告へ転載しない。停止を確認できた通常の失敗では
+一時bare repositoryを削除し、確認できない場合だけ `agentic-skill-git-` prefix の当該保持物を
+残す。復旧時は関連 process group の停止を先に確認してから、その正確なディレクトリだけを
+手動で削除する。停止確認後の再帰削除はそのディレクトリに限り許可し、OS の一時ディレクトリ
+の root や親ディレクトリを再帰削除せず、glob や未解決の変数で対象を選ばない。
+
+`add`、`update`、`fetch` だけが network へ到達する。汎用 Git source がある場合、この 3
+command だけが Git subprocess を起動できる。`gen`、`verify`、`lint-selfcontain`、
+`self-test` は network、environment、subprocess へ触れない。
+
+以下の token 契約は、`owner/repo` 形式を使う GitHub API transport だけに適用する。
+汎用 Git transport の認証情報は Git/OpenSSH へ委譲し、`--token-stdin` を使用しない。
+public / private のどちらの GitHub リポジトリも source にでき、private リポジトリと
+認証が必要な public リポジトリには、add / update / fetch の `--token-stdin` で GitHub
+token を渡す。リダイレクトは追跡しない — 3xx 応答は異常として何も書かずに停止する。
+追跡を許すと、固定したはずの接続先が最初の 1 要求にしか効かない。該当エンドポイントは
+通常リダイレクトを返さないため、返ってきた時点で異常として扱ってよい。
 
 token は標準入力からだけ読み、引数・ファイル・環境変数からは読まない。標準入力を読むのは
 `--token-stdin` が指定されたときだけであり、このフラグをネットワークへ到達しない gen /
@@ -275,6 +303,14 @@ commit SHA を必ず記録(manifest の ref は tag / branch 可)・transitive �
 さらに別の出典を要求すること)なし・conformance script は実行せずデータとしてコピーする
 のみ。このスコープはブレストで合意した範囲であり、これを超える縮小・拡大は改めて合意
 してから行う。
+
+## 任意 Git ホストへの拡張
+
+初期の GitHub.com 対応を後方互換で残し、SSH または HTTPS で到達できる任意 Git ホストを
+汎用 Git transport の対象へ加える。平文 HTTP は含めない。
+
+source の object format は SHA-1 と SHA-256 を扱う。transitive 依存を扱わず、
+conformance script を実行せず data としてコピーする境界は変更しない。
 
 ## スケール前提
 

@@ -3,9 +3,10 @@
 //
 // Three commands touch a network and no others do: `fetch` restores the cache
 // the lock already describes, `update` moves the pin and fetches what it now
-// names, and `add` registers a source before doing what `update` does. All
-// three end in the same place — bytes verified, then written into the cache —
-// so that place is written once, here.
+// names, and `add` prepares a source registration before doing what `update`
+// does and publishing both results together. All three end in the same place
+// — bytes verified, then written into the cache — so that place is written
+// once, here.
 //
 // Nothing in this module decides what a contract's digest should be. The one
 // command allowed to record a digest is `gen`, offline, from the canonical
@@ -27,13 +28,20 @@ import {
   unignoredWarning,
   pruneCache,
 } from "./cache.ts";
-import { compareStrings, contractPath, gitObjectIdOf } from "./digest.ts";
+import {
+  compareStrings,
+  contractPath,
+  gitObjectIdOf,
+  type GitObjectFormat,
+} from "./digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import {
-  type GitHubClient,
   requireOrdinaryFile,
+  type RemoteClient,
+  type RemoteSnapshot,
+  type SnapshotTarget,
   type TreeBlob,
-} from "./github.ts";
+} from "./remote.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -88,7 +96,7 @@ interface CachedRevision {
 export async function commandFetch(
   root: string,
   out: Sink,
-  client: GitHubClient,
+  client: RemoteClient,
 ): Promise<number> {
   const state = await readTreeState(root);
   // Asked before the first request goes out. This command takes bytes from the
@@ -96,10 +104,11 @@ export async function commandFetch(
   // the whole run to a repository the tree says elsewhere it does not use.
   assertPinnedRepositories(state.sources, state.declaration);
   await warnUnlessIgnored(root, out);
-  const revisions = await collectSources(
+  const revisions = await withSnapshots(
     client,
-    state.declaration,
-    state.sources,
+    fetchRequests(state.declaration, state.sources),
+    async (snapshots) =>
+      await collectSources(snapshots, state.declaration, state.sources),
   );
   await placeInCache(root, revisions);
   await pruneCache(root, state.sources);
@@ -118,35 +127,76 @@ export async function commandFetch(
 export async function commandUpdate(
   root: string,
   out: Sink,
-  client: GitHubClient,
+  client: RemoteClient,
 ): Promise<number> {
   const state = await readTreeState(root);
+  return await updateTree(root, out, client, state, null);
+}
+
+/**
+ * Updates through a source table prepared by `add`, without publishing that
+ * table before its repository has been acquired and verified.
+ */
+export async function commandUpdateWithDeclaration(
+  root: string,
+  out: Sink,
+  client: RemoteClient,
+  declaration: Declaration,
+  declarationText: string,
+): Promise<number> {
+  const state = { ...(await readTreeState(root)), declaration };
+  return await updateTree(root, out, client, state, declarationText);
+}
+
+async function updateTree(
+  root: string,
+  out: Sink,
+  client: RemoteClient,
+  state: TreeState,
+  declarationText: string | null,
+): Promise<number> {
   await warnUnlessIgnored(root, out);
-  const resolved = await resolveSources(
+  const prepared = await withSnapshots(
     client,
-    state.declaration,
-    state.sources,
-    out,
+    updateRequests(state.declaration),
+    async (snapshots) => {
+      const resolved = resolveSources(
+        snapshots,
+        state.declaration,
+        state.sources,
+        out,
+      );
+      // Nothing is compared against the lock here. Moving the pin is what this
+      // command does, so text differing from what the lock records is the ordinary
+      // case — the very change being adopted — and refusing over it would make
+      // every genuine upstream edit a failure. What the new text is gets recorded
+      // by the gen that follows, as an adoption a reviewer reads in the diff.
+      const mapping = await mapDeclaredContracts(
+        root,
+        snapshots,
+        state,
+        declarationText,
+      );
+      const revisions = await collectSources(
+        snapshots,
+        mapping.declaration,
+        resolved,
+      );
+      return { resolved, mapping, revisions };
+    },
   );
-  // Nothing is compared against the lock here. Moving the pin is what this
-  // command does, so text differing from what the lock records is the ordinary
-  // case — the very change being adopted — and refusing over it would make
-  // every genuine upstream edit a failure. What the new text is gets recorded
-  // by the gen that follows, as an adoption a reviewer reads in the diff.
-  const mapping = await mapDeclaredContracts(root, client, state, resolved);
-  const revisions = await collectSources(client, mapping.declaration, resolved);
-  await placeInCache(root, revisions);
+  await placeInCache(root, prepared.revisions);
   // The table lands with the bytes it accounts for, the way gen builds its
   // whole plan before writing any of it. Written before the fetch, a source
   // that could not be reached left a table naming an origin for a contract
   // whose text never arrived and a lock still pinned where it was — a tree
   // describing a state no run ever produced, which a reader has no way to tell
   // from one the tool meant.
-  if (mapping.text !== null) {
+  if (prepared.mapping.text !== null) {
     await atomicWriteFile(
       root,
       DECLARATION_FILE,
-      new TextEncoder().encode(mapping.text),
+      new TextEncoder().encode(prepared.mapping.text),
     );
   }
   // Rendered from the table this run leaves behind, never the one it read: the
@@ -155,12 +205,91 @@ export async function commandUpdate(
   // reports as differing from what the tree renders to.
   await writeLockSources(
     root,
-    { ...state, declaration: mapping.declaration },
-    resolved,
+    { ...state, declaration: prepared.mapping.declaration },
+    prepared.resolved,
   );
-  await pruneCache(root, resolved);
-  for (const line of mapping.report) out(line);
+  await pruneCache(root, prepared.resolved);
+  for (const line of prepared.mapping.report) out(line);
   return 0;
+}
+
+interface SnapshotRequest {
+  name: string;
+  repository: string;
+  target: SnapshotTarget;
+}
+
+function updateRequests(declaration: Declaration): SnapshotRequest[] {
+  return Object.keys(declaration.sources)
+    .sort(compareStrings)
+    .map((name) => {
+      const source = declaration.sources[name];
+      return {
+        name,
+        repository: source.repository,
+        target: { kind: "ref" as const, ref: source.ref },
+      };
+    });
+}
+
+function fetchRequests(
+  declaration: Declaration,
+  sources: LockSources,
+): SnapshotRequest[] {
+  const requests: SnapshotRequest[] = [];
+  for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
+    if (contractsOf(declaration, name).length === 0) continue;
+    const pinned = sources[name];
+    if (pinned === undefined) {
+      throw new ConfigError(
+        `${DECLARATION_FILE} registers the source ${name} but the lock ` +
+          `records no commit for it; run update to resolve one`,
+      );
+    }
+    requests.push({
+      name,
+      repository: pinned.repository,
+      target: {
+        kind: "pin",
+        revision: pinned.revision,
+        objectFormat: pinned.objectFormat ?? "sha1",
+        ref: declaration.sources[name].ref,
+      },
+    });
+  }
+  return requests;
+}
+
+async function withSnapshots<T>(
+  client: RemoteClient,
+  requests: SnapshotRequest[],
+  use: (snapshots: Map<string, RemoteSnapshot>) => Promise<T>,
+): Promise<T> {
+  const snapshots = new Map<string, RemoteSnapshot>();
+  let cleanupFailure: unknown;
+  const result = await (async () => {
+    try {
+      for (const request of requests) {
+        snapshots.set(
+          request.name,
+          await client.open(request.repository, request.target),
+        );
+      }
+      return await use(snapshots);
+    } finally {
+      for (const snapshot of [...snapshots.values()].reverse()) {
+        try {
+          await snapshot.close();
+        } catch (cause) {
+          cleanupFailure ??= cause;
+        }
+      }
+    }
+  })();
+  if (cleanupFailure !== undefined) {
+    throw cleanupFailure;
+  }
+  return result;
 }
 
 /**
@@ -185,15 +314,19 @@ export async function commandUpdate(
  */
 async function mapDeclaredContracts(
   root: string,
-  client: GitHubClient,
+  snapshots: Map<string, RemoteSnapshot>,
   state: TreeState,
-  sources: LockSources,
+  declarationText: string | null,
 ): Promise<{
   declaration: Declaration;
   text: string | null;
   report: string[];
 }> {
-  const unchanged = { declaration: state.declaration, text: null, report: [] };
+  const unchanged = {
+    declaration: state.declaration,
+    text: declarationText,
+    report: [],
+  };
   const unmapped = declaredIds(state.skills).filter(
     (id) => state.declaration.contracts[id] === undefined,
   );
@@ -206,16 +339,14 @@ async function mapDeclaredContracts(
   for (const name of Object.keys(state.declaration.sources).sort(
     compareStrings,
   )) {
-    const pinned = sources[name];
-    if (pinned === undefined) continue;
+    const snapshot = snapshots.get(name);
+    if (snapshot === undefined) continue;
     listings.set(
       name,
-      (await client.blobsAt(pinned.repository, pinned.revision)).map(
-        (entry) => entry.path,
-      ),
+      snapshot.blobs.map((entry) => entry.path),
     );
   }
-  let text = await readDeclarationText(root);
+  let text = declarationText ?? (await readDeclarationText(root));
   const before = text;
   const report: string[] = [];
   for (const id of unmapped) {
@@ -285,16 +416,20 @@ async function readDeclarationText(root: string): Promise<string> {
  * open the file, and a first resolution says so rather than showing an empty
  * left-hand side.
  */
-async function resolveSources(
-  client: GitHubClient,
+function resolveSources(
+  snapshots: Map<string, RemoteSnapshot>,
   declaration: Declaration,
   recorded: LockSources,
   out: Sink,
-): Promise<LockSources> {
+): LockSources {
   const resolved: LockSources = emptyRecord();
   for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
     const source = declaration.sources[name];
-    const revision = await client.commitOf(source.repository, source.ref);
+    const snapshot = snapshots.get(name);
+    if (snapshot === undefined) {
+      throw new ConfigError(`no snapshot was opened for the source ${name}`);
+    }
+    const revision = snapshot.revision;
     const before = recorded[name]?.revision;
     if (before !== revision) {
       out(
@@ -303,7 +438,13 @@ async function resolveSources(
           : `resolved: ${name} ${before} -> ${revision}`,
       );
     }
-    resolved[name] = { repository: source.repository, revision };
+    resolved[name] = {
+      repository: source.repository,
+      revision,
+      ...(snapshot.objectFormat === "sha256"
+        ? { objectFormat: "sha256" as const }
+        : {}),
+    };
   }
   return resolved;
 }
@@ -345,7 +486,7 @@ async function writeLockSources(
  * as a violation.
  */
 async function collectSources(
-  client: GitHubClient,
+  snapshots: Map<string, RemoteSnapshot>,
   declaration: Declaration,
   sources: LockSources,
 ): Promise<CachedRevision[]> {
@@ -364,21 +505,32 @@ async function collectSources(
           `records no commit for it; run update to resolve one`,
       );
     }
-    const listing = await client.blobsAt(pinned.repository, pinned.revision);
+    const snapshot = snapshots.get(name);
+    if (snapshot === undefined) {
+      throw new ConfigError(`no snapshot was opened for the source ${name}`);
+    }
+    requirePinnedSnapshot(snapshot, pinned, name);
+    const listing = snapshot.blobs;
     const files: PlacedFile[] = [];
     for (const id of contracts) {
       const origin = declaration.contracts[id];
       if (origin.files !== undefined) {
         for (const mapping of origin.files) {
           files.push(
-            ...(await collectRawMapping(client, pinned, listing, id, mapping)),
+            ...(await collectRawMapping(
+              snapshot,
+              pinned,
+              listing,
+              id,
+              mapping,
+            )),
           );
         }
         continue;
       }
       files.push(
         ...(await collectContract(
-          client,
+          snapshot,
           pinned,
           listing,
           id,
@@ -393,6 +545,25 @@ async function collectSources(
     });
   }
   return revisions;
+}
+
+function requirePinnedSnapshot(
+  snapshot: RemoteSnapshot,
+  pinned: LockSource,
+  name: string,
+): void {
+  const expectedFormat: GitObjectFormat = pinned.objectFormat ?? "sha1";
+  if (
+    snapshot.revision === pinned.revision &&
+    snapshot.objectFormat === expectedFormat
+  ) {
+    return;
+  }
+  throw new ConfigError(
+    `the snapshot opened for ${name} is ${snapshot.objectFormat}:` +
+      `${snapshot.revision}, but the lock pins ${expectedFormat}:` +
+      `${pinned.revision}; nothing was written`,
+  );
 }
 
 /** The contract ids one source is the origin of, in a fixed order. */
@@ -421,7 +592,7 @@ function contractsOf(declaration: Declaration, source: string): string[] {
  * one link standing anywhere in it.
  */
 async function collectContract(
-  client: GitHubClient,
+  snapshot: RemoteSnapshot,
   pinned: LockSource,
   listing: TreeBlob[],
   id: string,
@@ -437,7 +608,7 @@ async function collectContract(
     );
   }
   const files: PlacedFile[] = [
-    { path, content: await fetchChecked(client, pinned, listed) },
+    { path, content: await fetchChecked(snapshot, pinned, listed) },
   ];
   // The tests travel with the text, as the fetch finds them, with none of this
   // tree's own ignore rules applied. The listing holds what the source
@@ -468,7 +639,7 @@ async function collectContract(
     .sort((a, b) => compareStrings(a.path, b.path))) {
     files.push({
       path: entry.path,
-      content: await fetchChecked(client, pinned, entry),
+      content: await fetchChecked(snapshot, pinned, entry),
     });
   }
   return files;
@@ -487,7 +658,7 @@ async function collectContract(
  * for the reason the conformance position is.
  */
 async function collectRawMapping(
-  client: GitHubClient,
+  snapshot: RemoteSnapshot,
   pinned: LockSource,
   listing: TreeBlob[],
   id: string,
@@ -534,7 +705,7 @@ async function collectRawMapping(
     }
     files.push({
       path: entry.path,
-      content: await fetchChecked(client, pinned, entry),
+      content: await fetchChecked(snapshot, pinned, entry),
     });
   }
   return files;
@@ -629,19 +800,15 @@ function atCommit(pinned: LockSource, path: string): string {
  * fetch refusing bytes that were perfectly good.
  */
 async function fetchChecked(
-  client: GitHubClient,
+  snapshot: RemoteSnapshot,
   pinned: LockSource,
   blob: TreeBlob,
 ): Promise<Uint8Array> {
   const named = atCommit(pinned, blob.path);
   requireTreeRelativePath(blob, named);
   requireOrdinaryFile(blob, named);
-  const bytes = await client.fileAt(
-    pinned.repository,
-    pinned.revision,
-    blob.path,
-  );
-  const arrived = await gitObjectIdOf(bytes);
+  const bytes = await snapshot.fileAt(blob.path);
+  const arrived = await gitObjectIdOf(bytes, snapshot.objectFormat);
   if (arrived !== blob.objectId) {
     throw new ConfigError(
       `${named}: the bytes that arrived carry the object id ${arrived}, ` +

@@ -200,7 +200,7 @@ test("the add command names the repository as its one argument", async () => {
 test("add with no repository named is a usage error", async () => {
   const result = await runCli(["add"]);
   expect(result.code).toStrictEqual(2);
-  expect(result.stderr.join("\n")).toContain("owner/repo");
+  expect(result.stderr.join("\n")).toContain("repository");
 });
 
 test("the update command moves every registered pin", async () => {
@@ -286,14 +286,10 @@ test("add leaves a table it could not revise readably exactly as it was", async 
   });
 });
 
-test("add refused over a source already registered names the command that finishes taking it up", async () => {
+test("a failed add leaves no partial registration and can be retried directly", async () => {
   await withGoodTree(async (root) => {
-    // The source is registered first and the fetching half runs afterwards, so
-    // a run whose second half could not reach the repository leaves the source
-    // registered with no commit pinned for it. Nothing about that tree is
-    // broken — gen and verify stay clean and update completes it — but the
-    // move a person makes is to run add again, and this refusal is the only
-    // place that can say where to go from there.
+    // Registration is published with the fetched snapshot and pin, so an
+    // acquisition failure cannot leave a source that no lock entry completes.
     const unreachable = fakeGitHub({
       [REPOSITORY]: { ...workflow()[REPOSITORY], refs: {} },
     });
@@ -309,21 +305,23 @@ test("add refused over a source already registered names the command that finish
       ConfigError,
     );
     expect("sources" in (await readLockFile(root))).toStrictEqual(false);
-
-    const github = fakeGitHub(workflow());
-    const error = await rejectedBy(
-      () =>
-        commandAdd(
-          root,
-          () => {},
-          gitHubOver(github.fetch),
-          REPOSITORY,
-          undefined,
-        ),
-      ConfigError,
+    expect(await fs.exists(`${root}/vendor-manifest.yaml`)).toStrictEqual(
+      false,
     );
 
-    expect(error.message).toContain("run update");
+    const github = fakeGitHub(workflow());
+    const code = await commandAdd(
+      root,
+      () => {},
+      gitHubOver(github.fetch),
+      REPOSITORY,
+      undefined,
+    );
+    expect(code).toStrictEqual(0);
+    expect((await readLockFile(root)).sources["agentic-workflow"]).toEqual({
+      repository: REPOSITORY,
+      revision: REVISION,
+    });
   });
 });
 
