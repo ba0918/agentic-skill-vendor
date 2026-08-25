@@ -223,14 +223,25 @@ ignore が答えるのは「このリポジトリのチェックアウトがこ�
 - gen / verify: 従来どおりネットワーク・環境変数・サブプロセスに触れない。gen は
   キャッシュ欠損時に fetch の実行を指示して停止し、勝手に最新版を解決することはない
 
-取得は Web 標準の fetch() による HTTPS のみで行い、接続先は GitHub.com の API と
-raw コンテンツ配信(api.github.com / raw.githubusercontent.com)に固定する。public / private
-のどちらのリポジトリも source にでき、private リポジトリと認証が必要な public
-リポジトリには、add / update / fetch の `--token-stdin` で GitHub token を渡す。
-リダイレクトは追跡しない — 3xx 応答は異常として何も書かずに停止する。追跡を許すと、
-固定したはずの接続先が最初の 1 要求にしか効かない。該当エンドポイントは通常
-リダイレクトを返さないため、返ってきた時点で異常として扱ってよい。
-git コマンド等のサブプロセスは取得側でも使わない。
+repository が `owner/repo` 形式の場合は、Web 標準の fetch() を使い、接続先を
+GitHub.com の API と raw content 配信先へ固定する。この経路の認証、redirect 拒否、
+response 検査は従来どおり維持する。
+
+SSH、scp 風 SSH、HTTPS の repository URL には、利用環境の Git/OpenSSH へ委譲する汎用
+Git transport を使う。受理する URL、認証、subprocess、取得版、resource limit の契約は
+git-transports.md で定義する。
+
+`add`、`update`、`fetch` だけが network へ到達する。汎用 Git source がある場合、この 3
+command だけが Git subprocess を起動できる。`gen`、`verify`、`lint-selfcontain`、
+`self-test` は network、environment、subprocess へ触れない。
+
+以下の token 契約は、`owner/repo` 形式を使う GitHub API transport だけに適用する。
+汎用 Git transport の認証情報は Git/OpenSSH へ委譲し、`--token-stdin` を使用しない。
+public / private のどちらの GitHub リポジトリも source にでき、private リポジトリと
+認証が必要な public リポジトリには、add / update / fetch の `--token-stdin` で GitHub
+token を渡す。リダイレクトは追跡しない — 3xx 応答は異常として何も書かずに停止する。
+追跡を許すと、固定したはずの接続先が最初の 1 要求にしか効かない。該当エンドポイントは
+通常リダイレクトを返さないため、返ってきた時点で異常として扱ってよい。
 
 token は標準入力からだけ読み、引数・ファイル・環境変数からは読まない。標準入力を読むのは
 `--token-stdin` が指定されたときだけであり、このフラグをネットワークへ到達しない gen /
@@ -275,6 +286,14 @@ commit SHA を必ず記録(manifest の ref は tag / branch 可)・transitive �
 さらに別の出典を要求すること)なし・conformance script は実行せずデータとしてコピーする
 のみ。このスコープはブレストで合意した範囲であり、これを超える縮小・拡大は改めて合意
 してから行う。
+
+## 任意 Git ホストへの拡張
+
+初期の GitHub.com 対応を後方互換で残し、SSH または HTTPS で到達できる任意 Git ホストを
+汎用 Git transport の対象へ加える。平文 HTTP は含めない。
+
+source の object format は SHA-1 と SHA-256 を扱う。transitive 依存を扱わず、
+conformance script を実行せず data としてコピーする境界は変更しない。
 
 ## スケール前提
 
