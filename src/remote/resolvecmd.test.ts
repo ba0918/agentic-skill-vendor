@@ -8,7 +8,7 @@ import {
   cacheSiteOf,
 } from "../contracts/cache.ts";
 import { gitHubOver } from "./github.ts";
-import { parseDeclaration } from "../contracts/sources.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import {
   escapeThrough,

@@ -4,7 +4,7 @@ import { ConfigError } from "../errors.ts";
 import { cacheSiteOf } from "../contracts/cache.ts";
 import { gitHubOver } from "./github.ts";
 import { commandAdd } from "./addcmd.ts";
-import { parseDeclaration } from "../contracts/sources.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
 import {
   fakeGitHub,
   type FakeRepository,

@@ -5,7 +5,10 @@ import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
 import { planExpansion, vendorDirOf } from "./gen.ts";
 import { contractDigest } from "../contracts/digest.ts";
-import { parseDeclaration, reservedDestRefusal } from "../contracts/sources.ts";
+import {
+  parseDeclaration,
+  reservedDestRefusal,
+} from "../contracts/source-schema.ts";
 import { SKILLS_DIR } from "../contracts/declaration.ts";
 import {
   append,
