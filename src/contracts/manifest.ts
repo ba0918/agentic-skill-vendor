@@ -20,19 +20,14 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
-import { assertValidContractId } from "./digest.ts";
 import { compareStrings } from "../ordering.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
-  destsCollide,
-  isTreeRelativePath,
-  reservedDestRefusal,
 } from "./source-schema.ts";
 import { emptyRecord } from "../records.ts";
-import { classifyRepository } from "./repository.ts";
 import { assertPlainChain, isRegularFileOrAbsent } from "../filesystem/walk.ts";
 import { dependenciesOf, type SkillDeclaration } from "./declaration.ts";
 
@@ -49,14 +44,10 @@ export const LOCK_FILE = "vendor-lock.json";
  * for text that had been pinned all along.
  */
 export const SUPERSEDED_LOCK_FILE = "vendor-manifest.json";
-const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
-
 import {
   buildLock,
   type LockSources,
-  type Placement,
   type Placements,
-  type Resolution,
   type Resolutions,
 } from "./lock-model.ts";
 import { canonicalJson, decodeLock, emptyDecodedLock } from "./lock-codec.ts";
@@ -70,9 +61,6 @@ export type {
   Resolutions,
 } from "./lock-model.ts";
 export { canonicalJson } from "./lock-codec.ts";
-
-const SHA1_REVISION_FORM = /^[0-9a-f]{40}$/;
-const SHA256_REVISION_FORM = /^[0-9a-f]{64}$/;
 
 /**
  * The canonical text of the lock the tree renders to.
@@ -316,9 +304,6 @@ interface Lock {
   sources: LockSources;
 }
 
-const pickObject = legacyPickObject;
-const requireDigest = legacyRequireDigest;
-
 /**
  * An empty map of resolutions, and the only place one is made.
  *
@@ -326,10 +311,6 @@ const requireDigest = legacyRequireDigest;
  * with no lock, a lock recording no resolutions, and the map the recorded ones
  * are read into. Kept as one place so a fourth path cannot answer differently.
  */
-function emptyResolutions(): Resolutions {
-  return emptyRecord();
-}
-
 /** The lock currently recorded, or an empty one where the tree has none yet. */
 export async function readLock(root: string): Promise<Lock> {
   await assertPlainChain(root, LOCK_FILE);
@@ -351,168 +332,6 @@ export async function readLock(root: string): Promise<Lock> {
 }
 
 /** An empty map of placements, and the only place one is made. */
-function emptyPlacements(): Placements {
-  return emptyRecord();
-}
-
-/**
- * The placements the lock records, or none where it carries no key.
- *
- * Every value here is a path the next gen may remove recursively, so each is
- * held to a shape before it is believed — the skill name to the shape of one
- * directory name, the dest to the shape of a path inside a skill — for the
- * reason a revision is: text that was never checked is text an edit can steer
- * into a deletion outside the tree.
- */
-export function legacyValidatePlacements(
-  document: Record<string, unknown>,
-): Placements {
-  const raw = document["placements"];
-  if (raw === undefined) return emptyPlacements();
-  const skills = pickObject(raw, "placements");
-  const placements: Placements = emptyPlacements();
-  for (const skill of Object.keys(skills)) {
-    if (!isPlainSkillName(skill)) {
-      throw new ConfigError(
-        `${LOCK_FILE}: placements names a skill that is not one directory ` +
-          `name: ${JSON.stringify(skill)}`,
-      );
-    }
-    const dests = pickObject(skills[skill], `placements.${skill}`);
-    const entries: Record<string, Placement> = emptyRecord();
-    for (const dest of Object.keys(dests)) {
-      const path = `placements.${skill}.${dest}`;
-      const bare = dest.replace(/\/$/, "");
-      if (!isTreeRelativePath(bare)) {
-        throw new ConfigError(
-          `${LOCK_FILE}: ${path} is not a path inside the skill`,
-        );
-      }
-      const reserved = reservedDestRefusal(bare);
-      if (reserved !== null) {
-        throw new ConfigError(`${LOCK_FILE}: ${path} names ${reserved}`);
-      }
-      for (const other of Object.keys(entries)) {
-        if (destsCollide(other.replace(/\/$/, ""), bare)) {
-          throw new ConfigError(
-            `${LOCK_FILE}: ${path} is the same as or nests with ` +
-              `placements.${skill}.${other}; two distributions cannot share ` +
-              `a place`,
-          );
-        }
-      }
-      const entry = pickObject(dests[dest], path);
-      const contract = requireText(entry["contract"], `${path}.contract`);
-      assertValidContractId(contract, `${LOCK_FILE}: ${path}.contract`);
-      entries[dest] = {
-        contract,
-        src: requireText(entry["src"], `${path}.src`),
-        digest: requireDigest(entry["digest"], `${path}.digest`),
-      };
-    }
-    placements[skill] = entries;
-  }
-  return placements;
-}
-
-/** True for a name that is exactly one directory segment. */
-function isPlainSkillName(name: string): boolean {
-  return (
-    name !== "" &&
-    name !== "." &&
-    name !== ".." &&
-    !name.includes("/") &&
-    !name.includes("\\")
-  );
-}
-
-function requireText(value: unknown, path: string): string {
-  if (typeof value !== "string") {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be text, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
-}
-
-/** An empty map of sources, and the only place one is made. */
-function emptySources(): LockSources {
-  return emptyRecord();
-}
-
-/**
- * The sources the lock records, or none where it carries no sources key.
- *
- * An absent key is read as "no source", never refused. It is what a tree that
- * fetches nothing renders to, so refusing it would make every repository with
- * only local contracts unreadable — the opposite of the two halves the lock
- * has always carried, where an absent key marks a file somebody cut in half.
- */
-export function legacyValidateSources(
-  document: Record<string, unknown>,
-): LockSources {
-  const raw = document["sources"];
-  if (raw === undefined) return emptySources();
-  const entries = pickObject(raw, "sources");
-  const sources: LockSources = emptySources();
-  for (const name of Object.keys(entries)) {
-    const entry = pickObject(entries[name], `sources.${name}`);
-    const objectFormat = readObjectFormat(
-      entry["objectFormat"],
-      `sources.${name}.objectFormat`,
-    );
-    const repository = requireText(
-      entry["repository"],
-      `sources.${name}.repository`,
-    );
-    try {
-      classifyRepository(repository);
-    } catch (cause) {
-      if (cause instanceof ConfigError) {
-        throw new ConfigError(
-          `${LOCK_FILE}: sources.${name}.repository: ${cause.message}`,
-        );
-      }
-      throw cause;
-    }
-    sources[name] = {
-      repository,
-      revision: requireMatch(
-        entry["revision"],
-        objectFormat === "sha256" ? SHA256_REVISION_FORM : SHA1_REVISION_FORM,
-        `sources.${name}.revision`,
-        objectFormat === "sha256"
-          ? "a 64-digit SHA-256 commit object id"
-          : "a 40-digit SHA-1 commit object id",
-      ),
-      ...(objectFormat === undefined ? {} : { objectFormat }),
-    };
-  }
-  return sources;
-}
-
-function readObjectFormat(value: unknown, path: string): "sha256" | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "sha256") {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be "sha256" when present, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
-}
-
-/**
- * Refuses a tree that still carries the lock under the name it had before the
- * declaration file existed.
- *
- * Asked only where no lock was found, since that is the whole danger: the
- * absent lock is read as "nothing is resolved anywhere", and the next gen
- * would rewrite every copy and report an initial adoption for text the tree
- * had pinned all along. The refusal names both files rather than describing
- * the situation, because renaming the one into the other is the entire
- * migration — the content of the old file is already the content of the new
- * one.
- */
 async function assertNoSupersededLock(root: string): Promise<void> {
   await assertPlainChain(root, SUPERSEDED_LOCK_FILE);
   if (!(await isRegularFileOrAbsent(root, SUPERSEDED_LOCK_FILE))) return;
@@ -520,82 +339,4 @@ async function assertNoSupersededLock(root: string): Promise<void> {
     `${SUPERSEDED_LOCK_FILE} is the name this tool's lock had before ` +
       `${LOCK_FILE}: rename the file to ${LOCK_FILE}`,
   );
-}
-
-export function legacyValidateResolutions(
-  document: Record<string, unknown>,
-): Resolutions {
-  const raw = document["resolutions"];
-  // The same refusal as a lock missing its dependencies, for the other half:
-  // the lock this tool writes always carries both, and reading an absent half
-  // as empty would let the next gen silently drop what it recorded.
-  if (raw === undefined) {
-    throw new ConfigError(`${LOCK_FILE}: has no resolutions key`);
-  }
-  const entries = pickObject(raw, "resolutions");
-  const resolutions: Resolutions = emptyResolutions();
-  for (const id of Object.keys(entries)) {
-    assertValidContractId(id, `${LOCK_FILE}: resolutions`);
-    const entry = pickObject(entries[id], `resolutions.${id}`);
-    const resolution: Resolution = {
-      digest: requireDigest(entry["digest"], `resolutions.${id}.digest`),
-    };
-    if (entry["conformance"] !== undefined) {
-      resolution.conformance = requireDigest(
-        entry["conformance"],
-        `resolutions.${id}.conformance`,
-      );
-    }
-    if (entry["kind"] !== undefined) {
-      if (entry["kind"] !== "raw") {
-        throw new ConfigError(
-          `${LOCK_FILE}: resolutions.${id}.kind must be "raw" where present, ` +
-            `found ${JSON.stringify(entry["kind"])}`,
-        );
-      }
-      resolution.kind = "raw";
-    }
-    resolutions[id] = resolution;
-  }
-  return resolutions;
-}
-
-export function legacyPickObject(
-  value: unknown,
-  path: string,
-): Record<string, unknown> {
-  if (value === undefined) return {};
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path || "document"} must be an object`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
-
-export function legacyRequireDigest(value: unknown, path: string): string {
-  return requireMatch(value, DIGEST_FORM, path, "a sha256 digest");
-}
-
-/**
- * A recorded value that has to be text of a fixed shape, or a refusal naming
- * what was wanted and what stood there.
- *
- * The lock is written by this tool alone, so every one of these refusals is
- * about a hand-edited file. The shapes are still checked rather than trusted:
- * a revision reaches a URL and a repository name reaches a host, and text that
- * was never checked is text an edit can steer.
- */
-function requireMatch(
-  value: unknown,
-  form: RegExp,
-  path: string,
-  wanted: string,
-): string {
-  if (typeof value !== "string" || !form.test(value)) {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be ${wanted}, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
 }
