@@ -71,6 +71,35 @@ const EXPECTED_SOURCE_FILES = [
   "src/test-support/testing.ts",
 ] as const;
 
+const PHASE2_TARGET_MODULES = [
+  "src/ordering.ts",
+  "src/contracts/cache.ts",
+  "src/contracts/lock-codec.ts",
+  "src/contracts/lock-model.ts",
+  "src/contracts/source-edit.ts",
+  "src/contracts/source-schema.ts",
+  "src/distribution/contract-discovery.ts",
+  "src/distribution/generation-plan.ts",
+  "src/distribution/generation-write.ts",
+  "src/distribution/lock-update.ts",
+  "src/distribution/placement-plan.ts",
+  "src/distribution/placement-verify.ts",
+  "src/distribution/raw-contracts.ts",
+  "src/distribution/tree-materials.ts",
+  "src/filesystem/atomic-write.ts",
+  "src/filesystem/workdir.ts",
+  "src/remote/cache-write.ts",
+  "src/remote/lock-update.ts",
+  "src/remote/snapshot-plan.ts",
+  "src/remote/source-collection.ts",
+  "src/test-support/assertions.ts",
+  "src/test-support/cli.ts",
+  "src/test-support/filesystem.ts",
+  "src/test-support/fixtures.ts",
+  "src/test-support/imports.ts",
+  "src/test-support/remote.ts",
+] as const;
+
 async function sourceFiles(): Promise<string[]> {
   const { stdout } = await execFileAsync(
     "git",
@@ -448,6 +477,15 @@ test("every source file occupies its frozen migration position", async () => {
     missing: [],
     unexpected: [],
   });
+});
+
+test("the Phase 2 target inventory and final feature edges are complete", async () => {
+  if (process.env.PHASE2_TARGET !== "1") return;
+  const actual = await sourceFiles();
+  expect(
+    PHASE2_TARGET_MODULES.filter((path) => !actual.includes(path)),
+  ).toStrictEqual([]);
+  expect([...TEMPORARY_FEATURE_EDGES]).toStrictEqual([]);
 });
 
 test("production source cannot import test support", async () => {
