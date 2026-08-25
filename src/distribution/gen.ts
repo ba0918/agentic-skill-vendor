@@ -40,7 +40,7 @@ import {
 import {
   assertRawCacheHolds,
   deriveRawResolutions,
-  planPlacements,
+  buildPlacementPlan as planPlacements,
   presentRawIds,
   rawClosureViolations,
   type RawContracts,

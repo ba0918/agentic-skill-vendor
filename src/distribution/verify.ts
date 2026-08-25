@@ -33,10 +33,10 @@ import type {
 import {
   deriveRawResolutions,
   isRawId,
-  placementViolations,
   rawClosureViolations,
   rawLockViolations,
 } from "./placements.ts";
+import { placementViolations } from "./placement-verify.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the

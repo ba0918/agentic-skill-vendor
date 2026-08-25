@@ -18,11 +18,8 @@ import {
   vendorDirOf,
   type CanonicalContract,
 } from "./contract-discovery.ts";
-import {
-  planPlacements,
-  presentRawIds,
-  type RawContracts,
-} from "./placements.ts";
+import { presentRawIds, type RawContracts } from "./placements.ts";
+import { planPlacements } from "./placement-plan.ts";
 import { vendorHeader } from "./header.ts";
 
 export function renderVendorFile(

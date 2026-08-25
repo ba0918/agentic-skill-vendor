@@ -337,7 +337,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
  * exactly what the run writes, ignored files included — the recovery path,
  * which the run reports as a claim.
  */
-export async function planPlacements(
+export async function buildPlacementPlan(
   root: string,
   skills: SkillDeclaration[],
   raws: RawContracts,
@@ -966,7 +966,7 @@ function selectionRemovalDetail(
  * withdrawn skill is not named twice. The second check walks the lock's
  * placements, not the table's: what was written is what the lock remembers.
  */
-export async function placementViolations(
+export async function checkPlacementViolations(
   root: string,
   skills: SkillDeclaration[],
   declaration: Declaration,
