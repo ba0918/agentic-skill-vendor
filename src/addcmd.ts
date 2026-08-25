@@ -10,6 +10,7 @@
 import { commandUpdate } from "./resolvecmd.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import type { RemoteClient } from "./remote.ts";
+import { sourceNameFromRepository } from "./repository.ts";
 import {
   assertRepository,
   assertSourceName,
@@ -40,7 +41,7 @@ export async function commandAdd(
   named: string | undefined,
 ): Promise<number> {
   assertRepository(repository);
-  const name = named ?? repository.split("/")[1];
+  const name = named ?? sourceNameFromRepository(repository);
   // Both checks run before anything is written, and that ordering is the whole
   // point of asking here at all: the schema refuses these values anyway, but
   // by then the table on disk would already carry them — a file this command

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./cli.ts";
 import { compareStrings, gitObjectIdOf, sha256Hex } from "./digest.ts";
+import type { RemoteClient } from "./remote.ts";
 
 const LOCK_FILE = "vendor-lock.json";
 
@@ -36,6 +37,7 @@ export async function runCli(
   args: string[],
   transport: typeof fetch = refusingTransport,
   readStdin: () => string = refusingStdin,
+  genericRemote: () => Promise<RemoteClient> = refusingGenericRemote,
 ): Promise<CliResult> {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -45,6 +47,7 @@ export async function runCli(
     (line) => stderr.push(line),
     transport,
     readStdin,
+    genericRemote,
   );
   return { code, stdout, stderr };
 }
@@ -64,6 +67,10 @@ const refusingStdin = (): string => {
 const refusingTransport = ((input: string | URL | Request) => {
   throw new Error(`the test suite reaches no network: ${String(input)}`);
 }) as unknown as typeof fetch;
+
+const refusingGenericRemote = (): Promise<RemoteClient> => {
+  throw new Error("the test suite starts no Git subprocess");
+};
 
 /**
  * Every module of this package `entry` reaches, `entry` itself included.

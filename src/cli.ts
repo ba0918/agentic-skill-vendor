@@ -17,6 +17,11 @@ import { commandVerify } from "./verify.ts";
 import { readStandardInput, requireUsableToken } from "./token.ts";
 import { commandLint } from "./lint.ts";
 import { commandSelfTest } from "./selftest.ts";
+import {
+  type RemoteClient,
+  type RemoteClientFactory,
+  routedRemoteClient,
+} from "./remote.ts";
 
 const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
@@ -157,6 +162,7 @@ export async function run(
   err: Sink,
   transport: typeof fetch = fetch,
   readStdin: () => string = readStandardInput,
+  genericRemote: RemoteClientFactory = realGitRemote,
 ): Promise<number> {
   try {
     const invocation = parseArguments(argv);
@@ -178,7 +184,7 @@ export async function run(
         return await commandAdd(
           invocation.root,
           out,
-          gitHubOver(transport, takeToken()),
+          networkRemote(transport, takeToken, genericRemote),
           invocation.operands[0],
           invocation.operands[1],
         );
@@ -187,14 +193,14 @@ export async function run(
         return await commandUpdate(
           invocation.root,
           out,
-          gitHubOver(transport, takeToken()),
+          networkRemote(transport, takeToken, genericRemote),
         );
       case "fetch":
         refuseOperands(invocation.operands);
         return await commandFetch(
           invocation.root,
           out,
-          gitHubOver(transport, takeToken()),
+          networkRemote(transport, takeToken, genericRemote),
         );
       case "gen":
         refuseOperands(invocation.operands);
@@ -230,6 +236,26 @@ export async function run(
     err(`internal error: ${describeCause(error)}`);
     return 2;
   }
+}
+
+function networkRemote(
+  transport: typeof fetch,
+  takeToken: () => string | undefined,
+  genericRemote: RemoteClientFactory,
+): RemoteClient {
+  const token = takeToken();
+  return routedRemoteClient({
+    github: async () => gitHubOver(transport, token),
+    git: genericRemote,
+  });
+}
+
+async function realGitRemote(): Promise<RemoteClient> {
+  const [{ gitOver }, { createGitProcessRunner }] = await Promise.all([
+    import("./git.ts"),
+    import("./gitprocess.ts"),
+  ]);
+  return gitOver(createGitProcessRunner(), { interactive: false });
 }
 
 /**
