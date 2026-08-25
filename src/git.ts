@@ -323,12 +323,7 @@ class TreeStreamParser {
       entry.subarray(first + 1, second),
       "object verification",
     );
-    let path: string;
-    try {
-      path = decoder.decode(entry.subarray(second + 1));
-    } catch {
-      return;
-    }
+    const path = decode(entry.subarray(second + 1), "object verification");
     requireObjectFormat(
       objectId,
       this.#objectFormat,
