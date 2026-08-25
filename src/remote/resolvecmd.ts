@@ -48,10 +48,8 @@ import {
 } from "./snapshot-plan.ts";
 import {
   assertPinnedRepositories,
-  LOCK_FILE,
   type LockSource,
   type LockSources,
-  renderExpectedLock,
 } from "../contracts/manifest.ts";
 import { emptyRecord } from "../records.ts";
 import { MARKER_FILE, srcKeyOf } from "../contracts/raw.ts";
@@ -71,16 +69,16 @@ import {
   readTextFile,
 } from "../filesystem/walk.ts";
 import {
-  atomicWriteDirectory,
   atomicWriteFile,
   type PlacedFile,
 } from "../filesystem/atomic-write.ts";
 import {
-  locateTreeContracts,
   readTreeState,
   type TreeState,
 } from "../distribution/tree-materials.ts";
 import { declaredIds } from "../contracts/declaration.ts";
+import { placeInCache, type CachedRevision } from "./cache-write.ts";
+import { writeLockSources } from "./lock-update.ts";
 
 /**
  * One revision on its way into the cache: the directory it is placed at, and
@@ -90,10 +88,6 @@ import { declaredIds } from "../contracts/declaration.ts";
  * placed. A list of files with nothing saying which revision each belongs to
  * would leave the placement deciding it again from the paths.
  */
-export interface CachedRevision {
-  site: string;
-  files: PlacedFile[];
-}
 
 /**
  * Restores the cache the lock already describes.
@@ -420,23 +414,6 @@ function resolveSources(
  * differing from what the tree renders to — a violation raised by the command
  * that had just put the tree right.
  */
-export async function writeLockSources(
-  root: string,
-  state: TreeState,
-  sources: LockSources,
-): Promise<void> {
-  const rendered = await renderExpectedLock(
-    root,
-    state.skills,
-    state.resolutions,
-    sources,
-    await locateTreeContracts(root, state),
-    state.declaration,
-    state.placements,
-  );
-  await atomicWriteFile(root, LOCK_FILE, new TextEncoder().encode(rendered));
-}
-
 /**
  * Every file the declaration's remote contracts need, fetched and checked
  * before any of it is written.
@@ -786,15 +763,6 @@ async function fetchChecked(
  * holding whichever files had arrived first — and every later command reads a
  * directory standing at that place as a revision that was taken up whole.
  */
-export async function placeInCache(
-  root: string,
-  revisions: CachedRevision[],
-): Promise<void> {
-  for (const revision of revisions) {
-    await atomicWriteDirectory(root, revision.site, revision.files);
-  }
-}
-
 /**
  * Warns where the tree does not keep the cache out of the repository.
  *
