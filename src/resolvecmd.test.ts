@@ -453,6 +453,7 @@ test("update uses one opened snapshot for its pin, listing and every blob", asyn
 
 test("fetch opens the lock pin and closes the snapshot after a blob failure", async () => {
   await withRemoteTree(async (root, lines) => {
+    const before = await snapshotTree(root);
     let closed = 0;
     const client = {
       async defaultBranchOf() {
@@ -490,33 +491,42 @@ test("fetch opens the lock pin and closes the snapshot after a blob failure", as
       commandFetch(root, (line) => lines.push(line), client),
     ).rejects.toThrow("injected blob failure");
     expect(closed).toStrictEqual(1);
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
 
 test("fetch returns a cleanup failure after a snapshot was used successfully", async () => {
   await withRemoteTree(async (root, lines) => {
+    const before = await snapshotTree(root);
     const bytes = new TextEncoder().encode(CONTRACT);
     const objectId = await gitObjectIdOf(bytes);
     let closed = 0;
+    const events: string[] = [];
     const client = {
       async defaultBranchOf() {
         return "main";
       },
       async open() {
+        events.push("open");
         return {
           revision: REVISION,
           objectFormat: "sha1" as const,
-          blobs: [
-            {
-              path: "contracts/tdd-contract.md",
-              mode: "100644",
-              objectId,
-            },
-          ],
+          get blobs() {
+            events.push("list");
+            return [
+              {
+                path: "contracts/tdd-contract.md",
+                mode: "100644",
+                objectId,
+              },
+            ];
+          },
           async fileAt() {
+            events.push("blob");
             return bytes;
           },
           async close() {
+            events.push("close");
             closed++;
             throw new ConfigError("injected cleanup failure");
           },
@@ -528,6 +538,8 @@ test("fetch returns a cleanup failure after a snapshot was used successfully", a
       commandFetch(root, (line) => lines.push(line), client),
     ).rejects.toThrow("injected cleanup failure");
     expect(closed).toStrictEqual(1);
+    expect(events).toStrictEqual(["open", "list", "blob", "close"]);
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
 
@@ -546,6 +558,7 @@ test("update closes an opened snapshot when the next source cannot open", async 
         "",
       ].join("\n"),
     );
+    const before = await snapshotTree(root);
     let closed = 0;
     const client = {
       async defaultBranchOf() {
@@ -573,6 +586,7 @@ test("update closes an opened snapshot when the next source cannot open", async 
       "injected open failure",
     );
     expect(closed).toStrictEqual(1);
+    expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });
 
@@ -582,6 +596,7 @@ test("fetch refuses and closes a snapshot that differs from the lock pin", async
     { revision: REVISION, objectFormat: "sha256" as const },
   ]) {
     await withRemoteTree(async (root, lines) => {
+      const before = await snapshotTree(root);
       let closed = 0;
       const client = {
         async defaultBranchOf() {
@@ -605,6 +620,7 @@ test("fetch refuses and closes a snapshot that differs from the lock pin", async
         commandFetch(root, (line) => lines.push(line), client),
       ).rejects.toThrow("the snapshot opened for workflow");
       expect(closed).toStrictEqual(1);
+      expect(await snapshotTree(root)).toStrictEqual(before);
     });
   }
 });
