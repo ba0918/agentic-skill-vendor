@@ -1,0 +1,655 @@
+import { expect, test } from "bun:test";
+import { execFile } from "node:child_process";
+import * as fs from "node:fs/promises";
+import { dirname, posix } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+const EXPECTED_SOURCE_FILES = [
+  "src/cli.ts",
+  "src/cli/run.test.ts",
+  "src/cli/run.ts",
+  "src/contracts/conformance.test.ts",
+  "src/contracts/conformance.ts",
+  "src/contracts/declaration.test.ts",
+  "src/contracts/declaration.ts",
+  "src/contracts/digest.test.ts",
+  "src/contracts/digest.ts",
+  "src/contracts/distribution-ignore.test.ts",
+  "src/contracts/distribution-ignore.ts",
+  "src/contracts/manifest.test.ts",
+  "src/contracts/manifest.ts",
+  "src/contracts/placement-ownership.test.ts",
+  "src/contracts/placement-ownership.ts",
+  "src/contracts/raw.ts",
+  "src/contracts/repository.test.ts",
+  "src/contracts/repository.ts",
+  "src/contracts/sources.test.ts",
+  "src/contracts/sources.ts",
+  "src/diagnostics/selftest.test.ts",
+  "src/diagnostics/selftest.ts",
+  "src/errors.ts",
+  "src/distribution/gen.test.ts",
+  "src/distribution/gen.ts",
+  "src/distribution/header.ts",
+  "src/distribution/lint.test.ts",
+  "src/distribution/lint.ts",
+  "src/distribution/placements.test.ts",
+  "src/distribution/placements.ts",
+  "src/distribution/rawsource.test.ts",
+  "src/distribution/rawsource.ts",
+  "src/distribution/staging.test.ts",
+  "src/distribution/staging.ts",
+  "src/distribution/verify.test.ts",
+  "src/distribution/verify.ts",
+  "src/filesystem/ignore.test.ts",
+  "src/filesystem/ignore.ts",
+  "src/filesystem/walk.test.ts",
+  "src/filesystem/walk.ts",
+  "src/records.test.ts",
+  "src/records.ts",
+  "src/remote/addcmd.test.ts",
+  "src/remote/addcmd.ts",
+  "src/remote/cache.test.ts",
+  "src/remote/cache.ts",
+  "src/remote/git.test.ts",
+  "src/remote/git.ts",
+  "src/remote/github.test.ts",
+  "src/remote/github.ts",
+  "src/remote/gitprocess.test.ts",
+  "src/remote/gitprocess.ts",
+  "src/remote/remote.ts",
+  "src/remote/resolvecmd.test.ts",
+  "src/remote/resolvecmd.ts",
+  "src/remote/token.test.ts",
+  "src/remote/token.ts",
+  "src/test-support/source-layout.test.ts",
+  "src/test-support/testing.test.ts",
+  "src/test-support/testing.ts",
+] as const;
+
+async function sourceFiles(): Promise<string[]> {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
+    { cwd: ROOT },
+  );
+  return stdout
+    .split("\n")
+    .filter((path) => path.endsWith(".ts"))
+    .sort();
+}
+
+function relativeImports(source: string): string[] {
+  const imports: string[] = [];
+  const pattern =
+    /(?:\bfrom\s+|\bimport\s*(?:\(\s*)?)["'](\.{1,2}\/[^"']+)["']/g;
+  for (const match of source.matchAll(pattern)) imports.push(match[1]);
+  return imports;
+}
+
+function importedPath(importer: string, specifier: string): string {
+  return posix.normalize(posix.join(dirname(importer), specifier));
+}
+
+function productionTestSupportEdges(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (
+      importer.endsWith(".test.ts") ||
+      importer.startsWith("src/test-support/")
+    ) {
+      continue;
+    }
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (imported.startsWith("src/test-support/")) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+type Feature =
+  | "cli"
+  | "contracts"
+  | "diagnostics"
+  | "distribution"
+  | "entrypoint"
+  | "filesystem"
+  | "remote"
+  | "root"
+  | "unplaced";
+
+const CONTRACT_MODULES = new Set([
+  "conformance.ts",
+  "declaration.ts",
+  "digest.ts",
+  "distribution-ignore.ts",
+  "manifest.ts",
+  "placement-ownership.ts",
+  "raw.ts",
+  "repository.ts",
+  "sources.ts",
+]);
+
+const DISTRIBUTION_MODULES = new Set([
+  "gen.ts",
+  "header.ts",
+  "lint.ts",
+  "placements.ts",
+  "rawsource.ts",
+  "staging.ts",
+  "verify.ts",
+]);
+
+const REMOTE_MODULES = new Set([
+  "addcmd.ts",
+  "cache.ts",
+  "git.ts",
+  "github.ts",
+  "gitprocess.ts",
+  "remote.ts",
+  "resolvecmd.ts",
+  "token.ts",
+]);
+
+const TEMPORARY_FEATURE_EDGES = new Set([
+  "src/filesystem/walk.ts -> src/contracts/digest.ts",
+  "src/filesystem/ignore.ts -> src/contracts/digest.ts",
+  "src/distribution/gen.ts -> src/remote/cache.ts",
+  "src/distribution/placements.ts -> src/remote/cache.ts",
+]);
+
+function featureOf(path: string): Feature {
+  const directory = path.split("/")[1];
+  if (
+    directory === "filesystem" ||
+    directory === "contracts" ||
+    directory === "cli" ||
+    directory === "diagnostics" ||
+    directory === "distribution" ||
+    directory === "remote"
+  ) {
+    return directory;
+  }
+  if (path === "src/cli.ts") return "entrypoint";
+  if (path === "src/errors.ts" || path === "src/records.ts") return "root";
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
+  if (CONTRACT_MODULES.has(name)) return "contracts";
+  if (DISTRIBUTION_MODULES.has(name)) return "distribution";
+  if (REMOTE_MODULES.has(name)) return "remote";
+  return "unplaced";
+}
+
+function isProduction(path: string): boolean {
+  return !path.endsWith(".test.ts") && !path.startsWith("src/test-support/");
+}
+
+function filesystemEdgeIsAllowed(importer: string, imported: string): boolean {
+  const importedFeature = featureOf(imported);
+  if (importedFeature === "filesystem" || importedFeature === "root")
+    return true;
+  const finalImported =
+    imported === "src/digest.ts" ? "src/contracts/digest.ts" : imported;
+  return TEMPORARY_FEATURE_EDGES.has(`${importer} -> ${finalImported}`);
+}
+
+function filesystemBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "filesystem")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (!filesystemEdgeIsAllowed(importer, imported)) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function rootPrimitiveEdges(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (featureOf(importer) !== "root") continue;
+    for (const specifier of relativeImports(source)) {
+      violations.push(`${importer} -> ${importedPath(importer, specifier)}`);
+    }
+  }
+  return violations.sort();
+}
+
+function contractsBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "contracts")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      const importedFeature = featureOf(imported);
+      if (
+        importedFeature !== "contracts" &&
+        importedFeature !== "filesystem" &&
+        importedFeature !== "root"
+      ) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function distributionEdgeIsAllowed(
+  importer: string,
+  imported: string,
+): boolean {
+  const importedFeature = featureOf(imported);
+  if (
+    importedFeature === "distribution" ||
+    importedFeature === "contracts" ||
+    importedFeature === "filesystem" ||
+    importedFeature === "root"
+  ) {
+    return true;
+  }
+  const finalImported =
+    imported === "src/cache.ts" ? "src/remote/cache.ts" : imported;
+  return TEMPORARY_FEATURE_EDGES.has(`${importer} -> ${finalImported}`);
+}
+
+function distributionBoundaryViolations(
+  sources: Map<string, string>,
+): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "distribution")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (!distributionEdgeIsAllowed(importer, imported)) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function remoteBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "remote") continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      const importedFeature = featureOf(imported);
+      if (
+        importedFeature !== "remote" &&
+        importedFeature !== "distribution" &&
+        importedFeature !== "contracts" &&
+        importedFeature !== "filesystem" &&
+        importedFeature !== "root"
+      ) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function diagnosticsBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "diagnostics")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      const importedFeature = featureOf(imported);
+      if (
+        importedFeature !== "diagnostics" &&
+        importedFeature !== "distribution" &&
+        importedFeature !== "contracts" &&
+        importedFeature !== "root"
+      ) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function entrypointBoundaryViolations(sources: Map<string, string>): string[] {
+  const source = sources.get("src/cli.ts");
+  if (source === undefined) return [];
+  return relativeImports(source)
+    .map((specifier) => importedPath("src/cli.ts", specifier))
+    .filter(
+      (imported) =>
+        imported !== "src/cli/run.ts" &&
+        imported !== "src/errors.ts" &&
+        imported !== "src/records.ts",
+    )
+    .map((imported) => `src/cli.ts -> ${imported}`)
+    .sort();
+}
+
+function sourceEscapeEdges(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer)) continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (!imported.startsWith("src/")) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function featureCycleEdges(sources: Map<string, string>): string[] {
+  const edges: Array<{
+    importer: string;
+    imported: string;
+    from: Feature;
+    to: Feature;
+  }> = [];
+  const adjacency = new Map<Feature, Set<Feature>>();
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer)) continue;
+    const from = featureOf(importer);
+    if (from === "root" || from === "entrypoint" || from === "unplaced")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (TEMPORARY_FEATURE_EDGES.has(`${importer} -> ${imported}`)) {
+        continue;
+      }
+      const to = featureOf(imported);
+      if (
+        to === from ||
+        to === "root" ||
+        to === "entrypoint" ||
+        to === "unplaced"
+      ) {
+        continue;
+      }
+      edges.push({ importer, imported, from, to });
+      const next = adjacency.get(from) ?? new Set<Feature>();
+      next.add(to);
+      adjacency.set(from, next);
+    }
+  }
+  const reaches = (from: Feature, target: Feature): boolean => {
+    const pending = [from];
+    const seen = new Set<Feature>();
+    while (pending.length > 0) {
+      const feature = pending.pop() as Feature;
+      if (feature === target) return true;
+      if (seen.has(feature)) continue;
+      seen.add(feature);
+      pending.push(...(adjacency.get(feature) ?? []));
+    }
+    return false;
+  };
+  return edges
+    .filter(({ from, to }) => reaches(to, from))
+    .map(({ importer, imported }) => `${importer} -> ${imported}`)
+    .sort();
+}
+
+function aggregatorIndexFiles(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [path, source] of sources) {
+    if (
+      isProduction(path) &&
+      path.endsWith("/index.ts") &&
+      /^\s*export\s+(?:type\s+)?(?:\*|\{)/m.test(source) &&
+      !/\b(?:class|function|interface|const|let|var)\b/.test(source)
+    ) {
+      violations.push(path);
+    }
+  }
+  return violations.sort();
+}
+
+function unknownProductionRoots(paths: Iterable<string>): string[] {
+  const allowed = new Set(["src/cli.ts", "src/errors.ts", "src/records.ts"]);
+  return [...paths]
+    .filter(
+      (path) =>
+        isProduction(path) &&
+        path.startsWith("src/") &&
+        !path.slice(4).includes("/") &&
+        !allowed.has(path),
+    )
+    .sort();
+}
+
+async function repositorySources(): Promise<Map<string, string>> {
+  const sources = new Map<string, string>();
+  for (const path of await sourceFiles()) {
+    sources.set(path, await fs.readFile(`${ROOT}/${path}`, "utf8"));
+  }
+  return sources;
+}
+
+test("every source file occupies its frozen migration position", async () => {
+  const actual = await sourceFiles();
+  const expected: string[] = [...EXPECTED_SOURCE_FILES];
+  const missing = expected.filter((path) => !actual.includes(path));
+  const unexpected = actual.filter((path) => !expected.includes(path));
+  expect({ missing, unexpected }).toStrictEqual({
+    missing: [],
+    unexpected: [],
+  });
+});
+
+test("production source cannot import test support", async () => {
+  expect(productionTestSupportEdges(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("a production import of test support names both paths", () => {
+  const sources = new Map([
+    [
+      "src/contracts/example.ts",
+      'import { fixture } from "../test-support/testing.ts";',
+    ],
+  ]);
+  expect(productionTestSupportEdges(sources)).toStrictEqual([
+    "src/contracts/example.ts -> src/test-support/testing.ts",
+  ]);
+});
+
+test("a side-effect import of test support names both paths", () => {
+  const sources = new Map([
+    ["src/contracts/example.ts", 'import "../test-support/setup.ts";'],
+  ]);
+  expect(productionTestSupportEdges(sources)).toStrictEqual([
+    "src/contracts/example.ts -> src/test-support/setup.ts",
+  ]);
+});
+
+test("filesystem imports stay within their allowlist and exact temporary exception", async () => {
+  expect(filesystemBoundaryViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("an unapproved filesystem edge names both paths", () => {
+  const sources = new Map([
+    ["src/filesystem/walk.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(filesystemBoundaryViolations(sources)).toStrictEqual([
+    "src/filesystem/walk.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("a similar filesystem path does not inherit a temporary exception", () => {
+  const sources = new Map([
+    ["src/filesystem/nested/walk.ts", 'import "../../contracts/digest.ts";'],
+  ]);
+  expect(filesystemBoundaryViolations(sources)).toStrictEqual([
+    "src/filesystem/nested/walk.ts -> src/contracts/digest.ts",
+  ]);
+});
+
+test("root primitives import no internal feature", async () => {
+  expect(rootPrimitiveEdges(await repositorySources())).toStrictEqual([]);
+});
+
+test("a root primitive import of a feature names both paths", () => {
+  const sources = new Map([
+    ["src/errors.ts", 'import "./contracts/digest.ts";'],
+  ]);
+  expect(rootPrimitiveEdges(sources)).toStrictEqual([
+    "src/errors.ts -> src/contracts/digest.ts",
+  ]);
+});
+
+test("contract imports stay within contracts, filesystem, and root", async () => {
+  expect(contractsBoundaryViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("a contract import of a higher feature names both paths", () => {
+  const sources = new Map([
+    ["src/contracts/digest.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(contractsBoundaryViolations(sources)).toStrictEqual([
+    "src/contracts/digest.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("distribution imports stay within their allowlist and exact cache exceptions", async () => {
+  expect(
+    distributionBoundaryViolations(await repositorySources()),
+  ).toStrictEqual([]);
+});
+
+test("an unapproved distribution edge names both paths", () => {
+  const sources = new Map([
+    ["src/distribution/verify.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(distributionBoundaryViolations(sources)).toStrictEqual([
+    "src/distribution/verify.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("a similar distribution path does not inherit a cache exception", () => {
+  const sources = new Map([
+    ["src/distribution/nested/gen.ts", 'import "../../remote/cache.ts";'],
+  ]);
+  expect(distributionBoundaryViolations(sources)).toStrictEqual([
+    "src/distribution/nested/gen.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("remote imports stay within remote and its lower features", async () => {
+  expect(remoteBoundaryViolations(await repositorySources())).toStrictEqual([]);
+});
+
+test("a remote import of the CLI layer names both paths", () => {
+  const sources = new Map([
+    ["src/remote/addcmd.ts", 'import "../cli/run.ts";'],
+  ]);
+  expect(remoteBoundaryViolations(sources)).toStrictEqual([
+    "src/remote/addcmd.ts -> src/cli/run.ts",
+  ]);
+});
+
+test("diagnostics imports stay within distribution, contracts, and root", async () => {
+  expect(
+    diagnosticsBoundaryViolations(await repositorySources()),
+  ).toStrictEqual([]);
+});
+
+test("a diagnostics import of remote names both paths", () => {
+  const sources = new Map([
+    ["src/diagnostics/selftest.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(diagnosticsBoundaryViolations(sources)).toStrictEqual([
+    "src/diagnostics/selftest.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("the root entrypoint delegates only to CLI implementation and primitives", async () => {
+  expect(entrypointBoundaryViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("a root entrypoint import of a feature names both paths", () => {
+  const sources = new Map([["src/cli.ts", 'import "./remote/cache.ts";']]);
+  expect(entrypointBoundaryViolations(sources)).toStrictEqual([
+    "src/cli.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("relative imports stay inside src", async () => {
+  expect(sourceEscapeEdges(await repositorySources())).toStrictEqual([]);
+});
+
+test("an import escape names both paths", () => {
+  const sources = new Map([
+    ["src/contracts/digest.ts", 'import "../../outside.ts";'],
+  ]);
+  expect(sourceEscapeEdges(sources)).toStrictEqual([
+    "src/contracts/digest.ts -> outside.ts",
+  ]);
+});
+
+test("production features contain no cycle", async () => {
+  expect(featureCycleEdges(await repositorySources())).toStrictEqual([]);
+});
+
+test("every edge in a feature cycle names both source paths", () => {
+  const sources = new Map([
+    ["src/contracts/digest.ts", 'import "../distribution/gen.ts";'],
+    ["src/distribution/gen.ts", 'import "../contracts/digest.ts";'],
+  ]);
+  expect(featureCycleEdges(sources)).toStrictEqual([
+    "src/contracts/digest.ts -> src/distribution/gen.ts",
+    "src/distribution/gen.ts -> src/contracts/digest.ts",
+  ]);
+});
+
+test("production contains no aggregator-only index module", async () => {
+  expect(aggregatorIndexFiles(await repositorySources())).toStrictEqual([]);
+});
+
+test("an aggregator-only index module is named", () => {
+  const sources = new Map([
+    ["src/contracts/index.ts", 'export * from "./digest.ts";'],
+  ]);
+  expect(aggregatorIndexFiles(sources)).toStrictEqual([
+    "src/contracts/index.ts",
+  ]);
+});
+
+test("a type-only aggregator index module is named", () => {
+  const sources = new Map([
+    ["src/contracts/index.ts", 'export type { Contract } from "./digest.ts";'],
+  ]);
+  expect(aggregatorIndexFiles(sources)).toStrictEqual([
+    "src/contracts/index.ts",
+  ]);
+});
+
+test("production root contains only primitives and the entrypoint", async () => {
+  expect(unknownProductionRoots(await sourceFiles())).toStrictEqual([]);
+});
+
+test("an unknown production root module is named", () => {
+  expect(unknownProductionRoots(["src/misc.ts"])).toStrictEqual([
+    "src/misc.ts",
+  ]);
+});
