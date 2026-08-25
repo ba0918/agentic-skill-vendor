@@ -25,7 +25,7 @@ import type {
   Resolutions,
 } from "../contracts/lock-model.ts";
 import { listVendorEntries, vendorDirOf } from "./contract-discovery.ts";
-import { closureViolations, lockViolations } from "./generation-plan.ts";
+import { closureViolations, lockViolations } from "./lock-update.ts";
 import { prepareTreeMaterials, readTreeState } from "./tree-materials.ts";
 import { vendorHeader } from "./header.ts";
 import type { ContractLocation, Declaration } from "../contracts/sources.ts";

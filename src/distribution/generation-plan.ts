@@ -110,5 +110,3 @@ export async function planExpansion(
     report: placed.report,
   };
 }
-
-export { closureViolations, lockViolations } from "./lock-update.ts";
