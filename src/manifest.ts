@@ -31,6 +31,7 @@ import {
   reservedDestRefusal,
 } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
+import { classifyRepository } from "./repository.ts";
 import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
 import {
   dependenciesOf,
@@ -97,13 +98,14 @@ export type Placements = Record<string, Record<string, Placement>>;
 export interface LockSource {
   repository: string;
   revision: string;
+  /** Absent is the canonical representation of the backwards-compatible SHA-1 format. */
+  objectFormat?: "sha256";
 }
 
 export type LockSources = Record<string, LockSource>;
 
-const REVISION_FORM = /^[0-9a-f]{40}$/;
-const REPOSITORY_FORM =
-  /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const SHA1_REVISION_FORM = /^[0-9a-f]{40}$/;
+const SHA256_REVISION_FORM = /^[0-9a-f]{64}$/;
 
 /**
  * The lock's canonical rendering: keys sorted at every level, two-space
@@ -238,6 +240,9 @@ function registeredSources(
     kept[name] = {
       repository: registered.repository,
       revision: sources[name].revision,
+      ...(sources[name].objectFormat === undefined
+        ? {}
+        : { objectFormat: sources[name].objectFormat }),
     };
   }
   return kept;
@@ -583,22 +588,48 @@ function validateSources(document: Record<string, unknown>): LockSources {
   const sources: LockSources = emptySources();
   for (const name of Object.keys(entries)) {
     const entry = pickObject(entries[name], `sources.${name}`);
+    const objectFormat = readObjectFormat(
+      entry["objectFormat"],
+      `sources.${name}.objectFormat`,
+    );
+    const repository = requireText(
+      entry["repository"],
+      `sources.${name}.repository`,
+    );
+    try {
+      classifyRepository(repository);
+    } catch (cause) {
+      if (cause instanceof ConfigError) {
+        throw new ConfigError(
+          `${LOCK_FILE}: sources.${name}.repository: ${cause.message}`,
+        );
+      }
+      throw cause;
+    }
     sources[name] = {
-      repository: requireMatch(
-        entry["repository"],
-        REPOSITORY_FORM,
-        `sources.${name}.repository`,
-        "an owner/repo pair",
-      ),
+      repository,
       revision: requireMatch(
         entry["revision"],
-        REVISION_FORM,
+        objectFormat === "sha256" ? SHA256_REVISION_FORM : SHA1_REVISION_FORM,
         `sources.${name}.revision`,
-        "a 40-digit commit SHA",
+        objectFormat === "sha256"
+          ? "a 64-digit SHA-256 commit object id"
+          : "a 40-digit SHA-1 commit object id",
       ),
+      ...(objectFormat === undefined ? {} : { objectFormat }),
     };
   }
   return sources;
+}
+
+function readObjectFormat(value: unknown, path: string): "sha256" | undefined {
+  if (value === undefined) return undefined;
+  if (value !== "sha256") {
+    throw new ConfigError(
+      `${LOCK_FILE}: ${path} must be "sha256" when present, found ${JSON.stringify(value)}`,
+    );
+  }
+  return value;
 }
 
 /**

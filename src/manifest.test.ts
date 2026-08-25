@@ -446,13 +446,54 @@ test("a source pinned at something other than a commit SHA is refused", async ()
   ).rejects.toThrow(ConfigError);
 });
 
-test("a source recorded against something other than an owner/repo pair is refused", async () => {
+test("an existing SHA-1 source remains valid without an object format field", async () => {
+  await withEmptyDir(async (root) => {
+    await fs.writeFile(
+      `${root}/${LOCK}`,
+      `{"dependencies":{},"resolutions":{},"sources":{"workflow":{"repository":"ba0918/agentic-workflow","revision":"${"a".repeat(40)}"}}}`,
+    );
+    expect((await readLock(root)).sources["workflow"]).toStrictEqual({
+      repository: "ba0918/agentic-workflow",
+      revision: "a".repeat(40),
+    });
+  });
+});
+
+test("a SHA-256 source records its object format and 64-digit revision", async () => {
+  await withEmptyDir(async (root) => {
+    await fs.writeFile(
+      `${root}/${LOCK}`,
+      `{"dependencies":{},"resolutions":{},"sources":{"workflow":{"objectFormat":"sha256","repository":"ssh://git@example.com/group/workflow.git","revision":"${"a".repeat(64)}"}}}`,
+    );
+    expect((await readLock(root)).sources["workflow"]).toStrictEqual({
+      objectFormat: "sha256",
+      repository: "ssh://git@example.com/group/workflow.git",
+      revision: "a".repeat(64),
+    });
+  });
+});
+
+test("a source refuses an object format and revision length that disagree", async () => {
+  for (const entry of [
+    `{"repository":"ba0918/workflow","revision":"${"a".repeat(64)}"}`,
+    `{"objectFormat":"sha256","repository":"ba0918/workflow","revision":"${"a".repeat(40)}"}`,
+    `{"objectFormat":"sha1","repository":"ba0918/workflow","revision":"${"a".repeat(40)}"}`,
+  ]) {
+    await expect(
+      readWritten(
+        `{"dependencies":{},"resolutions":{},"sources":{"workflow":${entry}}}`,
+      ),
+    ).rejects.toThrow(ConfigError);
+  }
+});
+
+test("a source recorded against a repository outside the allowlist is refused", async () => {
   // The repository reaches a URL. A value that was never checked is a value a
   // hand edit can steer the fetch with.
   await expect(
     readWritten(
       `{"dependencies":{},"resolutions":{},` +
-        `"sources":{"workflow":{"repository":"https://example.invalid/x","revision":"${"a".repeat(40)}"}}}`,
+        `"sources":{"workflow":{"repository":"http://example.invalid/x","revision":"${"a".repeat(40)}"}}}`,
     ),
   ).rejects.toThrow(ConfigError);
 });
@@ -512,6 +553,37 @@ test("the expected lock names the repository the declaration registers", async (
     expect(JSON.parse(rendered).sources.workflow).toStrictEqual({
       repository: "ba0918/agentic-workflow",
       revision: "a".repeat(40),
+    });
+  });
+});
+
+test("the expected lock keeps a SHA-256 source's object format", async () => {
+  await withEmptyDir(async (root) => {
+    const repository = "ssh://git@example.com/group/workflow.git";
+    const rendered = await renderExpectedLock(
+      root,
+      [],
+      {},
+      {
+        workflow: {
+          objectFormat: "sha256",
+          repository,
+          revision: "a".repeat(64),
+        },
+      },
+      new Map(),
+      {
+        sources: { workflow: { repository, ref: "main" } },
+        contracts: {},
+        ignore: [],
+      },
+      {},
+    );
+
+    expect(JSON.parse(rendered).sources.workflow).toStrictEqual({
+      objectFormat: "sha256",
+      repository,
+      revision: "a".repeat(64),
     });
   });
 });

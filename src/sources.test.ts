@@ -200,11 +200,10 @@ test("a source name that could not be a directory of its own is refused", () => 
   }
 });
 
-test("a repository written as anything but an owner/repo pair is refused", () => {
-  // The value is interpolated into a request URL. A full URL accepted here
-  // would let the declaration decide which host the tool talks to.
+test("a repository outside the transport allowlist is refused", () => {
   for (const repository of [
-    "https://github.com/ba0918/agentic-workflow",
+    "http://github.com/ba0918/agentic-workflow",
+    "file:///tmp/workflow",
     "ba0918",
     "ba0918/agentic/workflow",
     "../../etc",
@@ -222,7 +221,28 @@ test("a repository written as anything but an owner/repo pair is refused", () =>
         ),
       ConfigError,
     );
-    expect(error.message).toContain("owner/repo");
+    expect(error.message).toContain("repository");
+  }
+});
+
+test("a declaration preserves allowlisted generic Git repository forms", () => {
+  for (const repository of [
+    "ssh://git@example.com/group/workflow.git",
+    "git@example.com:group/workflow.git",
+    "https://example.com/group/workflow.git",
+  ]) {
+    const declaration = parseDeclaration(
+      [
+        "sources:",
+        "  workflow:",
+        `    repository: ${repository}`,
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    expect(declaration.sources["workflow"].repository).toStrictEqual(
+      repository,
+    );
   }
 });
 
@@ -408,6 +428,17 @@ test("a source registered into a table that has none opens the block", () => {
     repository: "ba0918/agentic-workflow",
     ref: "main",
   });
+});
+
+test("registering a generic Git source writes its repository unchanged", () => {
+  const repository = "git@example.com:group/workflow.git";
+  const written = withSourceRegistration("", "workflow", {
+    repository,
+    ref: "main",
+  });
+  expect(
+    parseDeclaration(written).sources["workflow"].repository,
+  ).toStrictEqual(repository);
 });
 
 test("a source registered beside an existing one keeps the entries already written", () => {
