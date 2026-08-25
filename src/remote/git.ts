@@ -1,5 +1,5 @@
-import { concatBytes, type GitObjectFormat } from "./contracts/digest.ts";
-import { ConfigError } from "./errors.ts";
+import { concatBytes, type GitObjectFormat } from "../contracts/digest.ts";
+import { ConfigError } from "../errors.ts";
 import type {
   GitProcessCommand,
   GitProcessRunner,
@@ -12,7 +12,7 @@ import type {
   SnapshotTarget,
   TreeBlob,
 } from "./remote.ts";
-import { isUsableRef } from "./contracts/sources.ts";
+import { isUsableRef } from "../contracts/sources.ts";
 
 const METADATA_LIMIT = 1024 * 1024;
 const FILE_LIMIT = 1024 * 1024;

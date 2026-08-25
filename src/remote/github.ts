@@ -18,9 +18,9 @@
 // formats this project refuses to hand-implement — where three URLs and a
 // schema check will do.
 
-import { ConfigError, describeCause } from "./errors.ts";
-import { concatBytes } from "./contracts/digest.ts";
-import { isUsableRef } from "./contracts/sources.ts";
+import { ConfigError, describeCause } from "../errors.ts";
+import { concatBytes } from "../contracts/digest.ts";
+import { isUsableRef } from "../contracts/sources.ts";
 import type {
   RemoteClient,
   RemoteSnapshot,

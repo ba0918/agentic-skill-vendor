@@ -50,7 +50,7 @@ import {
   finalRawDestinations,
 } from "../contracts/placement-ownership.ts";
 export { vendorHeader } from "./header.ts";
-import { cacheSiteOf, isIgnored, unignoredWarning } from "../cache.ts";
+import { cacheSiteOf, isIgnored, unignoredWarning } from "../remote/cache.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,

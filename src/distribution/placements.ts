@@ -16,7 +16,7 @@ import type {
   Placements,
   Resolution,
 } from "../contracts/manifest.ts";
-import { cacheRevisionDirOf } from "../cache.ts";
+import { cacheRevisionDirOf } from "../remote/cache.ts";
 import { LOCAL_SOURCE } from "../contracts/sources.ts";
 import {
   basenameOf,

@@ -14,7 +14,7 @@ import {
 } from "./test-support/testing.ts";
 import { run, startedThisProgram } from "./cli.ts";
 import { gitObjectIdOf } from "./contracts/digest.ts";
-import type { RemoteClient, SnapshotTarget } from "./remote.ts";
+import type { RemoteClient, SnapshotTarget } from "./remote/remote.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
 const CLI_PATH = fileURLToPath(new URL("./cli.ts", import.meta.url));
@@ -281,22 +281,22 @@ test("the commands that work offline reach no network, environment or subprocess
   // offline command that imported the network layer would add a module the
   // list does not name, so the scan would walk past the very code it was
   // written to catch and report a clean boundary.
-  const CONCRETE_REMOTE_MODULES = ["github.ts", "gitprocess.ts"];
+  const CONCRETE_REMOTE_MODULES = ["remote/github.ts", "remote/gitprocess.ts"];
   // The probes keep the closure scan and the dynamic adapter boundary honest.
   // Without them, either scan could stop early and still report offline code
   // as isolated.
   const onlineClosure = await importClosureOf("cli.ts");
-  expect(onlineClosure.has("github.ts")).toStrictEqual(true);
+  expect(onlineClosure.has("remote/github.ts")).toStrictEqual(true);
   const onlineSource = await fs.readFile(
     new URL("./cli.ts", import.meta.url),
     "utf8",
   );
-  expect(onlineSource).toContain('import("./git.ts")');
-  expect(onlineSource).toContain('import("./gitprocess.ts")');
+  expect(onlineSource).toContain('import("./remote/git.ts")');
+  expect(onlineSource).toContain('import("./remote/gitprocess.ts")');
   expect(
     (await importClosureOf("distribution/lint.ts")).has("contracts/digest.ts"),
   ).toStrictEqual(true);
-  const resolverClosure = await importClosureOf("resolvecmd.ts");
+  const resolverClosure = await importClosureOf("remote/resolvecmd.ts");
   for (const name of CONCRETE_REMOTE_MODULES) {
     expect(resolverClosure.has(name), name).toStrictEqual(false);
   }

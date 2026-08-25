@@ -8,7 +8,7 @@ import {
   gitObjectIdOf,
   sha256Hex,
 } from "../contracts/digest.ts";
-import type { RemoteClient } from "../remote.ts";
+import type { RemoteClient } from "../remote/remote.ts";
 
 const LOCK_FILE = "vendor-lock.json";
 

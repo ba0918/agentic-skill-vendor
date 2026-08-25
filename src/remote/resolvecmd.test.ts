@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { ConfigError } from "./errors.ts";
-import { contractDigest, gitObjectIdOf } from "./contracts/digest.ts";
+import { ConfigError } from "../errors.ts";
+import { contractDigest, gitObjectIdOf } from "../contracts/digest.ts";
 import { CACHE_DIR, cacheRevisionDirOf, cacheSiteOf } from "./cache.ts";
 import { gitHubOver } from "./github.ts";
-import { parseDeclaration } from "./contracts/sources.ts";
+import { parseDeclaration } from "../contracts/sources.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import {
   escapeThrough,
@@ -17,7 +17,7 @@ import {
   withGoodTree,
   writeFile,
   writeLockFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";

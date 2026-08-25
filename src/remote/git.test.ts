@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { gitOver } from "./git.ts";
 import type {
   GitProcessCommand,

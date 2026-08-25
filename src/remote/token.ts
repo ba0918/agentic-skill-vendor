@@ -18,7 +18,7 @@
 
 import { readSync } from "node:fs";
 import { isatty } from "node:tty";
-import { ConfigError, describeCause } from "./errors.ts";
+import { ConfigError, describeCause } from "../errors.ts";
 
 /**
  * The longest a credential may be.

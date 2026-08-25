@@ -9,10 +9,6 @@ const execFileAsync = promisify(execFile);
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 const EXPECTED_SOURCE_FILES = [
-  "src/addcmd.test.ts",
-  "src/addcmd.ts",
-  "src/cache.test.ts",
-  "src/cache.ts",
   "src/cli.test.ts",
   "src/cli.ts",
   "src/contracts/conformance.test.ts",
@@ -46,28 +42,32 @@ const EXPECTED_SOURCE_FILES = [
   "src/distribution/staging.ts",
   "src/distribution/verify.test.ts",
   "src/distribution/verify.ts",
-  "src/git.test.ts",
-  "src/git.ts",
-  "src/github.test.ts",
-  "src/github.ts",
-  "src/gitprocess.test.ts",
-  "src/gitprocess.ts",
   "src/filesystem/ignore.test.ts",
   "src/filesystem/ignore.ts",
   "src/filesystem/walk.test.ts",
   "src/filesystem/walk.ts",
   "src/records.test.ts",
   "src/records.ts",
-  "src/remote.ts",
-  "src/resolvecmd.test.ts",
-  "src/resolvecmd.ts",
+  "src/remote/addcmd.test.ts",
+  "src/remote/addcmd.ts",
+  "src/remote/cache.test.ts",
+  "src/remote/cache.ts",
+  "src/remote/git.test.ts",
+  "src/remote/git.ts",
+  "src/remote/github.test.ts",
+  "src/remote/github.ts",
+  "src/remote/gitprocess.test.ts",
+  "src/remote/gitprocess.ts",
+  "src/remote/remote.ts",
+  "src/remote/resolvecmd.test.ts",
+  "src/remote/resolvecmd.ts",
+  "src/remote/token.test.ts",
+  "src/remote/token.ts",
   "src/selftest.test.ts",
   "src/selftest.ts",
   "src/test-support/source-layout.test.ts",
   "src/test-support/testing.test.ts",
   "src/test-support/testing.ts",
-  "src/token.test.ts",
-  "src/token.ts",
 ] as const;
 
 async function sourceFiles(): Promise<string[]> {
@@ -143,12 +143,24 @@ const DISTRIBUTION_MODULES = new Set([
   "verify.ts",
 ]);
 
+const REMOTE_MODULES = new Set([
+  "addcmd.ts",
+  "cache.ts",
+  "git.ts",
+  "github.ts",
+  "gitprocess.ts",
+  "remote.ts",
+  "resolvecmd.ts",
+  "token.ts",
+]);
+
 function featureOf(path: string): Feature {
   const directory = path.split("/")[1];
   if (
     directory === "filesystem" ||
     directory === "contracts" ||
-    directory === "distribution"
+    directory === "distribution" ||
+    directory === "remote"
   ) {
     return directory;
   }
@@ -157,7 +169,7 @@ function featureOf(path: string): Feature {
   if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
   if (CONTRACT_MODULES.has(name)) return "contracts";
   if (DISTRIBUTION_MODULES.has(name)) return "distribution";
-  if (name === "cache.ts") return "remote";
+  if (REMOTE_MODULES.has(name)) return "remote";
   return "unplaced";
 }
 
@@ -254,6 +266,27 @@ function distributionBoundaryViolations(
     for (const specifier of relativeImports(source)) {
       const imported = importedPath(importer, specifier);
       if (!distributionEdgeIsAllowed(importer, imported)) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function remoteBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "remote") continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      const importedFeature = featureOf(imported);
+      if (
+        importedFeature !== "remote" &&
+        importedFeature !== "distribution" &&
+        importedFeature !== "contracts" &&
+        importedFeature !== "filesystem" &&
+        importedFeature !== "root"
+      ) {
         violations.push(`${importer} -> ${imported}`);
       }
     }
@@ -371,5 +404,18 @@ test("a similar distribution path does not inherit a cache exception", () => {
   ]);
   expect(distributionBoundaryViolations(sources)).toStrictEqual([
     "src/distribution/nested/gen.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("remote imports stay within remote and its lower features", async () => {
+  expect(remoteBoundaryViolations(await repositorySources())).toStrictEqual([]);
+});
+
+test("a remote import of the CLI layer names both paths", () => {
+  const sources = new Map([
+    ["src/remote/addcmd.ts", 'import "../cli/run.ts";'],
+  ]);
+  expect(remoteBoundaryViolations(sources)).toStrictEqual([
+    "src/remote/addcmd.ts -> src/cli/run.ts",
   ]);
 });

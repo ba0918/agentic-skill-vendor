@@ -9,19 +9,19 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
-import { commandAdd } from "./addcmd.ts";
+import { commandAdd } from "./remote/addcmd.ts";
 import { commandGen } from "./distribution/gen.ts";
-import { gitHubOver } from "./github.ts";
-import { commandFetch, commandUpdate } from "./resolvecmd.ts";
+import { gitHubOver } from "./remote/github.ts";
+import { commandFetch, commandUpdate } from "./remote/resolvecmd.ts";
 import { commandVerify } from "./distribution/verify.ts";
-import { readStandardInput, requireUsableToken } from "./token.ts";
+import { readStandardInput, requireUsableToken } from "./remote/token.ts";
 import { commandLint } from "./distribution/lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 import {
   type RemoteClient,
   type RemoteClientFactory,
   routedRemoteClient,
-} from "./remote.ts";
+} from "./remote/remote.ts";
 
 const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
@@ -259,8 +259,8 @@ function networkRemote(
 
 async function realGitRemote(): Promise<RemoteClient> {
   const [{ gitOver }, { createGitProcessRunner }] = await Promise.all([
-    import("./git.ts"),
-    import("./gitprocess.ts"),
+    import("./remote/git.ts"),
+    import("./remote/gitprocess.ts"),
   ]);
   return gitOver(createGitProcessRunner(), { interactive: false });
 }

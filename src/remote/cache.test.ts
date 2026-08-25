@@ -7,8 +7,8 @@ import {
   cacheSiteOf,
   pruneCache,
 } from "./cache.ts";
-import { withEmptyDir, writeFile } from "./test-support/testing.ts";
-import { TEMPORARY_SUFFIX } from "./filesystem/walk.ts";
+import { withEmptyDir, writeFile } from "../test-support/testing.ts";
+import { TEMPORARY_SUFFIX } from "../filesystem/walk.ts";
 
 test("a fetched file is placed under its source and the revision it came from", () => {
   // The revision is a directory level of its own, which is what makes pruning

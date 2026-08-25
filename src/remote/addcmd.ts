@@ -8,9 +8,9 @@
 // mapped to it, and their text lands in the cache.
 
 import { commandUpdateWithDeclaration } from "./resolvecmd.ts";
-import { ConfigError, type Sink } from "./errors.ts";
+import { ConfigError, type Sink } from "../errors.ts";
 import type { RemoteClient } from "./remote.ts";
-import { sourceNameFromRepository } from "./contracts/repository.ts";
+import { sourceNameFromRepository } from "../contracts/repository.ts";
 import {
   assertRepository,
   assertSourceName,
@@ -18,8 +18,8 @@ import {
   parseDeclaration,
   readDeclaration,
   withSourceRegistration,
-} from "./contracts/sources.ts";
-import { isRegularFileOrAbsent, readTextFile } from "./filesystem/walk.ts";
+} from "../contracts/sources.ts";
+import { isRegularFileOrAbsent, readTextFile } from "../filesystem/walk.ts";
 
 /**
  * Registers `repository` as a source and does what update does afterwards.

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { readStandardInput, requireUsableToken, TOKEN_LIMIT } from "./token.ts";
 
 /** What the refusal says, for a case that must refuse. */
