@@ -24,6 +24,10 @@ export interface GitSourceBudget {
   readonly startedAt: number;
 }
 
+interface GitSourceBudgetState {
+  elapsedMilliseconds: number;
+}
+
 export interface GitProcessSession {
   initialize(objectFormat: GitObjectFormat): Promise<void>;
   run(command: GitProcessCommand): Promise<Uint8Array>;
@@ -123,23 +127,33 @@ export function createGitProcessRunner(
   host: GitProcessHost = nodeGitProcessHost(),
   limits: Readonly<GitLimits> = DEFAULT_GIT_LIMITS,
 ): GitProcessRunner {
+  const budgetStates = new WeakMap<GitSourceBudget, GitSourceBudgetState>();
   const createBudget = (): GitSourceBudget => ({ startedAt: host.now() });
   return {
-    createBudget,
+    createBudget() {
+      const budget = createBudget();
+      budgetStates.set(budget, { elapsedMilliseconds: 0 });
+      return budget;
+    },
     async begin({ budget = createBudget() }) {
+      let budgetState = budgetStates.get(budget);
+      if (budgetState === undefined) {
+        budgetState = { elapsedMilliseconds: 0 };
+        budgetStates.set(budget, budgetState);
+      }
       const temporaryDirectory = await host.createTemporaryDirectory();
       return new BoundedGitProcessSession(
         host,
         limits,
         temporaryDirectory,
-        budget,
+        budgetState,
       );
     },
   };
 }
 
 class BoundedGitProcessSession implements GitProcessSession {
-  readonly #startedAt: number;
+  readonly #budget: GitSourceBudgetState;
   readonly #host: GitProcessHost;
   readonly #limits: Readonly<GitLimits>;
   readonly #temporaryDirectory: string;
@@ -151,12 +165,12 @@ class BoundedGitProcessSession implements GitProcessSession {
     host: GitProcessHost,
     limits: Readonly<GitLimits>,
     temporaryDirectory: string,
-    budget: GitSourceBudget,
+    budget: GitSourceBudgetState,
   ) {
     this.#host = host;
     this.#limits = limits;
     this.#temporaryDirectory = temporaryDirectory;
-    this.#startedAt = budget.startedAt;
+    this.#budget = budget;
   }
 
   async initialize(objectFormat: GitObjectFormat): Promise<void> {
@@ -201,9 +215,10 @@ class BoundedGitProcessSession implements GitProcessSession {
       await this.close().catch(() => {});
       throw before;
     }
+    const commandStartedAt = this.#host.now();
     const process = this.#host.start(this.#invocation(command));
     let running = true;
-    const monitor = this.#monitor(() => running);
+    const monitor = this.#monitor(() => running, commandStartedAt);
     let read: Promise<void> | undefined;
     try {
       let fileBytes = 0;
@@ -237,6 +252,8 @@ class BoundedGitProcessSession implements GitProcessSession {
         Promise.all([completed, read]),
         monitor,
       ]);
+      const after = await this.#budgetFailure(commandStartedAt);
+      if (after !== undefined) throw after;
       if (code !== 0) {
         throw new ConfigError(
           `${command.stage} failed; run Git directly with the same repository URL for details`,
@@ -264,6 +281,10 @@ class BoundedGitProcessSession implements GitProcessSession {
       );
     } finally {
       running = false;
+      this.#budget.elapsedMilliseconds += Math.max(
+        0,
+        this.#host.now() - commandStartedAt,
+      );
     }
   }
 
@@ -301,17 +322,30 @@ class BoundedGitProcessSession implements GitProcessSession {
     };
   }
 
-  async #monitor(running: () => boolean): Promise<never> {
+  async #monitor(
+    running: () => boolean,
+    commandStartedAt: number,
+  ): Promise<never> {
     while (running()) {
-      const failure = await this.#budgetFailure();
+      const failure = await this.#budgetFailure(commandStartedAt);
+      if (!running()) return await new Promise<never>(() => {});
       if (failure !== undefined) throw failure;
       await this.#host.wait(this.#limits.pollMilliseconds);
     }
     return await new Promise<never>(() => {});
   }
 
-  async #budgetFailure(): Promise<GitResourceError | undefined> {
-    if (this.#host.now() - this.#startedAt > this.#limits.timeoutMilliseconds) {
+  async #budgetFailure(
+    commandStartedAt?: number,
+  ): Promise<GitResourceError | undefined> {
+    const activeMilliseconds =
+      commandStartedAt === undefined
+        ? 0
+        : Math.max(0, this.#host.now() - commandStartedAt);
+    if (
+      this.#budget.elapsedMilliseconds + activeMilliseconds >
+      this.#limits.timeoutMilliseconds
+    ) {
       return new GitResourceError(
         `timeout exceeded ${this.#limits.timeoutMilliseconds}ms; the Git process group was terminated`,
       );

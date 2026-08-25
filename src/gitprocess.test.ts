@@ -18,6 +18,7 @@ class FakeHost implements GitProcessHost {
   readonly invocations: ProcessInvocation[] = [];
   readonly outputs: Uint8Array[][] = [];
   readonly exitCodes: number[] = [];
+  readonly elapsedMilliseconds: number[] = [];
   killed = 0;
   removed: string[] = [];
   neverComplete = false;
@@ -71,6 +72,7 @@ class FakeHost implements GitProcessHost {
   }
   start(invocation: ProcessInvocation): RunningProcess {
     this.invocations.push(invocation);
+    this.nowValue += this.elapsedMilliseconds.shift() ?? 0;
     const chunks = this.outputs.shift() ?? [];
     const code = this.exitCodes.shift() ?? 0;
     return {
@@ -260,10 +262,16 @@ test("a source budget remains cumulative across consecutive sessions", async () 
     pollMilliseconds: 2,
   });
   const budget = runner.createBudget();
+  host.elapsedMilliseconds.push(70);
   const first = await runner.begin({ interactive: false, budget });
+  await first.run({
+    kind: "external",
+    args: ["ls-remote"],
+    stage: "ref resolution",
+    account: "metadata",
+  });
   await first.close();
-  host.nowValue = 119;
-  host.neverComplete = true;
+  host.elapsedMilliseconds.push(51);
   const second = await runner.begin({ interactive: false, budget });
   await expect(
     second.run({
@@ -273,6 +281,48 @@ test("a source budget remains cumulative across consecutive sessions", async () 
       account: "metadata",
     }),
   ).rejects.toThrow("timeout");
+});
+
+test("each source budget excludes time spent processing other sources", async () => {
+  const host = new FakeHost();
+  const runner = createGitProcessRunner(host, {
+    ...DEFAULT_GIT_LIMITS,
+    timeoutMilliseconds: 120,
+    pollMilliseconds: 2,
+  });
+  const sourceA = runner.createBudget();
+  host.elapsedMilliseconds.push(60);
+  const firstA = await runner.begin({ interactive: false, budget: sourceA });
+  await firstA.run({
+    kind: "external",
+    args: ["ls-remote", "source-a"],
+    stage: "ref resolution",
+    account: "metadata",
+  });
+  await firstA.close();
+
+  const sourceB = runner.createBudget();
+  host.elapsedMilliseconds.push(80);
+  const onlyB = await runner.begin({ interactive: false, budget: sourceB });
+  await onlyB.run({
+    kind: "repository",
+    args: ["fetch", "source-b"],
+    stage: "commit fetch",
+    account: "metadata",
+  });
+  await onlyB.close();
+
+  host.elapsedMilliseconds.push(60);
+  const secondA = await runner.begin({ interactive: false, budget: sourceA });
+  await secondA.run({
+    kind: "repository",
+    args: ["cat-file", "blob"],
+    stage: "object verification",
+    account: "extraction",
+  });
+  await secondA.close();
+
+  expect(host.nowValue).toBe(200);
 });
 
 test("default branch resolution and opening consume the same injected clock budget", async () => {
