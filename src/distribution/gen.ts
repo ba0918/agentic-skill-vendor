@@ -55,6 +55,7 @@ import {
 import { planExpansion } from "./generation-plan.ts";
 import { executePlan } from "./generation-write.ts";
 import { closureViolations } from "./lock-update.ts";
+import { classifyMissingRemoteContracts } from "./raw-contracts.ts";
 import {
   withContractMapping,
   withoutContractMapping,
@@ -537,15 +538,21 @@ function assertCacheHolds(
   declaration: Declaration,
   sources: LockSources,
 ): void {
-  const missing = declaredIds(skills).filter((id) => {
-    const location = locations.get(id);
-    return location !== undefined && !location.local && location.site === null;
-  });
-  if (missing.length === 0) return;
   const sourceOf = (id: string) => declaration.contracts[id]?.source;
+  const { missing, unpinned } = classifyMissingRemoteContracts(
+    declaredIds(skills),
+    (id) => {
+      const location = locations.get(id);
+      return (
+        location !== undefined && !location.local && location.site === null
+      );
+    },
+    sourceOf,
+    sources,
+  );
+  if (missing.length === 0) return;
   const named = (ids: string[]) =>
     ids.map((id) => `${id} (from ${sourceOf(id)})`).join(", ");
-  const unpinned = missing.filter((id) => sources[sourceOf(id)] === undefined);
   if (unpinned.length > 0) {
     throw new ConfigError(
       `${LOCK_FILE} pins no commit for the source of ${named(unpinned)}; ` +

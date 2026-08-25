@@ -31,6 +31,7 @@ import {
 } from "../contracts/raw.ts";
 import type { Declaration, RawMapping } from "../contracts/source-schema.ts";
 import { readRawMaterials } from "./rawsource.ts";
+import { classifyMissingRemoteContracts } from "./raw-contracts.ts";
 import {
   declaredIds,
   dependentIndex,
@@ -1162,17 +1163,21 @@ export function assertRawCacheHolds(
   declaration: Declaration,
   sources: LockSources,
 ): void {
-  const missing = declaredIds(skills).filter((id) => {
-    const reading = raws.get(id);
-    return (
-      reading !== undefined && !reading.local && reading.materials === null
-    );
-  });
-  if (missing.length === 0) return;
   const sourceOf = (id: string) => declaration.contracts[id].source;
+  const { missing, unpinned } = classifyMissingRemoteContracts(
+    declaredIds(skills),
+    (id) => {
+      const reading = raws.get(id);
+      return (
+        reading !== undefined && !reading.local && reading.materials === null
+      );
+    },
+    sourceOf,
+    sources,
+  );
+  if (missing.length === 0) return;
   const named = (ids: string[]) =>
     ids.map((id) => `${id} (from ${sourceOf(id)})`).join(", ");
-  const unpinned = missing.filter((id) => sources[sourceOf(id)] === undefined);
   if (unpinned.length > 0) {
     throw new ConfigError(
       `vendor-lock.json pins no commit for the source of ${named(unpinned)}; ` +
