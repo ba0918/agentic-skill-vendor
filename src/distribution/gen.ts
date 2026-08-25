@@ -31,7 +31,7 @@ import {
   assertRawCacheHolds,
   deriveRawResolutions,
   rawClosureViolations,
-} from "./placements.ts";
+} from "./raw-contracts.ts";
 import { parseDeclaration } from "../contracts/source-schema.ts";
 import {
   type ContractLocation,

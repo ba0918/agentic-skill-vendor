@@ -34,7 +34,7 @@ import {
   isRawId,
   rawClosureViolations,
   rawLockViolations,
-} from "./placements.ts";
+} from "./raw-contracts.ts";
 import { placementViolations } from "./placement-verify.ts";
 
 /**

@@ -19,8 +19,8 @@ import {
   observeDest,
   sameBytes,
   selectionRemovalDetail,
-  type RawContracts,
 } from "./placements.ts";
+import type { RawContracts } from "./raw-contracts.ts";
 
 const LOCK_PREFIX = "vendor-lock.json";
 

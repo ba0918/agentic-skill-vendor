@@ -21,8 +21,8 @@ import {
   placedFilesOf,
   planMigration,
   planSweep,
-  type RawContracts,
 } from "./placements.ts";
+import type { RawContracts } from "./raw-contracts.ts";
 
 export interface PlannedDest {
   skill: string;

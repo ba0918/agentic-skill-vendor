@@ -31,7 +31,7 @@ import {
   assertSrcsClearOfConformance,
   type RawContracts,
   readRawContracts,
-} from "./placements.ts";
+} from "./raw-contracts.ts";
 
 export interface TreeState {
   resolutions: Resolutions;

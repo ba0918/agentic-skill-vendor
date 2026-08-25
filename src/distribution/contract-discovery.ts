@@ -24,7 +24,7 @@ import {
   originPathOf,
   VENDOR_SUBPATH,
 } from "../contracts/sources.ts";
-import { rawMappingsOf, type ConformancePosition } from "./placements.ts";
+import { rawMappingsOf, type ConformancePosition } from "./raw-contracts.ts";
 
 /** Where each document contract keeps its conformance tests inside its source, by id. */
 export function conformanceDirectoriesOf(
