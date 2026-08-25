@@ -16,20 +16,19 @@ import { conformanceDigest } from "../contracts/conformance.ts";
 import type { SkillDeclaration } from "../contracts/declaration.ts";
 import {
   LOCK_FILE,
-  type LockSources,
-  type Placements,
   renderExpectedLock,
-  type Resolutions,
   sourceViolations,
 } from "../contracts/manifest.ts";
+import type {
+  LockSources,
+  Placements,
+  Resolutions,
+} from "../contracts/lock-model.ts";
 import { listVendorEntries, vendorDirOf } from "./contract-discovery.ts";
 import { closureViolations, lockViolations } from "./generation-plan.ts";
 import { prepareTreeMaterials, readTreeState } from "./tree-materials.ts";
 import { vendorHeader } from "./header.ts";
-import type {
-  ContractLocation,
-  Declaration,
-} from "../contracts/source-schema.ts";
+import type { ContractLocation, Declaration } from "../contracts/sources.ts";
 import {
   deriveRawResolutions,
   isRawId,

@@ -14,7 +14,7 @@ import {
 import { placementDigest, placementKeyOf, srcKeyOf } from "../contracts/raw.ts";
 import { displayName } from "../filesystem/walk.ts";
 import type { PlacedFile } from "../filesystem/atomic-write.ts";
-import type { RawMapping } from "../contracts/source-schema.ts";
+import type { RawMapping } from "../contracts/sources.ts";
 import {
   assertNotIgnored,
   assertWritableDest,

@@ -26,7 +26,7 @@ import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
-} from "./source-schema.ts";
+} from "./sources.ts";
 import { emptyRecord } from "../records.ts";
 import { assertPlainChain, isRegularFileOrAbsent } from "../filesystem/walk.ts";
 import { dependenciesOf, type SkillDeclaration } from "./declaration.ts";
@@ -51,16 +51,6 @@ import {
   type Resolutions,
 } from "./lock-model.ts";
 import { canonicalJson, decodeLock, emptyDecodedLock } from "./lock-codec.ts";
-export { buildLock } from "./lock-model.ts";
-export type {
-  LockSource,
-  LockSources,
-  Placement,
-  Placements,
-  Resolution,
-  Resolutions,
-} from "./lock-model.ts";
-export { canonicalJson } from "./lock-codec.ts";
 
 /**
  * The canonical text of the lock the tree renders to.

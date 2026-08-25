@@ -15,10 +15,10 @@ import type {
   Placement,
   Placements,
   Resolution,
-} from "../contracts/manifest.ts";
+} from "../contracts/lock-model.ts";
 import { cacheRevisionDirOf } from "../contracts/cache.ts";
 import { finalDestPath } from "../contracts/placement-ownership.ts";
-import { LOCAL_SOURCE } from "../contracts/source-schema.ts";
+import { LOCAL_SOURCE } from "../contracts/sources.ts";
 import {
   basenameOf,
   MARKER_FILE,
@@ -28,7 +28,7 @@ import {
   type RawMaterial,
   srcKeyOf,
 } from "../contracts/raw.ts";
-import type { Declaration, RawMapping } from "../contracts/source-schema.ts";
+import type { Declaration, RawMapping } from "../contracts/sources.ts";
 import { readRawMaterials } from "./rawsource.ts";
 import { classifyMissingRemoteContracts } from "./raw-contracts.ts";
 import {
@@ -56,7 +56,7 @@ import {
   readIgnoreRules,
 } from "../filesystem/ignore.ts";
 import { framedDigest } from "../contracts/raw.ts";
-import type { RawKind } from "../contracts/source-schema.ts";
+import type { RawKind } from "../contracts/sources.ts";
 import type { PlacementMigrationComponent } from "../contracts/placement-ownership.ts";
 
 /**

@@ -23,7 +23,7 @@ import {
   LOCAL_SOURCE,
   originPathOf,
   VENDOR_SUBPATH,
-} from "../contracts/source-schema.ts";
+} from "../contracts/sources.ts";
 import { rawMappingsOf, type ConformancePosition } from "./placements.ts";
 
 /** Where each document contract keeps its conformance tests inside its source, by id. */

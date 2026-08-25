@@ -1,4 +1,4 @@
-import { TOOL_DIR } from "./source-schema.ts";
+import { TOOL_DIR } from "./sources.ts";
 
 export const CACHE_DIR = `${TOOL_DIR}/cache`;
 

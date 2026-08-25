@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
-import { TOOL_DIR } from "../contracts/source-schema.ts";
+import { TOOL_DIR } from "../contracts/sources.ts";
 import {
   assertPlainChain,
   dirNameOf,

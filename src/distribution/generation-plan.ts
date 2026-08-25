@@ -1,17 +1,13 @@
 import { ConfigError } from "../errors.ts";
 import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import type { SkillDeclaration } from "../contracts/declaration.ts";
+import type { ContractLocation, Declaration } from "../contracts/sources.ts";
+import { LOCK_FILE, renderExpectedLock } from "../contracts/manifest.ts";
 import type {
-  ContractLocation,
-  Declaration,
-} from "../contracts/source-schema.ts";
-import {
-  LOCK_FILE,
-  renderExpectedLock,
-  type LockSources,
-  type Placements,
-  type Resolutions,
-} from "../contracts/manifest.ts";
+  LockSources,
+  Placements,
+  Resolutions,
+} from "../contracts/lock-model.ts";
 import { emptyRecord } from "../records.ts";
 import {
   listVendorEntries,

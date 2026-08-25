@@ -14,7 +14,7 @@ import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
 import { CACHE_DIR } from "../contracts/cache.ts";
 import { compareStrings } from "../ordering.ts";
-import type { LockSources } from "../contracts/manifest.ts";
+import type { LockSources } from "../contracts/lock-model.ts";
 import {
   assertPlainChain,
   displayName,

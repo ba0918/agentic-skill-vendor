@@ -5,17 +5,17 @@ import {
   readSkills,
   type SkillDeclaration,
 } from "../contracts/declaration.ts";
-import {
-  type LockSources,
-  type Placements,
-  readLock,
-  type Resolutions,
-} from "../contracts/manifest.ts";
+import { readLock } from "../contracts/manifest.ts";
+import type {
+  LockSources,
+  Placements,
+  Resolutions,
+} from "../contracts/lock-model.ts";
 import {
   type ContractLocation,
   type Declaration,
   readDeclaration,
-} from "../contracts/source-schema.ts";
+} from "../contracts/sources.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,

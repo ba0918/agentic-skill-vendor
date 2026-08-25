@@ -1,7 +1,7 @@
 import { ConfigError } from "../errors.ts";
 import { compareStrings } from "../ordering.ts";
-import type { Declaration } from "../contracts/source-schema.ts";
-import { DECLARATION_FILE } from "../contracts/source-schema.ts";
+import type { Declaration } from "../contracts/sources.ts";
+import { DECLARATION_FILE } from "../contracts/sources.ts";
 import type { LockSources } from "../contracts/lock-model.ts";
 import type { SnapshotTarget } from "./remote.ts";
 

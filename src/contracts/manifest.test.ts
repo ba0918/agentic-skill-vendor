@@ -3,12 +3,9 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
-import {
-  canonicalJson,
-  readLock,
-  renderExpectedLock,
-  type Resolutions,
-} from "./manifest.ts";
+import { readLock, renderExpectedLock } from "./manifest.ts";
+import type { Resolutions } from "./lock-model.ts";
+import { canonicalJson } from "./lock-codec.ts";
 import { readLockFile, writeLockFile } from "../test-support/assertions.ts";
 import { runCli } from "../test-support/cli.ts";
 import { snapshotTree } from "../test-support/filesystem.ts";

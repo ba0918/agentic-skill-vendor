@@ -31,6 +31,7 @@ const EXPECTED_SOURCE_FILES = [
   "src/contracts/source-edit.ts",
   "src/contracts/source-schema.ts",
   "src/contracts/sources.test.ts",
+  "src/contracts/sources.ts",
   "src/contracts/lock-codec.ts",
   "src/contracts/lock-model.ts",
   "src/diagnostics/selftest.test.ts",
@@ -616,15 +617,35 @@ function discoveryOwnershipViolations(sources: Map<string, string>): string[] {
 }
 
 function sourceOwnershipViolations(sources: Map<string, string>): string[] {
+  const model = sources.get("src/contracts/sources.ts") ?? "";
   const schema = sources.get("src/contracts/source-schema.ts") ?? "";
   const edit = sources.get("src/contracts/source-edit.ts") ?? "";
   const violations: string[] = [];
-  if (sources.has("src/contracts/sources.ts"))
-    violations.push("legacy sources module");
+  if (!/interface Declaration/.test(model))
+    violations.push("shared source model");
+  if (!/function readDeclaration/.test(model))
+    violations.push("source read boundary");
+  if (/filesystem\/walk\.ts/.test(schema))
+    violations.push("schema reaches filesystem");
+  if (/interface Declaration/.test(schema))
+    violations.push("schema owns model");
   if (!/function parseDeclaration/.test(schema))
     violations.push("schema parser");
   if (!/function withContractMapping/.test(edit))
     violations.push("line editor");
+  return violations;
+}
+
+function manifestCompatibilityExports(source: string): string[] {
+  const violations: string[] = [];
+  if (/export \{ buildLock \} from/.test(source)) violations.push("buildLock");
+  if (/export \{ canonicalJson \} from/.test(source))
+    violations.push("canonicalJson");
+  if (
+    /export type \{[^}]*\b(?:LockSource|Resolution|Placement)\b/s.test(source)
+  ) {
+    violations.push("lock model types");
+  }
   return violations;
 }
 
@@ -746,6 +767,12 @@ test("source schema and line editing have final owners", async () => {
   expect(sourceOwnershipViolations(await repositorySources())).toStrictEqual(
     [],
   );
+});
+
+test("manifest exports only its filesystem and top-level lock boundary", async () => {
+  const source =
+    (await repositorySources()).get("src/contracts/manifest.ts") ?? "";
+  expect(manifestCompatibilityExports(source)).toStrictEqual([]);
 });
 
 test("test helpers have no compatibility barrel or callers", async () => {

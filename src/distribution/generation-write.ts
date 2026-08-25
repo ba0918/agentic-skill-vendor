@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises";
 import { ConfigError, describeCause, type Sink } from "../errors.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import { assertPlainChain, displayName } from "../filesystem/walk.ts";
-import { TOOL_DIR } from "../contracts/source-schema.ts";
+import { TOOL_DIR } from "../contracts/sources.ts";
 import {
   unignoredWorkDirectoryWarning,
   workDirectoryIsIgnored,

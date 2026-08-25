@@ -3,11 +3,13 @@ import { assertValidContractId } from "./digest.ts";
 import {
   assertRepository,
   assertSourceName,
-  DECLARATION_FILE,
   isUsableRef,
+} from "./source-schema.ts";
+import {
+  DECLARATION_FILE,
   LOCAL_SOURCE,
   type SourceRecord,
-} from "./source-schema.ts";
+} from "./sources.ts";
 
 // The writing half. Every change the tool makes to this file is a line
 // inserted or a line taken out, never a re-rendering of the parsed document.

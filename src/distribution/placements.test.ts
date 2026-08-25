@@ -2,10 +2,8 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { conformanceDirectoriesOf } from "./contract-discovery.ts";
 import { assertSrcsClearOfConformance } from "./placements.ts";
-import {
-  type ContractLocation,
-  parseDeclaration,
-} from "../contracts/source-schema.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
+import type { ContractLocation } from "../contracts/sources.ts";
 import { fakeGitHub } from "../test-support/remote.ts";
 import { readLockFile, writeLockFile } from "../test-support/assertions.ts";
 import { runCli } from "../test-support/cli.ts";

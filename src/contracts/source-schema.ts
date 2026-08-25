@@ -1,22 +1,6 @@
-// sources.ts — where each contract's canonical text lives, as the tree declares it.
-//
-// The declaration is one table over every contract the repository uses, local
-// and remote alike, and the tool is its scribe: `add` registers a source,
-// `gen`, `add` and `update` write the mapping lines they derive, and a person
-// writes only the two things no derivation can decide — which source wins when
-// several hold the same id, and where a canonical text sits when it is not at
-// the conventional position.
-//
-// Reading is a parse-then-judge pair, the same shape declaration.ts uses on a
-// skill's frontmatter and for the same reason: a hand-written line grammar has
-// to decide what every unfamiliar shape means, and its answer for "I cannot
-// read this" is silence. Here silence would be worse than in a skill, because
-// an unread mapping reads as "this contract is local" and sends the run to a
-// file that does not exist.
-
 import { load as parseYaml } from "js-yaml";
 import { ConfigError, describeCause } from "../errors.ts";
-import { assertValidContractId, contractPath } from "./digest.ts";
+import { assertValidContractId } from "./digest.ts";
 import { emptyRecord } from "../records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 import { MARKER_FILE } from "./raw.ts";
@@ -24,135 +8,18 @@ import { readDistributionIgnore } from "./distribution-ignore.ts";
 import { pathsOverlap } from "./placement-ownership.ts";
 import { assertUsableSourceName, classifyRepository } from "./repository.ts";
 import {
-  assertPlainChain,
-  isRegularFileOrAbsent,
-  readTextFile,
-} from "../filesystem/walk.ts";
+  type ContractOrigin,
+  type Declaration,
+  DECLARATION_FILE,
+  LOCAL_SOURCE,
+  type RawKind,
+  type RawMapping,
+  type SourceRecord,
+  TOOL_DIR,
+  VENDOR_SUBPATH,
+} from "./sources.ts";
 
-/** The one file the declaration lives in. */
-export const DECLARATION_FILE = "vendor-manifest.yaml";
-
-/**
- * The source name standing for this repository itself.
- *
- * Reserved rather than merely conventional: a registered source of this name
- * would make `source: local` ambiguous between "the text is here" and "the
- * text is over there", and a mapping the reader cannot resolve by eye is the
- * one thing this table exists to prevent.
- */
-export const LOCAL_SOURCE = "local";
-
-/**
- * What a source name, a repository and a ref may be made of.
- *
- * Every one of the three reaches somewhere a loose value must not: the name
- * becomes a directory under the cache, and the other two are interpolated into
- * the request the fetch commands make. Checked as an allowlist rather than as
- * a list of dangerous spellings, so a shape nobody thought of is refused
- * rather than passed through.
- *
- * A ref keeps its separators, unlike the other two: `release/2.x` is a legal
- * branch and may even be a repository's default one, so a blanket ban on `/`
- * would refuse trees that are perfectly ordinary. What is refused instead is
- * every spelling that could change which commit — or which URL — the value
- * names: a double dot, an empty segment, a leading dash that would read as an
- * option, and git's own revision punctuation.
- */
 const REF_FORM = /^[A-Za-z0-9][A-Za-z0-9._/-]*[A-Za-z0-9]$|^[A-Za-z0-9]$/;
-
-/**
- * The directory the tool keeps its own working state in, cache included.
- *
- * Named here rather than beside the cache that fills it, because the first
- * thing the tree has to know about it is that no canonical text may live
- * inside it — a rule about what a declaration may say, which is this module's
- * business. The cache layer builds its own paths on top of this one.
- */
-export const TOOL_DIR = ".agentic-skill-vendor";
-
-/** A registered source: the repository to fetch from, and what to fetch. */
-export interface SourceRecord {
-  repository: string;
-  /**
-   * A branch, a tag or a commit SHA. What the lock records is always a commit
-   * SHA; this is the question the fetch commands ask, not the answer.
-   */
-  ref: string;
-}
-
-/**
- * Where one contract's canonical text lives: which source holds it, and — only
- * where it is not at the conventional position — at which path inside that
- * source.
- *
- * `path` means the same thing for every source, `local` included. What makes
- * local special is that nothing has to be fetched, not that it is addressed
- * differently.
- */
-export interface ContractOrigin {
-  source: string;
-  ignore: string[];
-  path?: string;
-  /**
-   * A raw-byte contract: canonical src paths mapped to the dest each lands at
-   * inside every skill declaring the contract. Present on a raw-byte row and
-   * absent on a document row — the one thing that tells the two kinds apart.
-   */
-  files?: RawMapping[];
-}
-
-/** The kind a raw-byte mapping names: one file, or a directory whole. */
-export type RawKind = "file" | "directory";
-
-/**
- * One src → dest pair of a raw-byte contract, both paths with the trailing
- * slash already taken off and the kind it announced kept beside them.
- */
-export interface RawMapping {
-  src: string;
-  dest: string;
-  kind: RawKind;
-}
-
-export interface Declaration {
-  sources: Record<string, SourceRecord>;
-  contracts: Record<string, ContractOrigin>;
-  ignore: string[];
-}
-
-/**
- * Where a run reads one contract's canonical text, and who answers for it.
- *
- * `site` is null for a contract this tree does not hold the text of: a remote
- * one whose bytes are not in the cache. That is a state, not a fault — a clean
- * checkout is in it — and the commands part ways over it: gen asks for a fetch,
- * verify checks what it still can.
- *
- * Stated here rather than beside the code that computes it, because both the
- * lock's rendering and the distribution read it, and the two must not be able
- * to hold different ideas of where a contract's text is.
- */
-export type ContractLocation =
-  /** This repository is the authority: the text is at `site`, or nowhere. */
-  | { local: true; site: string }
-  /** Another repository is: the text is in the cache at `site`, or not yet. */
-  | { local: false; site: string | null };
-
-/**
- * Where a contract's canonical text sits inside the source that holds it.
- *
- * One rule for every source. A mapping that names no path means the
- * conventional position, `contracts/<id>.md`, whether the source is this
- * repository or a repository being fetched from — which is what lets the
- * derivation that writes these lines look in one place rather than in one
- * place per kind of source.
- */
-export function originPathOf(
-  id: string,
-  origin: ContractOrigin | undefined,
-): string {
-  return origin?.path ?? contractPath(id);
-}
 
 /**
  * The declaration a text spells out, or a refusal naming what it holds instead.
@@ -181,25 +48,6 @@ export function parseDeclaration(text: string): Declaration {
       `${DECLARATION_FILE}: ignore`,
     ),
   };
-}
-
-/**
- * The declaration the tree holds, or an empty one where it holds none.
- *
- * A tree with no declaration file is every repository that has never fetched
- * anything, so its absence is an answer rather than a refusal: no source is
- * registered and every contract is where it has always been. The path is
- * guarded before it is opened for the reason every other read here is — a link
- * standing at it would have the run read a table from outside the tree.
- */
-export async function readDeclaration(root: string): Promise<Declaration> {
-  await assertPlainChain(root, DECLARATION_FILE);
-  if (!(await isRegularFileOrAbsent(root, DECLARATION_FILE))) {
-    return emptyDeclaration();
-  }
-  return parseDeclaration(
-    await readTextFile(`${root}/${DECLARATION_FILE}`, DECLARATION_FILE),
-  );
 }
 
 /** A declaration registering nothing and mapping nothing. */
@@ -469,9 +317,6 @@ function kindOf(path: string): RawKind {
 function withoutKind(path: string): string {
   return path.endsWith("/") ? path.slice(0, -1) : path;
 }
-
-/** Where the document copies of a skill are swept from. */
-export const VENDOR_SUBPATH = "references/vendor";
 
 /**
  * A dest, judged as a path inside the skill it lands in.

@@ -6,7 +6,7 @@ import {
   originPathOf,
   type Declaration,
   type RawMapping,
-} from "../contracts/source-schema.ts";
+} from "../contracts/sources.ts";
 import type { LockSource, LockSources } from "../contracts/lock-model.ts";
 import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import type { CachedRevision } from "./cache-write.ts";

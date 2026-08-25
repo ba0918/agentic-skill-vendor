@@ -8,7 +8,7 @@ import {
 } from "../contracts/declaration.ts";
 import { MARKER_FILE } from "../contracts/raw.ts";
 import type { Placements, Resolution } from "../contracts/lock-model.ts";
-import type { Declaration, RawKind } from "../contracts/source-schema.ts";
+import type { Declaration, RawKind } from "../contracts/sources.ts";
 import { displayName } from "../filesystem/walk.ts";
 import { vendorHeader } from "./header.ts";
 import {

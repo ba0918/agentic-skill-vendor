@@ -45,21 +45,20 @@ import {
   updateRequests,
   type SnapshotRequest,
 } from "./snapshot-plan.ts";
-import {
-  assertPinnedRepositories,
-  type LockSource,
-  type LockSources,
-} from "../contracts/manifest.ts";
+import { assertPinnedRepositories } from "../contracts/manifest.ts";
+import type { LockSource, LockSources } from "../contracts/lock-model.ts";
 import { emptyRecord } from "../records.ts";
 import { MARKER_FILE, srcKeyOf } from "../contracts/raw.ts";
 import { IGNORE_FILE } from "../filesystem/ignore.ts";
 import {
-  type Declaration,
-  DECLARATION_FILE,
   isTreeRelativePath,
   parseDeclaration,
-  type RawMapping,
 } from "../contracts/source-schema.ts";
+import {
+  type Declaration,
+  DECLARATION_FILE,
+  type RawMapping,
+} from "../contracts/sources.ts";
 import { withContractMapping } from "../contracts/source-edit.ts";
 import {
   dirNameOf,

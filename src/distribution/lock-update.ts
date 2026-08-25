@@ -4,8 +4,9 @@ import {
   dependentIndex,
   type SkillDeclaration,
 } from "../contracts/declaration.ts";
-import { LOCK_FILE, type Resolutions } from "../contracts/manifest.ts";
-import type { ContractLocation } from "../contracts/source-schema.ts";
+import { LOCK_FILE } from "../contracts/manifest.ts";
+import type { Resolutions } from "../contracts/lock-model.ts";
+import type { ContractLocation } from "../contracts/sources.ts";
 import { displayName } from "../filesystem/walk.ts";
 import type { CanonicalContract } from "./contract-discovery.ts";
 import { lockedOrDeclared } from "./tree-materials.ts";

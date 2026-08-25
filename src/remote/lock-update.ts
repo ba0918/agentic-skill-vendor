@@ -1,8 +1,5 @@
-import {
-  LOCK_FILE,
-  renderExpectedLock,
-  type LockSources,
-} from "../contracts/manifest.ts";
+import { LOCK_FILE, renderExpectedLock } from "../contracts/manifest.ts";
+import type { LockSources } from "../contracts/lock-model.ts";
 import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import {
   locateTreeContracts,

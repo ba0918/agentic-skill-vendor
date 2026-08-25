@@ -14,10 +14,9 @@ import { sourceNameFromRepository } from "../contracts/repository.ts";
 import {
   assertRepository,
   assertSourceName,
-  DECLARATION_FILE,
   parseDeclaration,
-  readDeclaration,
 } from "../contracts/source-schema.ts";
+import { DECLARATION_FILE, readDeclaration } from "../contracts/sources.ts";
 import { withSourceRegistration } from "../contracts/source-edit.ts";
 import { isRegularFileOrAbsent, readTextFile } from "../filesystem/walk.ts";
 

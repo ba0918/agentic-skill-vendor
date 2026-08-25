@@ -21,25 +21,24 @@ import {
 } from "../contracts/declaration.ts";
 import { emptyRecord } from "../records.ts";
 export { vendorHeader } from "./header.ts";
-import {
-  assertPinnedRepositories,
-  LOCK_FILE,
-  type LockSources,
-  type Resolution,
-  type Resolutions,
-} from "../contracts/manifest.ts";
+import { assertPinnedRepositories, LOCK_FILE } from "../contracts/manifest.ts";
+import type {
+  LockSources,
+  Resolution,
+  Resolutions,
+} from "../contracts/lock-model.ts";
 import {
   assertRawCacheHolds,
   deriveRawResolutions,
   rawClosureViolations,
 } from "./placements.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
 import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
   LOCAL_SOURCE,
-  parseDeclaration,
-} from "../contracts/source-schema.ts";
+} from "../contracts/sources.ts";
 import { planExpansion } from "./generation-plan.ts";
 import { executePlan } from "./generation-write.ts";
 import { closureViolations } from "./lock-update.ts";
