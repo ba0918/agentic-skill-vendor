@@ -3,9 +3,10 @@
 //
 // Three commands touch a network and no others do: `fetch` restores the cache
 // the lock already describes, `update` moves the pin and fetches what it now
-// names, and `add` registers a source before doing what `update` does. All
-// three end in the same place — bytes verified, then written into the cache —
-// so that place is written once, here.
+// names, and `add` prepares a source registration before doing what `update`
+// does and publishing both results together. All three end in the same place
+// — bytes verified, then written into the cache — so that place is written
+// once, here.
 //
 // Nothing in this module decides what a contract's digest should be. The one
 // command allowed to record a digest is `gen`, offline, from the canonical
@@ -129,6 +130,31 @@ export async function commandUpdate(
   client: RemoteClient,
 ): Promise<number> {
   const state = await readTreeState(root);
+  return await updateTree(root, out, client, state, null);
+}
+
+/**
+ * Updates through a source table prepared by `add`, without publishing that
+ * table before its repository has been acquired and verified.
+ */
+export async function commandUpdateWithDeclaration(
+  root: string,
+  out: Sink,
+  client: RemoteClient,
+  declaration: Declaration,
+  declarationText: string,
+): Promise<number> {
+  const state = { ...(await readTreeState(root)), declaration };
+  return await updateTree(root, out, client, state, declarationText);
+}
+
+async function updateTree(
+  root: string,
+  out: Sink,
+  client: RemoteClient,
+  state: TreeState,
+  declarationText: string | null,
+): Promise<number> {
   await warnUnlessIgnored(root, out);
   const prepared = await withSnapshots(
     client,
@@ -145,7 +171,12 @@ export async function commandUpdate(
       // case — the very change being adopted — and refusing over it would make
       // every genuine upstream edit a failure. What the new text is gets recorded
       // by the gen that follows, as an adoption a reviewer reads in the diff.
-      const mapping = await mapDeclaredContracts(root, snapshots, state);
+      const mapping = await mapDeclaredContracts(
+        root,
+        snapshots,
+        state,
+        declarationText,
+      );
       const revisions = await collectSources(
         snapshots,
         mapping.declaration,
@@ -284,12 +315,17 @@ async function mapDeclaredContracts(
   root: string,
   snapshots: Map<string, RemoteSnapshot>,
   state: TreeState,
+  declarationText: string | null,
 ): Promise<{
   declaration: Declaration;
   text: string | null;
   report: string[];
 }> {
-  const unchanged = { declaration: state.declaration, text: null, report: [] };
+  const unchanged = {
+    declaration: state.declaration,
+    text: declarationText,
+    report: [],
+  };
   const unmapped = declaredIds(state.skills).filter(
     (id) => state.declaration.contracts[id] === undefined,
   );
@@ -309,7 +345,7 @@ async function mapDeclaredContracts(
       snapshot.blobs.map((entry) => entry.path),
     );
   }
-  let text = await readDeclarationText(root);
+  let text = declarationText ?? (await readDeclarationText(root));
   const before = text;
   const report: string[] = [];
   for (const id of unmapped) {

@@ -573,6 +573,28 @@ test("a failed generic update leaves durable tree state unchanged", async () => 
   });
 });
 
+test("a failed generic add leaves durable tree state unchanged", async () => {
+  await withGoodTree(async (root) => {
+    await declareGenericContract(root);
+    const before = await snapshotTree(root);
+    const remote = fakeGenericRemote();
+    const failing: RemoteClient = {
+      ...remote.client,
+      open: async () => {
+        throw new Error("injected acquisition failure");
+      },
+    };
+    const result = await runCli(
+      ["add", GENERIC_REPOSITORY, "--root", root],
+      undefined,
+      undefined,
+      async () => failing,
+    );
+    expect(result.code).toBe(2);
+    expect(await snapshotTree(root)).toEqual(before);
+  });
+});
+
 test("one CLI run routes mixed GitHub and generic sources to their owning clients", async () => {
   await withFetchedTree(async (root) => {
     const generic = fakeGenericRemote();
