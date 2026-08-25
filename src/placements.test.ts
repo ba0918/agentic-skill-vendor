@@ -11,7 +11,7 @@ import {
   withGoodTree,
   writeFile,
   writeLockFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const RUNTIME = "tools/workflow-runtime";
 const DEST = "skills/release-notes/scripts/_runtime";

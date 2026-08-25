@@ -4,7 +4,7 @@ import {
   readIgnoreRules,
   treeDirectoryOf,
 } from "./ignore.ts";
-import { withEmptyDir, writeFile } from "./testing.ts";
+import { withEmptyDir, writeFile } from "./test-support/testing.ts";
 
 /**
  * Builds a tree from a path-to-content map and answers what the rules in it

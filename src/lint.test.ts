@@ -9,7 +9,7 @@ import {
   runCli,
   withGoodTree,
   writeFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 async function lint(root: string) {
   return await runCli(["lint-selfcontain", "--root", root]);

@@ -24,7 +24,7 @@ import {
   withGoodTree,
   withUnreadable,
   writeFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const encoder = new TextEncoder();
 

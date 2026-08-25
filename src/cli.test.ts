@@ -11,7 +11,7 @@ import {
   withFetchedTree,
   withEmptyDir,
   withGoodTree,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 import { run, startedThisProgram } from "./cli.ts";
 import { gitObjectIdOf } from "./digest.ts";
 import type { RemoteClient, SnapshotTarget } from "./remote.ts";

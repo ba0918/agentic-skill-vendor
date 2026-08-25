@@ -17,7 +17,7 @@ import {
   withGoodTree,
   writeFile,
   writeLockFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";

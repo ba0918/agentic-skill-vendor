@@ -4,7 +4,7 @@ import {
   snapshotTree,
   thrownBy,
   withGoodTree,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";

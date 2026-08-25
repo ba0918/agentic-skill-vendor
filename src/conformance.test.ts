@@ -14,7 +14,7 @@ import {
   snapshotTree,
   withGoodTree,
   writeFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const encoder = new TextEncoder();
 

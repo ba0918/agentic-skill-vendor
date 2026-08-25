@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { run } from "./cli.ts";
-import { compareStrings, gitObjectIdOf, sha256Hex } from "./digest.ts";
-import type { RemoteClient } from "./remote.ts";
+import { run } from "../cli.ts";
+import { compareStrings, gitObjectIdOf, sha256Hex } from "../digest.ts";
+import type { RemoteClient } from "../remote.ts";
 
 const LOCK_FILE = "vendor-lock.json";
 
@@ -94,7 +94,7 @@ export async function importClosureOf(entry: string): Promise<Set<string>> {
     if (reached.has(name)) continue;
     reached.add(name);
     const source = await fs.readFile(
-      new URL(`./${name}`, import.meta.url),
+      new URL(`../${name}`, import.meta.url),
       "utf8",
     );
     for (const match of source.matchAll(/from "\.\/([\w.-]+\.ts)"/g)) {
@@ -110,7 +110,7 @@ export async function importClosureOf(entry: string): Promise<Set<string>> {
  * maintained in the repository.
  */
 const GOOD_FIXTURE = fileURLToPath(
-  new URL("../fixtures/contracts-basic/good", import.meta.url),
+  new URL("../../fixtures/contracts-basic/good", import.meta.url),
 );
 
 /** Clones the clean fixture tree and runs `fn` against the clone. */
@@ -132,7 +132,7 @@ export async function withGoodTree<T>(
  * and all. Cloned per case for the reason the local one is.
  */
 const REMOTE_FIXTURE = fileURLToPath(
-  new URL("../fixtures/contracts-remote/good", import.meta.url),
+  new URL("../../fixtures/contracts-remote/good", import.meta.url),
 );
 
 /** Clones the fetched-tree fixture and runs `fn` against the clone. */

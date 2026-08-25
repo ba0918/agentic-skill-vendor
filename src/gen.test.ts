@@ -22,7 +22,7 @@ import {
   withUnreadable,
   writeFile,
   writeLockFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const LOCK = "vendor-lock.json";

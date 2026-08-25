@@ -16,7 +16,7 @@ import {
   withEmptyDir,
   withGoodTree,
   writeLockFile,
-} from "./testing.ts";
+} from "./test-support/testing.ts";
 
 const LOCK = "vendor-lock.json";
 
