@@ -26,7 +26,6 @@ import {
 } from "../contracts/conformance.ts";
 import {
   assertPlainChain,
-  assertTreeRoot,
   displayName,
   type PlacedFile,
   isDirectoryOrAbsent,
@@ -38,17 +37,12 @@ import { atomicWriteFile } from "../filesystem/atomic-write.ts";
 import {
   declaredIds,
   dependentIndex,
-  readSkills,
   type SkillDeclaration,
   SKILLS_DIR,
 } from "../contracts/declaration.ts";
 import { emptyRecord } from "../records.ts";
 import { vendorHeader } from "./header.ts";
 import { placeViaStaging, prepareStaging } from "./staging.ts";
-import {
-  assertFinalDestinationsDisjoint,
-  finalRawDestinations,
-} from "../contracts/placement-ownership.ts";
 export { vendorHeader } from "./header.ts";
 import { cacheSiteOf } from "../contracts/cache.ts";
 import {
@@ -60,15 +54,12 @@ import {
   LOCK_FILE,
   type LockSources,
   type Placements,
-  readLock,
   renderExpectedLock,
   type Resolution,
   type Resolutions,
 } from "../contracts/manifest.ts";
 import {
-  assertKindsAgree,
   assertRawCacheHolds,
-  assertSrcsClearOfConformance,
   deriveRawResolutions,
   planPlacements,
   presentRawIds,
@@ -76,7 +67,6 @@ import {
   type ConformancePosition,
   type RawContracts,
   rawMappingsOf,
-  readRawContracts,
 } from "./placements.ts";
 import {
   type ContractLocation,
@@ -85,12 +75,17 @@ import {
   LOCAL_SOURCE,
   originPathOf,
   parseDeclaration,
-  readDeclaration,
   withContractMapping,
   withoutContractMapping,
   TOOL_DIR,
   VENDOR_SUBPATH,
 } from "../contracts/sources.ts";
+import {
+  lockedOrDeclared,
+  prepareTreeMaterials,
+  readTreeState,
+  type TreeState,
+} from "./tree-materials.ts";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;
@@ -198,7 +193,7 @@ export async function locateContracts(
   return locations;
 }
 
-interface CanonicalContract {
+export interface CanonicalContract {
   digest: string;
   body: string;
 }
@@ -540,76 +535,6 @@ function staleLockRemedy(location: ContractLocation | undefined): string {
 }
 
 /**
- * The tree read every command starts with: the root checked, the lock read,
- * the skills read from the names the lock remembers.
- *
- * gen and verify read the exact same preamble before they part ways. One place
- * for the preamble is what makes a change to how tree state is read land in
- * both at once instead of in whichever command the author happened to touch.
- */
-export interface TreeState {
-  resolutions: Resolutions;
-  placements: Placements;
-  skills: SkillDeclaration[];
-  sources: LockSources;
-  declaration: Declaration;
-}
-
-export async function readTreeState(root: string): Promise<TreeState> {
-  await assertTreeRoot(root);
-  const { recordedSkills, resolutions, placements, sources } =
-    await readLock(root);
-  const skills = await readSkills(root, recordedSkills);
-  return {
-    resolutions,
-    placements,
-    skills,
-    sources,
-    declaration: await readDeclaration(root),
-  };
-}
-
-/**
- * Every contract this run has to read: the ones a skill declares, and the ones
- * the lock already records.
- *
- * The lock is rewritten from the canonical text, so a contract the lock records
- * has to be read even when nothing declares it any more. Left carried across
- * untouched, a conformance tree edited beside such a contract failed
- * verification with nothing able to record the new value — the one command that
- * could was the approval command, and it is gone.
- */
-export function lockedOrDeclared(
-  skills: SkillDeclaration[],
-  resolutions: Resolutions,
-): string[] {
-  return [
-    ...new Set([...declaredIds(skills), ...Object.keys(resolutions)]),
-  ].sort(compareStrings);
-}
-
-/**
- * Where every contract a run has to look at is read from, decided once.
- *
- * Asked through this one function by gen and by verify, because the two must
- * not disagree about which contracts a tree holds or where their text is. Each
- * building its own list is how they came apart: verify took the declared ids
- * while gen took the declared ids and the recorded ones, so a contract only the
- * lock named was rewritten by one command and never judged by the other.
- */
-export async function locateTreeContracts(
-  root: string,
-  state: TreeState,
-): Promise<Map<string, ContractLocation>> {
-  return await locateContracts(
-    root,
-    state.declaration,
-    state.sources,
-    lockedOrDeclared(state.skills, state.resolutions),
-  );
-}
-
-/**
  * The lock the canonical text implies: one resolution per contract the tree
  * holds text for, its digest recomputed and its conformance digest taken as the
  * tree has it.
@@ -841,21 +766,9 @@ export async function commandGen(root: string, out: Sink): Promise<number> {
   const table = await reviseOrigins(root, read);
   const state = { ...read, declaration: table.declaration };
   const { resolutions: recorded, skills, sources } = state;
-  assertFinalDestinationsDisjoint(
-    finalRawDestinations(skills, state.declaration),
-  );
-  assertKindsAgree(state.declaration, recorded);
-  const locations = await locateTreeContracts(root, state);
-  assertSrcsClearOfConformance(
-    state.declaration,
-    conformanceDirectoriesOf(locations, state.declaration),
-  );
-  const contracts = await readContracts(root, locations);
-  const raws = await readRawContracts(
+  const { locations, contracts, raws } = await prepareTreeMaterials(
     root,
-    state.declaration,
-    sources,
-    lockedOrDeclared(skills, recorded),
+    state,
   );
   const violations = [
     ...closureViolations(skills, contracts, locations),

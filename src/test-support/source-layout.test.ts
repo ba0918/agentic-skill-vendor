@@ -538,6 +538,23 @@ function lockOwnershipViolations(sources: Map<string, string>): string[] {
   return violations;
 }
 
+function treeMaterialOwnershipViolations(
+  sources: Map<string, string>,
+): string[] {
+  const gen = sources.get("src/distribution/gen.ts") ?? "";
+  const verify = sources.get("src/distribution/verify.ts") ?? "";
+  const owner = sources.get("src/distribution/tree-materials.ts") ?? "";
+  const violations: string[] = [];
+  if (/function readTreeState/.test(gen)) violations.push("gen readTreeState");
+  if (!/function prepareTreeMaterials/.test(owner))
+    violations.push("missing owner pipeline");
+  if (!/prepareTreeMaterials\(/.test(gen))
+    violations.push("gen bypasses pipeline");
+  if (!/prepareTreeMaterials\(/.test(verify))
+    violations.push("verify bypasses pipeline");
+  return violations;
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -557,6 +574,12 @@ test("test support responsibilities have one final owner", async () => {
 
 test("lock model and codec responsibilities have one final owner", async () => {
   expect(lockOwnershipViolations(await repositorySources())).toStrictEqual([]);
+});
+
+test("gen and verify share one tree-material preparation owner", async () => {
+  expect(
+    treeMaterialOwnershipViolations(await repositorySources()),
+  ).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {

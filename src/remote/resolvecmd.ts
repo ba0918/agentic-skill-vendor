@@ -74,7 +74,7 @@ import {
   locateTreeContracts,
   readTreeState,
   type TreeState,
-} from "../distribution/gen.ts";
+} from "../distribution/tree-materials.ts";
 import { declaredIds } from "../contracts/declaration.ts";
 
 /**

@@ -22,33 +22,17 @@ import {
   type Resolutions,
   sourceViolations,
 } from "../contracts/manifest.ts";
-import {
-  listVendorEntries,
-  readContracts,
-  vendorDirOf,
-} from "./contract-discovery.ts";
+import { listVendorEntries, vendorDirOf } from "./contract-discovery.ts";
 import { closureViolations, lockViolations } from "./generation-plan.ts";
-import {
-  conformanceDirectoriesOf,
-  locateTreeContracts,
-  lockedOrDeclared,
-  readTreeState,
-} from "./tree-materials.ts";
+import { prepareTreeMaterials, readTreeState } from "./tree-materials.ts";
 import { vendorHeader } from "./header.ts";
 import type { ContractLocation, Declaration } from "../contracts/sources.ts";
 import {
-  assertFinalDestinationsDisjoint,
-  finalRawDestinations,
-} from "../contracts/placement-ownership.ts";
-import {
-  assertKindsAgree,
-  assertSrcsClearOfConformance,
   deriveRawResolutions,
   isRawId,
   placementViolations,
   rawClosureViolations,
   rawLockViolations,
-  readRawContracts,
 } from "./placements.ts";
 
 /**
@@ -225,21 +209,9 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
-  assertFinalDestinationsDisjoint(
-    finalRawDestinations(skills, state.declaration),
-  );
-  assertKindsAgree(state.declaration, resolutions);
-  const locations = await locateTreeContracts(root, state);
-  assertSrcsClearOfConformance(
-    state.declaration,
-    conformanceDirectoriesOf(locations, state.declaration),
-  );
-  const contracts = await readContracts(root, locations);
-  const raws = await readRawContracts(
+  const { locations, contracts, raws } = await prepareTreeMaterials(
     root,
-    state.declaration,
-    sources,
-    lockedOrDeclared(skills, resolutions),
+    state,
   );
 
   // The three file-system checks are independent of one another and of the
