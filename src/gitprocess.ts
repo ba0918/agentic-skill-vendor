@@ -16,7 +16,12 @@ export interface GitProcessCommand {
   kind: "external" | "repository";
   args: readonly string[];
   stage: GitFailureStage;
-  outputLimit: number;
+  account?: "metadata" | "extraction";
+  outputLimit?: number;
+}
+
+export interface GitSourceBudget {
+  readonly startedAt: number;
 }
 
 export interface GitProcessSession {
@@ -30,7 +35,11 @@ export interface GitProcessSession {
 }
 
 export interface GitProcessRunner {
-  begin(options: { interactive: boolean }): Promise<GitProcessSession>;
+  createBudget(): GitSourceBudget;
+  begin(options: {
+    interactive: boolean;
+    budget?: GitSourceBudget;
+  }): Promise<GitProcessSession>;
 }
 
 export interface ProcessInvocation {
@@ -100,6 +109,7 @@ const DANGEROUS_ENVIRONMENT = [
   /^GIT_(?:TERMINAL_PROMPT|SSL_NO_VERIFY|CURL_VERBOSE|HTTP_USER_AGENT)$/,
   /^GIT_PROTOCOL_FROM_USER$/,
   /^GIT_SSH_VARIANT$/,
+  /^GIT_(?:COMMON_DIR|TEMPLATE_DIR|SHALLOW_FILE)$/,
   /^GIT_ATTR_NOSYSTEM$/,
   /^GIT_CEILING_DIRECTORIES$/,
   /^SSH_ASKPASS(?:_REQUIRE)?$/,
@@ -112,14 +122,17 @@ export function createGitProcessRunner(
   host: GitProcessHost = nodeGitProcessHost(),
   limits: Readonly<GitLimits> = DEFAULT_GIT_LIMITS,
 ): GitProcessRunner {
+  const createBudget = (): GitSourceBudget => ({ startedAt: host.now() });
   return {
-    async begin({ interactive }) {
+    createBudget,
+    async begin({ interactive, budget = createBudget() }) {
       const temporaryDirectory = await host.createTemporaryDirectory();
       return new BoundedGitProcessSession(
         host,
         limits,
         temporaryDirectory,
         interactive,
+        budget,
       );
     },
   };
@@ -139,12 +152,13 @@ class BoundedGitProcessSession implements GitProcessSession {
     limits: Readonly<GitLimits>,
     temporaryDirectory: string,
     interactive: boolean,
+    budget: GitSourceBudget,
   ) {
     this.#host = host;
     this.#limits = limits;
     this.#temporaryDirectory = temporaryDirectory;
     this.#interactive = interactive;
-    this.#startedAt = host.now();
+    this.#startedAt = budget.startedAt;
   }
 
   async initialize(objectFormat: GitObjectFormat): Promise<void> {
@@ -197,16 +211,21 @@ class BoundedGitProcessSession implements GitProcessSession {
       const read = (async () => {
         for await (const chunk of process.stdout) {
           fileBytes += chunk.length;
-          if (fileBytes > command.outputLimit) {
+          if (
+            command.outputLimit !== undefined &&
+            fileBytes > command.outputLimit
+          ) {
             throw new GitResourceError(
               `object verification failed: file capacity exceeded ${command.outputLimit} bytes`,
             );
           }
-          this.#aggregateBytes += chunk.length;
-          if (this.#aggregateBytes > this.#limits.aggregateBytes) {
-            throw new GitResourceError(
-              `object verification failed: aggregate capacity exceeded ${this.#limits.aggregateBytes} bytes`,
-            );
+          if (command.account !== "metadata") {
+            this.#aggregateBytes += chunk.length;
+            if (this.#aggregateBytes > this.#limits.aggregateBytes) {
+              throw new GitResourceError(
+                `object verification failed: aggregate capacity exceeded ${this.#limits.aggregateBytes} bytes`,
+              );
+            }
           }
           take(chunk);
         }
@@ -241,8 +260,8 @@ class BoundedGitProcessSession implements GitProcessSession {
 
   async close(): Promise<void> {
     if (this.#closed) return;
-    this.#closed = true;
     await this.#host.removeTemporaryDirectory(this.#temporaryDirectory);
+    this.#closed = true;
   }
 
   #invocation(command: GitProcessCommand): ProcessInvocation {

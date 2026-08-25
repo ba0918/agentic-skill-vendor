@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "./errors.ts";
+import { gitOver } from "./git.ts";
 import {
   createGitProcessRunner,
   DEFAULT_GIT_LIMITS,
@@ -9,6 +10,7 @@ import {
 } from "./gitprocess.ts";
 
 const encoder = new TextEncoder();
+const SHA1 = "1".repeat(40);
 
 class FakeHost implements GitProcessHost {
   nowValue = 0;
@@ -20,6 +22,7 @@ class FakeHost implements GitProcessHost {
   removed: string[] = [];
   neverComplete = false;
   diskBytesAfterWait: number | undefined;
+  removalFailures = 0;
 
   now(): number {
     return this.nowValue;
@@ -35,6 +38,10 @@ class FakeHost implements GitProcessHost {
     return Promise.resolve("/tmp/fake-git-source");
   }
   removeTemporaryDirectory(path: string): Promise<void> {
+    if (this.removalFailures > 0) {
+      this.removalFailures -= 1;
+      return Promise.reject(new Error("injected removal failure"));
+    }
     this.removed.push(path);
     return Promise.resolve();
   }
@@ -52,6 +59,9 @@ class FakeHost implements GitProcessHost {
       GIT_TRACE: "1",
       GIT_TERMINAL_PROMPT: "1",
       GIT_SSL_NO_VERIFY: "1",
+      GIT_COMMON_DIR: "/attacker/common",
+      GIT_TEMPLATE_DIR: "/attacker/template",
+      GIT_SHALLOW_FILE: "/attacker/shallow",
       SSH_AUTH_SOCK: "/trusted/agent",
     };
   }
@@ -107,6 +117,9 @@ test("uses shell-free fixed repository arguments and preserves only trusted conf
   expect(fetch.environment.GIT_CONFIG_VALUE_0).toBeUndefined();
   expect(fetch.environment.GIT_TRACE).toBeUndefined();
   expect(fetch.environment.GIT_SSL_NO_VERIFY).toBeUndefined();
+  expect(fetch.environment.GIT_COMMON_DIR).toBeUndefined();
+  expect(fetch.environment.GIT_TEMPLATE_DIR).toBeUndefined();
+  expect(fetch.environment.GIT_SHALLOW_FILE).toBeUndefined();
   expect(fetch.environment.GIT_TERMINAL_PROMPT).toBe("0");
 });
 
@@ -144,6 +157,7 @@ test("lets an interactive terminal inherit prompts while non-interactive runs ca
 
 test("stops streaming before one file is buffered past its cap", async () => {
   const host = new FakeHost();
+  host.neverComplete = true;
   host.outputs.push([encoder.encode("1234"), encoder.encode("5678")]);
   const session = await createGitProcessRunner(host).begin({
     interactive: false,
@@ -172,6 +186,7 @@ test("applies the aggregate extraction cap across commands", async () => {
     stage: "object verification",
     outputLimit: 4,
   });
+  host.neverComplete = true;
   await expect(
     session.run({
       kind: "external",
@@ -181,6 +196,77 @@ test("applies the aggregate extraction cap across commands", async () => {
     }),
   ).rejects.toThrow("aggregate capacity");
   expect(host.killed).toBe(1);
+});
+
+test("metadata does not reduce the aggregate file extraction allowance", async () => {
+  const host = new FakeHost();
+  host.outputs.push([encoder.encode("metadata")], [encoder.encode("123456")]);
+  const runner = createGitProcessRunner(host, {
+    ...DEFAULT_GIT_LIMITS,
+    aggregateBytes: 6,
+  });
+  const session = await runner.begin({ interactive: false });
+  await session.run({
+    kind: "external",
+    args: ["ls-tree"],
+    stage: "object verification",
+    account: "metadata",
+  });
+  expect(
+    await session.run({
+      kind: "external",
+      args: ["cat-file"],
+      stage: "object verification",
+      account: "extraction",
+      outputLimit: 6,
+    }),
+  ).toEqual(encoder.encode("123456"));
+});
+
+test("a source budget remains cumulative across consecutive sessions", async () => {
+  const host = new FakeHost();
+  const runner = createGitProcessRunner(host, {
+    ...DEFAULT_GIT_LIMITS,
+    timeoutMilliseconds: 120,
+    pollMilliseconds: 2,
+  });
+  const budget = runner.createBudget();
+  const first = await runner.begin({ interactive: false, budget });
+  await first.close();
+  host.nowValue = 119;
+  host.neverComplete = true;
+  const second = await runner.begin({ interactive: false, budget });
+  await expect(
+    second.run({
+      kind: "external",
+      args: ["ls-remote"],
+      stage: "ref resolution",
+      account: "metadata",
+    }),
+  ).rejects.toThrow("timeout");
+});
+
+test("default branch resolution and opening consume the same injected clock budget", async () => {
+  const host = new FakeHost();
+  host.outputs.push([
+    encoder.encode(`ref: refs/heads/main\tHEAD\n${SHA1}\tHEAD\n`),
+  ]);
+  const client = gitOver(
+    createGitProcessRunner(host, {
+      ...DEFAULT_GIT_LIMITS,
+      timeoutMilliseconds: 120,
+      pollMilliseconds: 2,
+    }),
+    { interactive: false },
+  );
+  expect(await client.defaultBranchOf("local-invalid-repository")).toBe("main");
+  host.nowValue = 119;
+  host.neverComplete = true;
+  await expect(
+    client.open("local-invalid-repository", { kind: "ref", ref: "main" }),
+  ).rejects.toThrow("timeout");
+  expect(host.killed).toBe(1);
+  expect(host.removed).toHaveLength(2);
 });
 
 test("terminates the process group when the cumulative source deadline is exceeded", async () => {
@@ -240,6 +326,17 @@ test("reports only a safe stage and removes temporary state after child failure"
   expect(error).toBeInstanceOf(ConfigError);
   expect(error.message).toContain("connection or authentication");
   expect(error.message).not.toContain("secret");
+  await session.close();
+  expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+});
+
+test("a failed temporary removal remains retryable", async () => {
+  const host = new FakeHost();
+  host.removalFailures = 1;
+  const session = await createGitProcessRunner(host).begin({
+    interactive: false,
+  });
+  await expect(session.close()).rejects.toThrow("injected removal failure");
   await session.close();
   expect(host.removed).toEqual(["/tmp/fake-git-source"]);
 });

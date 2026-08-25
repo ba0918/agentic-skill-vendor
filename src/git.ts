@@ -4,6 +4,7 @@ import type {
   GitProcessCommand,
   GitProcessRunner,
   GitProcessSession,
+  GitSourceBudget,
 } from "./gitprocess.ts";
 import type {
   RemoteClient,
@@ -23,9 +24,12 @@ export function gitOver(
   runner: GitProcessRunner,
   options: { interactive: boolean },
 ): RemoteClient {
+  const pendingBudgets = new Map<string, GitSourceBudget>();
   return {
     async defaultBranchOf(repository) {
-      const session = await runner.begin(options);
+      const budget = runner.createBudget();
+      const session = await runner.begin({ ...options, budget });
+      let branch: string;
       try {
         const output = await session.run(
           command(
@@ -34,13 +38,17 @@ export function gitOver(
             "ref resolution",
           ),
         );
-        return defaultBranchFrom(output);
+        branch = defaultBranchFrom(output);
       } finally {
         await session.close();
       }
+      pendingBudgets.set(repository, budget);
+      return branch;
     },
     async open(repository, target) {
-      const session = await runner.begin(options);
+      const budget = pendingBudgets.get(repository) ?? runner.createBudget();
+      pendingBudgets.delete(repository);
+      const session = await runner.begin({ ...options, budget });
       try {
         return await openSnapshot(session, repository, target);
       } catch (cause) {
@@ -94,22 +102,7 @@ async function openSnapshot(
       `same-ref fallback fetched a different commit (${revision}) than the lock pins (${target.revision}); nothing was accepted`,
     );
   }
-  const blobs = parseTree(
-    await session.run(
-      command(
-        "repository",
-        [
-          "ls-tree",
-          "-rz",
-          "--full-tree",
-          "--format=%(objectmode) %(objectname) %(path)",
-          revision,
-        ],
-        "object verification",
-      ),
-    ),
-    objectFormat,
-  );
+  const blobs = await readTree(session, revision, objectFormat);
   return {
     revision,
     objectFormat,
@@ -121,6 +114,7 @@ async function openSnapshot(
           kind: "repository",
           args: ["cat-file", "blob", `${revision}:${path}`],
           stage: "object verification",
+          account: "extraction",
           outputLimit: FILE_LIMIT,
         },
         (chunk) => {
@@ -205,7 +199,13 @@ function command(
   args: readonly string[],
   stage: GitProcessCommand["stage"],
 ): GitProcessCommand {
-  return { kind, args, stage, outputLimit: METADATA_LIMIT };
+  return {
+    kind,
+    args,
+    stage,
+    account: "metadata",
+    outputLimit: METADATA_LIMIT,
+  };
 }
 
 function defaultBranchFrom(bytes: Uint8Array): string {
@@ -256,32 +256,86 @@ function requireObjectFormat(
   }
 }
 
-function parseTree(
-  bytes: Uint8Array,
+async function readTree(
+  session: GitProcessSession,
+  revision: string,
   objectFormat: GitObjectFormat,
-): TreeBlob[] {
-  const text = decode(bytes, "object verification");
-  if (text === "") return [];
-  const entries = text.split("\0");
-  if (entries.at(-1) === "") entries.pop();
-  return entries.map((entry) => {
-    const first = entry.indexOf(" ");
-    const second = entry.indexOf(" ", first + 1);
+): Promise<TreeBlob[]> {
+  const parser = new TreeStreamParser(objectFormat);
+  await session.stream(
+    {
+      kind: "repository",
+      args: [
+        "ls-tree",
+        "-rz",
+        "--full-tree",
+        "--format=%(objectmode) %(objectname) %(path)",
+        revision,
+      ],
+      stage: "object verification",
+      account: "metadata",
+    },
+    (chunk) => parser.push(chunk),
+  );
+  return parser.finish();
+}
+
+class TreeStreamParser {
+  readonly #blobs: TreeBlob[] = [];
+  readonly #objectFormat: GitObjectFormat;
+  #pending = new Uint8Array();
+
+  constructor(objectFormat: GitObjectFormat) {
+    this.#objectFormat = objectFormat;
+  }
+
+  push(chunk: Uint8Array): void {
+    const bytes = concatBytes([this.#pending, chunk]);
+    let start = 0;
+    for (let index = 0; index < bytes.length; index++) {
+      if (bytes[index] !== 0) continue;
+      this.#take(bytes.subarray(start, index));
+      start = index + 1;
+    }
+    this.#pending = new Uint8Array(bytes.subarray(start));
+  }
+
+  finish(): TreeBlob[] {
+    if (this.#pending.length !== 0) {
+      throw new ConfigError(
+        "object verification failed: Git returned an unterminated tree entry",
+      );
+    }
+    return this.#blobs;
+  }
+
+  #take(entry: Uint8Array): void {
+    if (entry.length === 0) return;
+    const first = entry.indexOf(0x20);
+    const second = entry.indexOf(0x20, first + 1);
     if (first <= 0 || second <= first + 1) {
       throw new ConfigError(
         "object verification failed: Git returned an unreadable tree entry",
       );
     }
-    const mode = entry.slice(0, first);
-    const objectId = entry.slice(first + 1, second);
-    const path = entry.slice(second + 1);
+    const mode = decode(entry.subarray(0, first), "object verification");
+    const objectId = decode(
+      entry.subarray(first + 1, second),
+      "object verification",
+    );
+    let path: string;
+    try {
+      path = decoder.decode(entry.subarray(second + 1));
+    } catch {
+      return;
+    }
     requireObjectFormat(
       objectId,
-      objectFormat,
+      this.#objectFormat,
       `tree entry ${JSON.stringify(path)} object id`,
     );
-    return { mode, objectId, path };
-  });
+    this.#blobs.push({ mode, objectId, path });
+  }
 }
 
 function decode(bytes: Uint8Array, stage: string): string {

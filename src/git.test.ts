@@ -29,7 +29,14 @@ class FakeSession implements GitProcessSession {
     const key = command.args.join("\0");
     const failure = this.failures.get(key);
     if (failure !== undefined) throw failure;
-    return this.responses.get(key) ?? new Uint8Array();
+    const response = this.responses.get(key) ?? new Uint8Array();
+    if (
+      command.outputLimit !== undefined &&
+      response.length > command.outputLimit
+    ) {
+      throw new ConfigError("fake output limit exceeded");
+    }
+    return response;
   }
 
   async stream(
@@ -37,8 +44,8 @@ class FakeSession implements GitProcessSession {
     take: (chunk: Uint8Array) => void,
   ): Promise<void> {
     const bytes = await this.run(command);
-    for (let offset = 0; offset < bytes.length; offset += 2) {
-      take(bytes.subarray(offset, offset + 2));
+    for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+      take(bytes.subarray(offset, offset + 64 * 1024));
     }
   }
 
@@ -51,9 +58,20 @@ class FakeSession implements GitProcessSession {
 class FakeRunner implements GitProcessRunner {
   readonly sessions: FakeSession[] = [];
   readonly interactive: boolean[] = [];
+  readonly budgets: unknown[] = [];
+  createdBudgets = 0;
 
-  begin(options: { interactive: boolean }): Promise<GitProcessSession> {
+  createBudget(): { startedAt: number } {
+    this.createdBudgets += 1;
+    return { startedAt: 0 };
+  }
+
+  begin(options: {
+    interactive: boolean;
+    budget?: { startedAt: number };
+  }): Promise<GitProcessSession> {
     this.interactive.push(options.interactive);
+    this.budgets.push(options.budget);
     const session = new FakeSession();
     this.sessions.push(session);
     return Promise.resolve(session);
@@ -66,6 +84,14 @@ function answer(
   text: string,
 ): void {
   session.responses.set(args.join("\0"), encoder.encode(text));
+}
+
+function answerBytes(
+  session: FakeSession,
+  args: readonly string[],
+  bytes: Uint8Array,
+): void {
+  session.responses.set(args.join("\0"), bytes);
 }
 
 test("discovers the default branch from the remote HEAD without changing repository state", async () => {
@@ -96,10 +122,67 @@ test("discovers the default branch from the remote HEAD without changing reposit
         "HEAD",
       ],
       stage: "ref resolution",
+      account: "metadata",
       outputLimit: 1024 * 1024,
     },
   ]);
   expect(session.closed).toBe(true);
+});
+
+test("default-branch discovery and acquisition share one source budget", async () => {
+  const runner = new FakeRunner();
+  const client = gitOver(runner, { interactive: false });
+  const branchPromise = client.defaultBranchOf(
+    "ssh://git@example.invalid/group/project.git",
+  );
+  await Promise.resolve();
+  answer(
+    runner.sessions[0],
+    [
+      "ls-remote",
+      "--symref",
+      "ssh://git@example.invalid/group/project.git",
+      "HEAD",
+    ],
+    `ref: refs/heads/main\tHEAD\n${SHA1}\tHEAD\n`,
+  );
+  expect(await branchPromise).toBe("main");
+  const opening = client.open("ssh://git@example.invalid/group/project.git", {
+    kind: "ref",
+    ref: "main",
+  });
+  await Promise.resolve();
+  const session = runner.sessions[1];
+  answer(
+    session,
+    ["ls-remote", "ssh://git@example.invalid/group/project.git", "main"],
+    `${SHA1}\trefs/heads/main\n`,
+  );
+  answer(
+    session,
+    ["fetch", "--depth=1", "--filter=blob:none", "--no-tags", "origin", "main"],
+    "",
+  );
+  answer(
+    session,
+    ["rev-parse", "--verify", "FETCH_HEAD^{commit}"],
+    `${SHA1}\n`,
+  );
+  answer(
+    session,
+    [
+      "ls-tree",
+      "-rz",
+      "--full-tree",
+      "--format=%(objectmode) %(objectname) %(path)",
+      SHA1,
+    ],
+    "",
+  );
+  await opening;
+  expect(runner.createdBudgets).toBe(1);
+  expect(runner.budgets[0]).toBeDefined();
+  expect(runner.budgets[1]).toBe(runner.budgets[0]);
 });
 
 test("fetches a ref shallowly into a bare repository and takes FETCH_HEAD as authority", async () => {
@@ -151,18 +234,21 @@ test("fetches a ref shallowly into a bare repository and takes FETCH_HEAD as aut
       "git@example.invalid:group/project.git",
     ],
     stage: "connection or authentication",
+    account: "metadata",
     outputLimit: 1024 * 1024,
   });
   expect(session.calls).toContainEqual({
     kind: "repository",
     args: ["config", "remote.origin.promisor", "true"],
     stage: "connection or authentication",
+    account: "metadata",
     outputLimit: 1024 * 1024,
   });
   expect(session.calls).toContainEqual({
     kind: "repository",
     args: ["config", "remote.origin.partialclonefilter", "blob:none"],
     stage: "connection or authentication",
+    account: "metadata",
     outputLimit: 1024 * 1024,
   });
   expect(session.calls).toContainEqual({
@@ -176,6 +262,7 @@ test("fetches a ref shallowly into a bare repository and takes FETCH_HEAD as aut
       "main",
     ],
     stage: "commit fetch",
+    account: "metadata",
     outputLimit: 1024 * 1024,
   });
 });
@@ -346,6 +433,7 @@ test("lists SHA-256 blobs and streams one file before returning its bytes", asyn
     kind: "repository",
     args: ["cat-file", "blob", `${SHA256}:contracts/a.md`],
     stage: "object verification",
+    account: "extraction",
     outputLimit: 1024 * 1024,
   });
 });
@@ -381,4 +469,81 @@ test("closes the process session when tree parsing fails", async () => {
   );
   await expect(opening).rejects.toThrow("object id");
   expect(session.closed).toBe(true);
+});
+
+test("ignores an unrelated non-UTF-8 path while keeping valid tree entries", async () => {
+  const runner = new FakeRunner();
+  const opening = gitOver(runner, { interactive: false }).open(
+    "https://example.invalid/group/project.git",
+    { kind: "pin", revision: SHA1, objectFormat: "sha1" },
+  );
+  await Promise.resolve();
+  const session = runner.sessions[0];
+  answer(
+    session,
+    ["fetch", "--depth=1", "--filter=blob:none", "--no-tags", "origin", SHA1],
+    "",
+  );
+  answer(
+    session,
+    ["rev-parse", "--verify", "FETCH_HEAD^{commit}"],
+    `${SHA1}\n`,
+  );
+  const invalid = new Uint8Array([
+    ...encoder.encode(`100644 ${"3".repeat(40)} unrelated/`),
+    0xff,
+    0,
+    ...encoder.encode(`100644 ${"4".repeat(40)} contracts/a.md\0`),
+  ]);
+  answerBytes(
+    session,
+    [
+      "ls-tree",
+      "-rz",
+      "--full-tree",
+      "--format=%(objectmode) %(objectname) %(path)",
+      SHA1,
+    ],
+    invalid,
+  );
+  expect((await opening).blobs).toEqual([
+    {
+      mode: "100644",
+      objectId: "4".repeat(40),
+      path: "contracts/a.md",
+    },
+  ]);
+});
+
+test("streams tree metadata larger than one file without a whole-tree file cap", async () => {
+  const runner = new FakeRunner();
+  const opening = gitOver(runner, { interactive: false }).open(
+    "https://example.invalid/group/project.git",
+    { kind: "pin", revision: SHA1, objectFormat: "sha1" },
+  );
+  await Promise.resolve();
+  const session = runner.sessions[0];
+  answer(
+    session,
+    ["fetch", "--depth=1", "--filter=blob:none", "--no-tags", "origin", SHA1],
+    "",
+  );
+  answer(
+    session,
+    ["rev-parse", "--verify", "FETCH_HEAD^{commit}"],
+    `${SHA1}\n`,
+  );
+  const largePath = `unrelated/${"a".repeat(1024 * 1024)}`;
+  answer(
+    session,
+    [
+      "ls-tree",
+      "-rz",
+      "--full-tree",
+      "--format=%(objectmode) %(objectname) %(path)",
+      SHA1,
+    ],
+    `100644 ${"5".repeat(40)} ${largePath}\0`,
+  );
+  expect((await opening).blobs).toHaveLength(1);
 });
