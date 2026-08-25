@@ -12,6 +12,7 @@ export type SnapshotTarget =
       kind: "pin";
       revision: string;
       objectFormat: GitObjectFormat;
+      ref?: string;
     };
 
 export interface RemoteSnapshot {
