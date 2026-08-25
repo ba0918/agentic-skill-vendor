@@ -8,7 +8,8 @@ import {
   repositoryUrl,
   treeUrl,
 } from "./github.ts";
-import { fakeGitHub, rejectedBy } from "../test-support/testing.ts";
+import { fakeGitHub } from "../test-support/remote.ts";
+import { rejectedBy } from "../test-support/assertions.ts";
 import type { RemoteClient, TreeBlob } from "./remote.ts";
 
 test("every request is built against the two hosts the tool talks to", () => {

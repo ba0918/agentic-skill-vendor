@@ -25,10 +25,6 @@ export function contractPath(id: string): string {
  * never by locale. A locale-aware comparison would make the bytes a run writes
  * depend on the machine it ran on.
  */
-export function compareStrings(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 interface Document {
   frontmatter: string[];
   body: string;

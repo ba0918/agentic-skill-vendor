@@ -29,7 +29,7 @@ import {
   type RawMaterial,
   srcKeyOf,
 } from "../contracts/raw.ts";
-import { compareStrings } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import type { RawMapping } from "../contracts/sources.ts";
 import { createDistributionIgnore } from "../contracts/distribution-ignore.ts";
 

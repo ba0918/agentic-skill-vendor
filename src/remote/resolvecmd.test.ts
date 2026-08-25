@@ -2,34 +2,70 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "../errors.ts";
 import { contractDigest, gitObjectIdOf } from "../contracts/digest.ts";
-import { CACHE_DIR, cacheRevisionDirOf, cacheSiteOf } from "./cache.ts";
+import {
+  CACHE_DIR,
+  cacheRevisionDirOf,
+  cacheSiteOf,
+} from "../contracts/cache.ts";
 import { gitHubOver } from "./github.ts";
-import { parseDeclaration } from "../contracts/sources.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
+import { collectSources } from "./source-collection.ts";
 import {
   escapeThrough,
-  fakeGitHub,
-  type FakeRepository,
+  snapshotTree,
+  writeFile,
+} from "../test-support/filesystem.ts";
+import { fakeGitHub, type FakeRepository } from "../test-support/remote.ts";
+import {
   readLockFile,
   rejectedBy,
-  runCli,
-  snapshotTree,
-  withGoodTree,
-  writeFile,
   writeLockFile,
-} from "../test-support/testing.ts";
+} from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const REPOSITORY = "ba0918/agentic-workflow";
 const REVISION = "9f1b7c2d4e5a60718293a4b5c6d7e8f90a1b2c3d";
 const CONTRACT = "# TDD Contract\n\nWrite the test first.\n";
 const CASE = "A case the contract has to satisfy.\n";
 
-test("remote source resolution does not depend on a concrete transport adapter", async () => {
+test("remote source collection does not depend on a concrete transport adapter", async () => {
   const source = await fs.readFile(
-    new URL("./resolvecmd.ts", import.meta.url),
+    new URL("./source-collection.ts", import.meta.url),
     "utf8",
   );
   expect(source).not.toContain('from "./github.ts"');
+});
+
+test("source collection refuses a snapshot that differs from the lock pin", async () => {
+  const declaration = parseDeclaration(
+    [
+      "sources:",
+      "  workflow:",
+      `    repository: ${REPOSITORY}`,
+      "    ref: main",
+      "contracts:",
+      "  tdd-contract:",
+      "    source: workflow",
+      "",
+    ].join("\n"),
+  );
+  const snapshot = {
+    revision: "0".repeat(40),
+    objectFormat: "sha1" as const,
+    blobs: [],
+    async fileAt(): Promise<Uint8Array> {
+      throw new Error("unexpected file read");
+    },
+    async close(): Promise<void> {},
+  };
+
+  await expect(
+    collectSources(new Map([["workflow", snapshot]]), declaration, {
+      workflow: { repository: REPOSITORY, revision: REVISION },
+    }),
+  ).rejects.toThrow("the snapshot opened for workflow");
 });
 
 function workflow(
@@ -391,9 +427,9 @@ test("update resolves the ref to the commit it names and records it in the lock"
     expect((await readLockFile(root)).sources).toStrictEqual({
       workflow: { repository: REPOSITORY, revision: REVISION },
     });
-    expect(lines).toContain(
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
       `resolved: workflow ${REVISION} (initial resolution)`,
-    );
+    ]);
   });
 });
 
@@ -608,6 +644,7 @@ test("update closes an opened snapshot when the next source cannot open", async 
       ].join("\n"),
     );
     const before = await snapshotTree(root);
+    const lines: string[] = [];
     let closed = 0;
     const client = {
       async defaultBranchOf() {
@@ -631,8 +668,11 @@ test("update closes an opened snapshot when the next source cannot open", async 
       },
     };
 
-    await expect(commandUpdate(root, () => {}, client)).rejects.toThrow(
-      "injected open failure",
+    await expect(
+      commandUpdate(root, (line) => lines.push(line), client),
+    ).rejects.toThrow("injected open failure");
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual(
+      [],
     );
     expect(closed).toStrictEqual(1);
     expect(await snapshotTree(root)).toStrictEqual(before);
@@ -1078,12 +1118,21 @@ test("update that cannot fetch what it resolved leaves the tree exactly as it wa
         ? new Response("the host is down", { status: 503 })
         : await github.fetch(input)) as typeof fetch;
     const before = await snapshotTree(root);
+    const lines: string[] = [];
 
     await rejectedBy(
-      () => commandUpdate(root, () => {}, gitHubOver(unreachable)),
+      () =>
+        commandUpdate(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(unreachable),
+        ),
       ConfigError,
     );
 
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
+      `resolved: workflow ${REVISION} (initial resolution)`,
+    ]);
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });

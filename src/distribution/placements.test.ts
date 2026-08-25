@@ -1,20 +1,14 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { conformanceDirectoriesOf } from "./gen.ts";
-import { assertSrcsClearOfConformance } from "./placements.ts";
-import {
-  type ContractLocation,
-  parseDeclaration,
-} from "../contracts/sources.ts";
-import {
-  fakeGitHub,
-  readLockFile,
-  runCli,
-  snapshotTree,
-  withGoodTree,
-  writeFile,
-  writeLockFile,
-} from "../test-support/testing.ts";
+import { conformanceDirectoriesOf } from "./contract-discovery.ts";
+import { assertSrcsClearOfConformance } from "./raw-contracts.ts";
+import { parseDeclaration } from "../contracts/source-schema.ts";
+import type { ContractLocation } from "../contracts/sources.ts";
+import { fakeGitHub } from "../test-support/remote.ts";
+import { readLockFile, writeLockFile } from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { snapshotTree, writeFile } from "../test-support/filesystem.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const RUNTIME = "tools/workflow-runtime";
 const DEST = "skills/release-notes/scripts/_runtime";

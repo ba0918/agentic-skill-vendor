@@ -12,7 +12,7 @@ import type {
   SnapshotTarget,
   TreeBlob,
 } from "./remote.ts";
-import { isUsableRef } from "../contracts/sources.ts";
+import { isUsableRef } from "../contracts/source-schema.ts";
 
 const METADATA_LIMIT = 1024 * 1024;
 const FILE_LIMIT = 1024 * 1024;

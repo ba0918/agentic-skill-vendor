@@ -20,28 +20,16 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
-import { assertValidContractId, compareStrings } from "./digest.ts";
+import { compareStrings } from "../ordering.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
   type ContractLocation,
   type Declaration,
   DECLARATION_FILE,
-  destsCollide,
-  isTreeRelativePath,
-  reservedDestRefusal,
 } from "./sources.ts";
 import { emptyRecord } from "../records.ts";
-import { classifyRepository } from "./repository.ts";
-import {
-  assertPlainChain,
-  decodeUtf8,
-  isRegularFileOrAbsent,
-} from "../filesystem/walk.ts";
-import {
-  dependenciesOf,
-  type Dependencies,
-  type SkillDeclaration,
-} from "./declaration.ts";
+import { assertPlainChain, isRegularFileOrAbsent } from "../filesystem/walk.ts";
+import { dependenciesOf, type SkillDeclaration } from "./declaration.ts";
 
 /** The one file the lock lives in. */
 export const LOCK_FILE = "vendor-lock.json";
@@ -56,129 +44,13 @@ export const LOCK_FILE = "vendor-lock.json";
  * for text that had been pinned all along.
  */
 export const SUPERSEDED_LOCK_FILE = "vendor-manifest.json";
-const DIGEST_FORM = /^sha256:[0-9a-f]{64}$/;
-
-export interface Resolution {
-  digest: string;
-  conformance?: string;
-  /** Present on a raw-byte contract; a document contract carries no kind. */
-  kind?: "raw";
-}
-
-export type Resolutions = Record<string, Resolution>;
-
-/**
- * What the tool wrote at one dest of one skill: which contract, from which src,
- * and what the dest's own content digests to.
- *
- * Recorded per skill and per dest rather than per contract. The gate that
- * keeps gen from replacing a person's directory is a fact about one skill's
- * one path, and a record keyed by contract would call skill B's untouched
- * directory "already written" the moment skill A's was.
- */
-export interface Placement {
-  contract: string;
-  src: string;
-  digest: string;
-}
-
-/** skill → dest → what stands there. Directory dests keep their trailing slash. */
-export type Placements = Record<string, Record<string, Placement>>;
-
-/**
- * Where one source's contracts were taken from, and at which commit.
- *
- * The revision is a commit SHA and never the branch or tag a declaration may
- * name: a branch moves, so a lock recording one would answer "which bytes were
- * adopted" differently on two days with nothing having been adopted in
- * between.
- *
- * The repository stands beside it although the declaration already says it.
- * The revision alone means nothing without the repository it belongs to, and a
- * lock read on its own — by the reviewer of the diff it lands in, by the
- * command that fetches what it names — must not have to hold the declaration
- * open beside it to say what was pinned.
- */
-export interface LockSource {
-  repository: string;
-  revision: string;
-  /** Absent is the canonical representation of the backwards-compatible SHA-1 format. */
-  objectFormat?: "sha256";
-}
-
-export type LockSources = Record<string, LockSource>;
-
-const SHA1_REVISION_FORM = /^[0-9a-f]{40}$/;
-const SHA256_REVISION_FORM = /^[0-9a-f]{64}$/;
-
-/**
- * The lock's canonical rendering: keys sorted at every level, two-space
- * indentation, one trailing newline, and no escaping of non-ASCII text.
- *
- * Verify compares the lock byte for byte, so a canonical rendering is what
- * makes "the lock is up to date" a decidable question rather than a question
- * about JSON formatting.
- */
-export function canonicalJson(value: unknown): string {
-  return JSON.stringify(withSortedKeys(value), null, 2) + "\n";
-}
-
-function withSortedKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(withSortedKeys);
-  if (value === null || typeof value !== "object") return value;
-  const source = value as Record<string, unknown>;
-  const sorted: Record<string, unknown> = emptyRecord();
-  for (const key of Object.keys(source).sort(compareStrings)) {
-    sorted[key] = withSortedKeys(source[key]);
-  }
-  return sorted;
-}
-
-/**
- * The lock as the declarations, the resolutions and the present contracts
- * render to it: what each skill declares, what each contract resolved to, and
- * which commit each source was pinned at.
- *
- * `present` names the contracts whose canonical file the tree actually holds,
- * and it limits what is recorded. A resolution kept for a withdrawn contract
- * answers no question: nothing can rewrite it (the text is not there) and
- * nothing can verify it, while a conformance digest recorded for it fails
- * every run that checks conformance. Pruning resolutions to the present
- * contracts is what lets one `gen` recover a tree whose contract was
- * withdrawn.
- *
- * The two halves stay logically separate because adding a dependency and
- * changing what a contract says are different acts: mixed into one map they
- * would read as the same kind of diff.
- */
-export function buildLock(
-  dependencies: Dependencies,
-  resolutions: Resolutions,
-  present: string[],
-  sources: LockSources,
-  placements: Placements,
-): unknown {
-  const resolved: Resolutions = emptyRecord();
-  for (const id of [...present].sort(compareStrings)) {
-    resolved[id] = resolutions[id];
-  }
-  // No wall-clock value is recorded anywhere in here. Reproducibility is the
-  // reason this file exists, and a timestamp would make every regeneration a
-  // change.
-  const lock: Record<string, unknown> = { dependencies, resolutions: resolved };
-  // A tree that fetches nothing renders the two halves the lock has always
-  // had, byte for byte. Written as an empty object instead, every repository
-  // with no remote source at all would carry a key answering a question it
-  // never asks — and the absence of the key is what lets such a tree be
-  // migrated by renaming the file and nothing else.
-  if (Object.keys(sources).length > 0) lock["sources"] = sources;
-  // The same rule for the placements: a tree distributing no raw bytes renders
-  // no key for them. Carried as the lock holds them, never pruned here — the
-  // record is gen's memory of what it wrote, and a rendering that dropped an
-  // entry would make every other command forget a dest before gen swept it.
-  if (Object.keys(placements).length > 0) lock["placements"] = placements;
-  return lock;
-}
+import {
+  buildLock,
+  type LockSources,
+  type Placements,
+  type Resolutions,
+} from "./lock-model.ts";
+import { canonicalJson, decodeLock, emptyDecodedLock } from "./lock-codec.ts";
 
 /**
  * The canonical text of the lock the tree renders to.
@@ -429,10 +301,6 @@ interface Lock {
  * with no lock, a lock recording no resolutions, and the map the recorded ones
  * are read into. Kept as one place so a fourth path cannot answer differently.
  */
-function emptyResolutions(): Resolutions {
-  return emptyRecord();
-}
-
 /** The lock currently recorded, or an empty one where the tree has none yet. */
 export async function readLock(root: string): Promise<Lock> {
   await assertPlainChain(root, LOCK_FILE);
@@ -442,12 +310,7 @@ export async function readLock(root: string): Promise<Lock> {
   // looked at the path. A tree with no lock still has no resolutions.
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     await assertNoSupersededLock(root);
-    return {
-      recordedSkills: new Set(),
-      resolutions: emptyResolutions(),
-      placements: emptyPlacements(),
-      sources: emptySources(),
-    };
+    return emptyDecodedLock();
   }
   let bytes: Uint8Array;
   try {
@@ -455,199 +318,10 @@ export async function readLock(root: string): Promise<Lock> {
   } catch (cause) {
     throw new ConfigError(`cannot read ${LOCK_FILE}: ${describeCause(cause)}`);
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decodeUtf8(bytes, LOCK_FILE));
-  } catch (cause) {
-    if (cause instanceof ConfigError) throw cause;
-    throw new ConfigError(
-      `${LOCK_FILE}: not readable JSON: ${describeCause(cause)}`,
-    );
-  }
-  const document = pickObject(parsed, "");
-  const rawDependencies = document["dependencies"];
-  // A manifest must carry both halves of the lock. The one empty lock is the
-  // whole file being absent, which is answered before JSON is ever read; a
-  // file present but missing a half is a hand-corrupted state, and reading it
-  // as "no skills recorded" would let the next gen forget every skill the tree
-  // records a dependency list for.
-  //
-  // A manifest written by a superseded form of this tool is refused by the
-  // same check rather than by a format marker: the earlier form wrapped both
-  // halves in a `lock` key, so its dependencies are not where a manifest keeps
-  // them and the absence of the field is itself the mark of the old form.
-  if (rawDependencies === undefined) {
-    throw new ConfigError(`${LOCK_FILE}: has no dependencies key`);
-  }
-  return {
-    recordedSkills: new Set(
-      Object.keys(pickObject(rawDependencies, "dependencies")),
-    ),
-    resolutions: validateResolutions(document),
-    placements: validatePlacements(document),
-    sources: validateSources(document),
-  };
+  return decodeLock(bytes);
 }
 
 /** An empty map of placements, and the only place one is made. */
-function emptyPlacements(): Placements {
-  return emptyRecord();
-}
-
-/**
- * The placements the lock records, or none where it carries no key.
- *
- * Every value here is a path the next gen may remove recursively, so each is
- * held to a shape before it is believed — the skill name to the shape of one
- * directory name, the dest to the shape of a path inside a skill — for the
- * reason a revision is: text that was never checked is text an edit can steer
- * into a deletion outside the tree.
- */
-function validatePlacements(document: Record<string, unknown>): Placements {
-  const raw = document["placements"];
-  if (raw === undefined) return emptyPlacements();
-  const skills = pickObject(raw, "placements");
-  const placements: Placements = emptyPlacements();
-  for (const skill of Object.keys(skills)) {
-    if (!isPlainSkillName(skill)) {
-      throw new ConfigError(
-        `${LOCK_FILE}: placements names a skill that is not one directory ` +
-          `name: ${JSON.stringify(skill)}`,
-      );
-    }
-    const dests = pickObject(skills[skill], `placements.${skill}`);
-    const entries: Record<string, Placement> = emptyRecord();
-    for (const dest of Object.keys(dests)) {
-      const path = `placements.${skill}.${dest}`;
-      const bare = dest.replace(/\/$/, "");
-      if (!isTreeRelativePath(bare)) {
-        throw new ConfigError(
-          `${LOCK_FILE}: ${path} is not a path inside the skill`,
-        );
-      }
-      const reserved = reservedDestRefusal(bare);
-      if (reserved !== null) {
-        throw new ConfigError(`${LOCK_FILE}: ${path} names ${reserved}`);
-      }
-      for (const other of Object.keys(entries)) {
-        if (destsCollide(other.replace(/\/$/, ""), bare)) {
-          throw new ConfigError(
-            `${LOCK_FILE}: ${path} is the same as or nests with ` +
-              `placements.${skill}.${other}; two distributions cannot share ` +
-              `a place`,
-          );
-        }
-      }
-      const entry = pickObject(dests[dest], path);
-      const contract = requireText(entry["contract"], `${path}.contract`);
-      assertValidContractId(contract, `${LOCK_FILE}: ${path}.contract`);
-      entries[dest] = {
-        contract,
-        src: requireText(entry["src"], `${path}.src`),
-        digest: requireDigest(entry["digest"], `${path}.digest`),
-      };
-    }
-    placements[skill] = entries;
-  }
-  return placements;
-}
-
-/** True for a name that is exactly one directory segment. */
-function isPlainSkillName(name: string): boolean {
-  return (
-    name !== "" &&
-    name !== "." &&
-    name !== ".." &&
-    !name.includes("/") &&
-    !name.includes("\\")
-  );
-}
-
-function requireText(value: unknown, path: string): string {
-  if (typeof value !== "string") {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be text, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
-}
-
-/** An empty map of sources, and the only place one is made. */
-function emptySources(): LockSources {
-  return emptyRecord();
-}
-
-/**
- * The sources the lock records, or none where it carries no sources key.
- *
- * An absent key is read as "no source", never refused. It is what a tree that
- * fetches nothing renders to, so refusing it would make every repository with
- * only local contracts unreadable — the opposite of the two halves the lock
- * has always carried, where an absent key marks a file somebody cut in half.
- */
-function validateSources(document: Record<string, unknown>): LockSources {
-  const raw = document["sources"];
-  if (raw === undefined) return emptySources();
-  const entries = pickObject(raw, "sources");
-  const sources: LockSources = emptySources();
-  for (const name of Object.keys(entries)) {
-    const entry = pickObject(entries[name], `sources.${name}`);
-    const objectFormat = readObjectFormat(
-      entry["objectFormat"],
-      `sources.${name}.objectFormat`,
-    );
-    const repository = requireText(
-      entry["repository"],
-      `sources.${name}.repository`,
-    );
-    try {
-      classifyRepository(repository);
-    } catch (cause) {
-      if (cause instanceof ConfigError) {
-        throw new ConfigError(
-          `${LOCK_FILE}: sources.${name}.repository: ${cause.message}`,
-        );
-      }
-      throw cause;
-    }
-    sources[name] = {
-      repository,
-      revision: requireMatch(
-        entry["revision"],
-        objectFormat === "sha256" ? SHA256_REVISION_FORM : SHA1_REVISION_FORM,
-        `sources.${name}.revision`,
-        objectFormat === "sha256"
-          ? "a 64-digit SHA-256 commit object id"
-          : "a 40-digit SHA-1 commit object id",
-      ),
-      ...(objectFormat === undefined ? {} : { objectFormat }),
-    };
-  }
-  return sources;
-}
-
-function readObjectFormat(value: unknown, path: string): "sha256" | undefined {
-  if (value === undefined) return undefined;
-  if (value !== "sha256") {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be "sha256" when present, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
-}
-
-/**
- * Refuses a tree that still carries the lock under the name it had before the
- * declaration file existed.
- *
- * Asked only where no lock was found, since that is the whole danger: the
- * absent lock is read as "nothing is resolved anywhere", and the next gen
- * would rewrite every copy and report an initial adoption for text the tree
- * had pinned all along. The refusal names both files rather than describing
- * the situation, because renaming the one into the other is the entire
- * migration — the content of the old file is already the content of the new
- * one.
- */
 async function assertNoSupersededLock(root: string): Promise<void> {
   await assertPlainChain(root, SUPERSEDED_LOCK_FILE);
   if (!(await isRegularFileOrAbsent(root, SUPERSEDED_LOCK_FILE))) return;
@@ -655,77 +329,4 @@ async function assertNoSupersededLock(root: string): Promise<void> {
     `${SUPERSEDED_LOCK_FILE} is the name this tool's lock had before ` +
       `${LOCK_FILE}: rename the file to ${LOCK_FILE}`,
   );
-}
-
-function validateResolutions(document: Record<string, unknown>): Resolutions {
-  const raw = document["resolutions"];
-  // The same refusal as a lock missing its dependencies, for the other half:
-  // the lock this tool writes always carries both, and reading an absent half
-  // as empty would let the next gen silently drop what it recorded.
-  if (raw === undefined) {
-    throw new ConfigError(`${LOCK_FILE}: has no resolutions key`);
-  }
-  const entries = pickObject(raw, "resolutions");
-  const resolutions: Resolutions = emptyResolutions();
-  for (const id of Object.keys(entries)) {
-    assertValidContractId(id, `${LOCK_FILE}: resolutions`);
-    const entry = pickObject(entries[id], `resolutions.${id}`);
-    const resolution: Resolution = {
-      digest: requireDigest(entry["digest"], `resolutions.${id}.digest`),
-    };
-    if (entry["conformance"] !== undefined) {
-      resolution.conformance = requireDigest(
-        entry["conformance"],
-        `resolutions.${id}.conformance`,
-      );
-    }
-    if (entry["kind"] !== undefined) {
-      if (entry["kind"] !== "raw") {
-        throw new ConfigError(
-          `${LOCK_FILE}: resolutions.${id}.kind must be "raw" where present, ` +
-            `found ${JSON.stringify(entry["kind"])}`,
-        );
-      }
-      resolution.kind = "raw";
-    }
-    resolutions[id] = resolution;
-  }
-  return resolutions;
-}
-
-function pickObject(value: unknown, path: string): Record<string, unknown> {
-  if (value === undefined) return {};
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path || "document"} must be an object`,
-    );
-  }
-  return value as Record<string, unknown>;
-}
-
-function requireDigest(value: unknown, path: string): string {
-  return requireMatch(value, DIGEST_FORM, path, "a sha256 digest");
-}
-
-/**
- * A recorded value that has to be text of a fixed shape, or a refusal naming
- * what was wanted and what stood there.
- *
- * The lock is written by this tool alone, so every one of these refusals is
- * about a hand-edited file. The shapes are still checked rather than trusted:
- * a revision reaches a URL and a repository name reaches a host, and text that
- * was never checked is text an edit can steer.
- */
-function requireMatch(
-  value: unknown,
-  form: RegExp,
-  path: string,
-  wanted: string,
-): string {
-  if (typeof value !== "string" || !form.test(value)) {
-    throw new ConfigError(
-      `${LOCK_FILE}: ${path} must be ${wanted}, found ${JSON.stringify(value)}`,
-    );
-  }
-  return value;
 }

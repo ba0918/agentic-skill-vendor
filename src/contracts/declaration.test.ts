@@ -1,10 +1,10 @@
 import {
   replaceWithSymlink,
-  runCli,
   snapshotTree,
-  thrownBy,
-  withGoodTree,
-} from "../test-support/testing.ts";
+} from "../test-support/filesystem.ts";
+import { runCli } from "../test-support/cli.ts";
+import { thrownBy } from "../test-support/assertions.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";

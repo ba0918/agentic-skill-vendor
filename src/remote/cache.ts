@@ -12,10 +12,9 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "../errors.ts";
-import { compareStrings } from "../contracts/digest.ts";
-import { ancestorDirectories, readIgnoreRules } from "../filesystem/ignore.ts";
-import type { LockSources } from "../contracts/manifest.ts";
-import { TOOL_DIR } from "../contracts/sources.ts";
+import { CACHE_DIR } from "../contracts/cache.ts";
+import { compareStrings } from "../ordering.ts";
+import type { LockSources } from "../contracts/lock-model.ts";
 import {
   assertPlainChain,
   displayName,
@@ -24,29 +23,6 @@ import {
 } from "../filesystem/walk.ts";
 
 /** Where fetched material is kept, relative to the tree root. */
-export const CACHE_DIR = `${TOOL_DIR}/cache`;
-
-/**
- * Where one revision's whole fetch sits: its source, then the revision.
- *
- * This is the level a fetch is placed at, in one move. A directory standing
- * here means that revision was taken up completely, and nothing writes into it
- * a file at a time — so no run can find a half-filled one and read it as a
- * fetch that finished.
- */
-export function cacheRevisionDirOf(source: string, revision: string): string {
-  return `${CACHE_DIR}/${source}/${revision}`;
-}
-
-/** Where one fetched file sits: its source, the revision, then its own path. */
-export function cacheSiteOf(
-  source: string,
-  revision: string,
-  path: string,
-): string {
-  return `${cacheRevisionDirOf(source, revision)}/${path}`;
-}
-
 /**
  * Clears everything the lock does not name: a source it no longer records, and
  * every revision of a source other than the one it is pinned at.
@@ -106,48 +82,4 @@ async function cacheEntries(root: string, relative: string): Promise<string[]> {
   return (await listEntries(`${root}/${relative}`, relative))
     .filter((entry) => entry.isDirectory)
     .map((entry) => entry.name);
-}
-
-/**
- * True when the tree's own ignore rules keep the cache out of the repository.
- *
- * Asked by the commands that fill the cache, which warn rather than refuse. A
- * committed cache is a second copy of every fetched contract standing beside
- * the vendored ones — the mirror this design exists to avoid, and the file a
- * later reader edits believing it is canonical — but it is a state of the
- * repository's own configuration, not something the run can put right, and a
- * fetch that refused to run over it would leave the tree unable to build.
- *
- * The rules are read the way git orders them, through the same module the
- * conformance digest uses. A second reading of `.gitignore` written here would
- * be a copy of a rule set, and a copy diverges silently.
- */
-export async function cacheIsIgnored(root: string): Promise<boolean> {
-  return await isIgnored(root, CACHE_DIR);
-}
-
-/**
- * True when the tree's ignore rules exclude the directory at `relative`. It
- * is asked as a directory: the tool's own directories are what this answers
- * for, and a rule written with a trailing slash matches only those.
- */
-export async function isIgnored(
-  root: string,
-  relative: string,
-): Promise<boolean> {
-  const rules = await readIgnoreRules(root, ancestorDirectories(relative));
-  return rules.excludes(relative, true);
-}
-
-/**
- * The line a command prints over a tool directory the repository tracks. One
- * wording for the cache and the staging directory alike: the remedy is the
- * same line in .gitignore.
- */
-export function unignoredWarning(relative: string): string {
-  return (
-    `warning: ${relative} is not ignored by this repository; add ` +
-    `/${relative.split("/")[0]}/ to .gitignore so the tool's working ` +
-    `files are never committed`
-  );
 }

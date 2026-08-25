@@ -17,8 +17,8 @@ import {
   displayName,
   ensureParentDirectory,
   kindAt,
-  type PlacedFile,
 } from "../filesystem/walk.ts";
+import type { PlacedFile } from "../filesystem/atomic-write.ts";
 
 export const STAGING_DIR = `${TOOL_DIR}/staging`;
 

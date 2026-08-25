@@ -2,18 +2,18 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import {
   append,
-  kindsOf,
   PERMISSIONS_APPLY,
   replaceWithSymlink,
-  readLockFile,
-  REMOTE,
-  runCli,
-  withFetchedTree,
-  withGoodTree,
-  withRemoteFixture,
   writeFile,
+} from "../test-support/filesystem.ts";
+import {
+  kindsOf,
+  readLockFile,
   writeLockFile,
-} from "../test-support/testing.ts";
+} from "../test-support/assertions.ts";
+import { REMOTE, withFetchedTree } from "../test-support/remote.ts";
+import { runCli } from "../test-support/cli.ts";
+import { withGoodTree, withRemoteFixture } from "../test-support/fixtures.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const CONTRACT = "contracts/verdict-format.md";

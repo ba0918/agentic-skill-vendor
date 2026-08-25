@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { processUidOf } from "./testing.ts";
+import { processUidOf } from "./filesystem.ts";
 
 test("a runtime with no process global contributes no uid", () => {
   // The permission gating is computed at module load. On a runtime without a

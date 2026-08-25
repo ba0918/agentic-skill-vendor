@@ -7,11 +7,8 @@ import {
   Schema,
 } from "js-yaml";
 import { ConfigError, describeCause } from "../errors.ts";
-import {
-  assertValidContractId,
-  compareStrings,
-  splitDocument,
-} from "./digest.ts";
+import { assertValidContractId, splitDocument } from "./digest.ts";
+import { compareStrings } from "../ordering.ts";
 import {
   displayName,
   isDirectoryOrAbsent,

@@ -1,10 +1,16 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "../errors.ts";
-import type { Placement } from "./manifest.ts";
+import type { Placement } from "./lock-model.ts";
 import {
   assertFinalDestinationsDisjoint,
   derivePlacementMigrationComponents,
+  finalDestPath,
 } from "./placement-ownership.ts";
+
+test("a directory placement and its path share one normalized final destination", () => {
+  expect(finalDestPath("assets/")).toStrictEqual("assets");
+  expect(finalDestPath("assets/file.txt")).toStrictEqual("assets/file.txt");
+});
 
 const recorded = (
   dest: string,

@@ -1,6 +1,6 @@
 import type { SkillDeclaration } from "./declaration.ts";
 import { ConfigError } from "../errors.ts";
-import type { Placement } from "./manifest.ts";
+import type { Placement } from "./lock-model.ts";
 import type { Declaration } from "./sources.ts";
 
 export interface FinalDestination {
@@ -44,7 +44,7 @@ function finalPathNode(): FinalPathNode {
 
 function insertPath(root: PathNode, dest: string): PathNode {
   let node = root;
-  for (const segment of bareDest(dest).split("/")) {
+  for (const segment of finalDestPath(dest).split("/")) {
     let child = node.children.get(segment);
     if (child === undefined) {
       child = pathNode();
@@ -85,13 +85,13 @@ class Components {
   }
 }
 
-function bareDest(dest: string): string {
+export function finalDestPath(dest: string): string {
   return dest.endsWith("/") ? dest.slice(0, -1) : dest;
 }
 
 export function pathsOverlap(first: string, second: string): boolean {
-  first = bareDest(first);
-  second = bareDest(second);
+  first = finalDestPath(first);
+  second = finalDestPath(second);
   return (
     first === second ||
     first.startsWith(`${second}/`) ||
@@ -197,7 +197,7 @@ export function derivePlacementMigrationComponents(
       ...final.map((item) => item.dest),
     ];
     const outermostDest = owned.reduce((selected, candidate) =>
-      bareDest(candidate).length < bareDest(selected).length
+      finalDestPath(candidate).length < finalDestPath(selected).length
         ? candidate
         : selected,
     );
@@ -205,7 +205,7 @@ export function derivePlacementMigrationComponents(
       !owned.every(
         (dest) =>
           pathsOverlap(outermostDest, dest) &&
-          bareDest(dest).startsWith(bareDest(outermostDest)),
+          finalDestPath(dest).startsWith(finalDestPath(outermostDest)),
       )
     ) {
       throw new ConfigError(
@@ -254,7 +254,7 @@ export function assertFinalDestinationsDisjoint(
     let node = root;
     const ancestors = [root];
     let conflict: FinalDestination | null = null;
-    for (const segment of bareDest(destination.dest).split("/")) {
+    for (const segment of finalDestPath(destination.dest).split("/")) {
       if (node.terminal !== null) {
         conflict = node.terminal;
         break;

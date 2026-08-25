@@ -3,26 +3,31 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
-import { planExpansion, vendorDirOf } from "./gen.ts";
+import { planExpansion } from "./generation-plan.ts";
+import { vendorDirOf } from "./contract-discovery.ts";
 import { contractDigest } from "../contracts/digest.ts";
-import { parseDeclaration, reservedDestRefusal } from "../contracts/sources.ts";
+import {
+  parseDeclaration,
+  reservedDestRefusal,
+} from "../contracts/source-schema.ts";
 import { SKILLS_DIR } from "../contracts/declaration.ts";
 import {
   append,
   escapeThrough,
-  kindsOf,
   PERMISSIONS_APPLY,
-  readLockFile,
   replaceWithSymlink,
-  runCli,
   snapshotTree,
-  REMOTE,
-  withFetchedTree,
-  withGoodTree,
   withUnreadable,
   writeFile,
+} from "../test-support/filesystem.ts";
+import {
+  kindsOf,
+  readLockFile,
   writeLockFile,
-} from "../test-support/testing.ts";
+} from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { REMOTE, withFetchedTree } from "../test-support/remote.ts";
+import { withGoodTree } from "../test-support/fixtures.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const LOCK = "vendor-lock.json";

@@ -4,7 +4,8 @@
 // that it stays meaningful while the others are failing.
 
 import type { Sink } from "../errors.ts";
-import { compareStrings, digestOfBytes } from "../contracts/digest.ts";
+import { digestOfBytes } from "../contracts/digest.ts";
+import { compareStrings } from "../ordering.ts";
 import {
   decodeUtf8,
   displayName,
@@ -15,39 +16,26 @@ import { conformanceDigest } from "../contracts/conformance.ts";
 import type { SkillDeclaration } from "../contracts/declaration.ts";
 import {
   LOCK_FILE,
-  type LockSources,
-  type Placements,
   renderExpectedLock,
-  type Resolutions,
   sourceViolations,
 } from "../contracts/manifest.ts";
-import {
-  closureViolations,
-  conformanceDirectoriesOf,
-  listVendorEntries,
-  locateTreeContracts,
-  lockedOrDeclared,
-  lockViolations,
-  readContracts,
-  readTreeState,
-  vendorDirOf,
-  vendorHeader,
-} from "./gen.ts";
+import type {
+  LockSources,
+  Placements,
+  Resolutions,
+} from "../contracts/lock-model.ts";
+import { listVendorEntries, vendorDirOf } from "./contract-discovery.ts";
+import { closureViolations, lockViolations } from "./lock-update.ts";
+import { prepareTreeMaterials, readTreeState } from "./tree-materials.ts";
+import { vendorHeader } from "./header.ts";
 import type { ContractLocation, Declaration } from "../contracts/sources.ts";
 import {
-  assertFinalDestinationsDisjoint,
-  finalRawDestinations,
-} from "../contracts/placement-ownership.ts";
-import {
-  assertKindsAgree,
-  assertSrcsClearOfConformance,
   deriveRawResolutions,
   isRawId,
-  placementViolations,
   rawClosureViolations,
   rawLockViolations,
-  readRawContracts,
-} from "./placements.ts";
+} from "./raw-contracts.ts";
+import { placementViolations } from "./placement-verify.ts";
 
 /**
  * True when `bytes` opens with `prefix`. Local to this one comparison: the
@@ -223,21 +211,9 @@ async function conformanceViolations(
 export async function commandVerify(root: string, out: Sink): Promise<number> {
   const state = await readTreeState(root);
   const { resolutions, skills, sources } = state;
-  assertFinalDestinationsDisjoint(
-    finalRawDestinations(skills, state.declaration),
-  );
-  assertKindsAgree(state.declaration, resolutions);
-  const locations = await locateTreeContracts(root, state);
-  assertSrcsClearOfConformance(
-    state.declaration,
-    conformanceDirectoriesOf(locations, state.declaration),
-  );
-  const contracts = await readContracts(root, locations);
-  const raws = await readRawContracts(
+  const { locations, contracts, raws } = await prepareTreeMaterials(
     root,
-    state.declaration,
-    sources,
-    lockedOrDeclared(skills, resolutions),
+    state,
   );
 
   // The three file-system checks are independent of one another and of the

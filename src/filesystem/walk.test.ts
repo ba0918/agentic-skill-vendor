@@ -4,8 +4,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
 import {
-  atomicWriteDirectory,
-  atomicWriteFile,
   decodeUtf8,
   ensureParentDirectory,
   isDirectoryOrAbsent,
@@ -13,18 +11,17 @@ import {
   readEntries,
   walkFiles,
 } from "./walk.ts";
+import { atomicWriteDirectory, atomicWriteFile } from "./atomic-write.ts";
 import {
   PERMISSIONS_APPLY,
-  rejectedBy,
   replaceWithSymlink,
-  runCli,
   snapshotTree,
-  thrownBy,
-  withEmptyDir,
-  withGoodTree,
   withUnreadable,
   writeFile,
-} from "../test-support/testing.ts";
+} from "../test-support/filesystem.ts";
+import { rejectedBy, thrownBy } from "../test-support/assertions.ts";
+import { runCli } from "../test-support/cli.ts";
+import { withEmptyDir, withGoodTree } from "../test-support/fixtures.ts";
 
 const encoder = new TextEncoder();
 

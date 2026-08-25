@@ -20,7 +20,7 @@
 
 import { ConfigError, describeCause } from "../errors.ts";
 import { concatBytes } from "../contracts/digest.ts";
-import { isUsableRef } from "../contracts/sources.ts";
+import { isUsableRef } from "../contracts/source-schema.ts";
 import type {
   RemoteClient,
   RemoteSnapshot,
