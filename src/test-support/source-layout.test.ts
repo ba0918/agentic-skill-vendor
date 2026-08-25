@@ -500,6 +500,28 @@ async function repositorySources(): Promise<Map<string, string>> {
   return sources;
 }
 
+function testSupportOwnershipViolations(
+  sources: Map<string, string>,
+): string[] {
+  const owners = [
+    "assertions.ts",
+    "cli.ts",
+    "filesystem.ts",
+    "fixtures.ts",
+    "imports.ts",
+    "remote.ts",
+  ];
+  const violations = owners.filter((name) => {
+    const source = sources.get(`src/test-support/${name}`) ?? "";
+    return /from ["']\.\/testing\.ts["']/.test(source);
+  });
+  const legacy = sources.get("src/test-support/testing.ts") ?? "";
+  if (/\b(?:function|interface|const|let|var|class)\b/.test(legacy)) {
+    violations.push("testing.ts owns an implementation");
+  }
+  return violations;
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -509,6 +531,12 @@ test("every source file occupies its frozen migration position", async () => {
     missing: [],
     unexpected: [],
   });
+});
+
+test("test support responsibilities have one final owner", async () => {
+  expect(
+    testSupportOwnershipViolations(await repositorySources()),
+  ).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {
