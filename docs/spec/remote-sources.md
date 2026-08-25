@@ -22,10 +22,10 @@
 ```yaml
 sources:
   workflow:
-    repository: ba0918/agentic-workflow   # owner/repo 短縮形のみ。URL は書けない
+    repository: ba0918/agentic-workflow   # owner/repo は従来の GitHub API 経路
     ref: main                             # branch / tag / commit SHA
   meta:
-    repository: ba0918/agentic-meta
+    repository: ssh://git@example.com/team/agentic-meta.git  # 汎用 Git 経路
     ref: main
 
 contracts:

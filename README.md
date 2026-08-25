@@ -8,7 +8,8 @@ that skills need to carry identically.
 A document contract's generated copy carries a fixed header followed by its canonical body. A
 raw-byte contract copies each payload file byte for byte; a generated directory marker is a
 separate file. Every change to what a skill carries lands in one reviewable diff — nothing
-reaches a skill silently. The source may live in this repository or in another one on GitHub.
+reaches a skill silently. The source may live in this repository, on GitHub, or on another
+Git host reachable over allowlisted SSH or HTTPS repository syntax.
 
 Compatibility judgment is out of scope. A digest proves a copy matches its source, not that a
 new version still suits the skills depending on it — that judgment belongs to the consuming
@@ -19,7 +20,7 @@ repository's own regression machinery.
 - Keep local documents in sync: [Quickstart](#quickstart)
 - Distribute raw files or directories: [Distributing files and directories as they are](#distributing-files-and-directories-as-they-are)
 - Take a contract from another repository: [Taking a contract from another repository](#taking-a-contract-from-another-repository)
-- Take one from a private repository: [Taking a contract from a private repository](#taking-a-contract-from-a-private-repository)
+- Take one from a private GitHub repository: [Taking a contract from a private GitHub repository](#taking-a-contract-from-a-private-github-repository)
 - Check committed output in CI: [Running it in CI](#running-it-in-ci)
 
 Whichever path you take, [review the generated changes](#review-generated-changes) after `gen`.
@@ -86,18 +87,24 @@ deno run --allow-read=. --allow-write=. npm:@ba0918-dev/agentic-skill-vendor@<ve
 deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> add <owner/repo>
 deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> update
 deno run --allow-read=. --allow-write=. --allow-net=api.github.com,raw.githubusercontent.com npm:@ba0918-dev/agentic-skill-vendor@<version> fetch
+
+# A command that fetches through the installed Git and OpenSSH
+deno run --allow-read --allow-write --allow-env --allow-run=git npm:@ba0918-dev/agentic-skill-vendor@<version> add ssh://git@git.example.com/team/contracts.git
 ```
 
-These examples limit file access to the current root. When using `--root <path>`, replace `.`
-in the read and write permissions with that path.
+The offline and GitHub examples limit file access to the current root. When using
+`--root <path>`, replace `.` in those read and write permissions with that path. The generic
+Git example deliberately grants broader file access so Git can use its temporary bare
+repository and the user's normal Git/OpenSSH configuration.
 
-The same source runs on Node (>= 20.10), Bun and Deno. It reads no environment variable and
-starts no subprocess, ever; the one credential it can be given arrives on standard input, and
-only where `--token-stdin` asks for it. Three commands reach the network — `add`, `update`
-and `fetch`, over HTTPS to `api.github.com` and `raw.githubusercontent.com` and nowhere else
-— and the rest touch the file system alone. Under Deno the read-only commands need only read
-access to the root, `gen` adds write access to it, and only the three fetching commands need
-access to the two GitHub hosts.
+The same source runs on Node (>= 20.10), Bun and Deno. Four commands — `gen`, `verify`,
+`lint-selfcontain` and `self-test` — never read the environment, start a subprocess or reach a
+network. The other three commands, `add`, `update` and `fetch`, choose their capability from
+each source: `owner/repo` uses HTTPS only to `api.github.com` and
+`raw.githubusercontent.com`, while SSH and HTTPS repository URLs invoke the installed `git`,
+which may in turn invoke OpenSSH or a configured credential helper. Under Deno, a generic Git
+source therefore also needs environment access and `--allow-run=git`; the broad read/write
+permissions in the example let Git use a temporary bare repository outside the project root.
 
 ## The commands
 
@@ -107,13 +114,14 @@ access to the two GitHub hosts.
 | `verify` | Checks the whole tree against the lock; exit `1` on any violation | no |
 | `lint-selfcontain` | Checks that no skill points outside its own directory | no |
 | `self-test` | Smoke-checks the tool against vectors embedded in it | no |
-| `add <owner/repo> [name]` | Registers another repository as a source and takes up every declared contract it holds | yes |
+| `add <repository> [name]` | Registers another repository as a source and takes up every declared contract it holds | yes |
 | `update` | Moves every pin to what its ref names now, and fetches what the new pin holds | yes |
 | `fetch` | Fills the cache with exactly what the lock already pins — what a clean checkout runs | yes |
 
 `--root` names the tree to work on and defaults to the current directory. `--token-stdin`
 reads a GitHub token from standard input and is taken by the three commands that reach a
-network — see [below](#taking-a-contract-from-a-private-repository). Exit codes: `0` nothing
+network, but applies only to `owner/repo` sources — see
+[below](#taking-a-contract-from-a-private-github-repository). Exit codes: `0` nothing
 to report, `1` violations (one per line on standard output), `2` a refusal or an internal
 error (standard error).
 
@@ -275,8 +283,8 @@ artifact with the old lock; every other partial state is refused before any copy
 The staging and destination file systems are checked before the old dest is removed.
 
 This migration adds no lock field or report kind. It also adds no network access: `gen` and
-`verify` retain their file-system-only boundary, while only `add`, `update`, and `fetch` reach the
-two documented GitHub hosts.
+`verify` retain their file-system-only boundary, while only `add`, `update`, and `fetch` may use
+a configured remote transport.
 
 `verify` compares each recorded dest with the digest recorded for it, and the record itself
 with what the declarations and the table say it should be (`placement`), and needs neither the
@@ -300,10 +308,43 @@ bunx agentic-skill-vendor add ba0918/agentic-workflow workflow
 bunx agentic-skill-vendor gen
 ```
 
-`add` writes `vendor-manifest.yaml`, records the branch that repository hands out as an
-explicit value, resolves it to a commit in `vendor-lock.json`, and fetches every contract your
-skills already declare and that repository holds at `contracts/<id>.md`. The optional second
-argument names the source; without it the repository's own name is used.
+The short `owner/repo` form keeps using the fixed-host GitHub API. An arbitrary Git host can
+instead be registered with any of these allowlisted forms:
+
+```
+bunx agentic-skill-vendor add ssh://git@git.example.com/team/contracts.git
+bunx agentic-skill-vendor add git@git.example.com:team/contracts.git
+bunx agentic-skill-vendor add https://git.example.com/team/contracts.git
+```
+
+The repository text is preserved exactly. Without the optional source name, the final path
+component becomes the name after a trailing `.git` is removed; give a name explicitly if that
+component is not a usable source name. Plain `http://`, `file://`, local paths, unsupported
+remote helpers, option-like inputs and HTTP(S) URLs containing a username, password or token
+are rejected before Git starts.
+
+Generic sources require Git at runtime and OpenSSH for SSH URLs. They reuse the user's normal
+system/global Git and SSH setup, including an SSH agent, private keys, `known_hosts` and stored
+credential-helper results. Every run is nevertheless non-interactive: standard input and raw
+child diagnostics are closed, Git terminal prompts are disabled, and OpenSSH uses batch mode.
+If the URL needs a username, password, key passphrase or host-key confirmation, the command
+fails instead of waiting. Run ordinary Git or OpenSSH directly with the same URL to complete
+that one-time authentication and connection setup, confirm that it then succeeds without a
+prompt, and retry this tool. `--token-stdin` is not passed to generic Git; it remains a
+GitHub-API credential only.
+
+One generic source has cumulative limits of 120 seconds, 256 MiB for its temporary bare
+repository, 1 MiB for one extracted file and 256 MiB for all extracted files. A timeout,
+capacity failure or acquisition error terminates the isolated Git process group, removes its
+temporary repository, and leaves the existing cache, manifest and lock unchanged. Both SHA-1
+and SHA-256 Git object formats are verified; a SHA-256 source records `objectFormat: sha256`
+beside its 64-digit revision in the lock.
+
+`add` discovers the branch that repository hands out, resolves and fetches it, then publishes
+the source registration in `vendor-manifest.yaml` and its commit pin in `vendor-lock.json`
+only after acquisition succeeds. It fetches every contract your skills already declare and
+that repository holds at `contracts/<id>.md`. The optional second argument names the source;
+without it the repository's own name is used.
 
 Keep the cache out of git — anchored to the repository root, or the fetching commands warn on
 every run:
@@ -345,10 +386,10 @@ tree disagrees with itself until `update` runs: `verify` reports `source-mismatc
 and `fetch` stop for that source rather than act on a pin the table contradicts. `update` is
 the way back — it reads the repository and the ref from the table alone.
 
-## Taking a contract from a private repository
+## Taking a contract from a private GitHub repository
 
-A source in a private repository, or a public one being fetched often enough to meet the
-hourly allowance, needs a token. It is piped in; nothing else is accepted:
+A GitHub API source in a private repository, or a public one being fetched often enough to
+meet the hourly allowance, needs a token. It is piped in; nothing else is accepted:
 
 ```
 gh auth token | bunx agentic-skill-vendor update --token-stdin
@@ -365,10 +406,11 @@ Anything that writes a token to standard output composes the same way — `op re
 the secret at rest — one more thing to be committed, backed up, synced, or left readable by
 everything running as the same person — and making one safe would take a permission check
 that means nothing on a file system without POSIX modes. An environment variable is inherited
-by every child process and would cost this tool the boundary it can otherwise state plainly:
-that it reads none. A pipe leaves nothing behind, appears in no process listing and in no
-shell history, and needs no permission of its own — so the Deno flags above do not change,
-and `--token-stdin` needs no `--allow-env`.
+by child processes, while the GitHub API credential path needs none. A pipe leaves nothing
+behind, appears in no process listing and in no shell history, and needs no permission of its
+own — so the GitHub Deno flags above do not change, and `--token-stdin` needs no `--allow-env`.
+Generic Git may read the environment for normal Git/OpenSSH configuration, but never receives
+this token.
 
 The token is held in memory for the length of one run, reaches only the `Authorization`
 header of each request, is written nowhere, and appears in no message this tool prints. It is
@@ -427,6 +469,13 @@ copies against the lock and the lock against what the tree renders to, and silen
 the two comparisons that need the canonical text (the text against the lock, and the conformance
 tests against the lock) when the cache is not there. Run `fetch` before `verify` where the full
 comparison is wanted.
+
+When that preceding `fetch` includes a generic Git source, the CI image needs Git and, for an
+SSH URL, OpenSSH. Provision the host key and an SSH key/agent, or a non-prompting HTTPS
+credential helper, before the command. Confirm the same repository URL with ordinary Git in
+the job setup: `fetch` never opens an authentication or host-key prompt. GitHub-hosted Ubuntu
+runners already include Git and OpenSSH, but credentials and `known_hosts` remain the
+repository owner's responsibility.
 
 What is never left out is the lock recording nothing at all for a declared contract: that is
 reported as `unresolved` with a cache or without one, so the tree an `add` wrote the mapping
@@ -525,7 +574,7 @@ file has arrived, so a directory standing at its place means that revision was f
 and a run stopped part way leaves no revision behind for a later command to read as a fetch
 that finished.
 
-**Three answers stop a fetching run with nothing written.** A file the run was about to take —
+**Three GitHub API answers stop a fetching run with nothing written.** A file the run was about to take —
 the canonical text at its mapped path, or a conformance test beside it — listed as anything but
 an ordinary file (a symlink, a submodule) or under a path that does not stay inside the
 repository listing it (an empty segment, a `.` or `..` step, a backslash); a redirect, since

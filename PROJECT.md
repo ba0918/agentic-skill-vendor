@@ -34,8 +34,12 @@ it is never committed.
 | `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
 | `src/distribution-ignore.ts` | Validation and matching of the shared and contract-specific distribution `ignore` rules |
 | `src/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
-| `src/token.ts` | The credential: taken from standard input, judged before it can become a header, named by no refusal |
+| `src/token.ts` | The GitHub API credential: taken from standard input, judged before it can become a header, named by no refusal |
 | `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
+| `src/repository.ts` | Pure allowlist classification of GitHub shorthand and generic SSH/HTTPS repository forms |
+| `src/remote.ts` | The snapshot lifecycle shared by remote transports and the repository-kind router |
+| `src/git.ts` | Generic Git snapshots: ref/pin acquisition, tree listing and streamed object verification over an injected runner |
+| `src/gitprocess.ts` | The real shell-free, non-interactive Git process group and its cumulative time, disk and extraction budgets |
 | `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
 | `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
 | `src/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
@@ -57,7 +61,7 @@ it is never committed.
 | `package.json` | The npm package: `bin`, the scripts below, and the exact-pinned dependencies |
 | `tsconfig.json` | Type checking only — the published artifact comes from `bun build` |
 | `biome.json` | Lint and format, and the rules this codebase turns off |
-| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over both fixtures |
+| `.github/workflows/ci.yml` | CI on Bun 1.3.x: the type check, lint, format check and tests, then `verify` and `lint-selfcontain` over all fixtures, followed by packed-artifact smokes on Node, Bun and Deno |
 | `.github/workflows/release.yml` | The release: a push to main that carries a version bump is tagged and published to npm, with the checks above called rather than restated |
 
 The canonical project version is the `version` field in `package.json`. Release headings and
@@ -83,10 +87,10 @@ tags follow that value; they are not separate version declarations.
   same convention as the sister repositories).
 - A broken fixture tree is never committed. A test that needs one clones
   `fixtures/contracts-basic/good/` into a temporary directory and breaks the clone.
-- No test reaches a network. The transport is injected at the command boundary, and the one
-  the suite hands the entry point refuses every request, so a command that reached for a
-  network where it must not fails rather than connecting. The fetching commands are driven
-  by a fake GitHub that answers in the shapes the real service answers in.
+- No test reaches a network. The transports are injected at the command boundary, and the
+  suite's default HTTP and generic Git capabilities refuse accidental use. Fetching tests use
+  deterministic fake GitHub snapshots or injected process, file-system and time boundaries;
+  process-group and capacity behavior never depends on a real server, PTY, `/proc` or `ps`.
 
 ## Constraints
 
@@ -100,16 +104,17 @@ tags follow that value; they are not separate version declarations.
   own in CI. Without it the settings in `tsconfig.json` would constrain nothing.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
-- A credential reaches the tool on standard input alone, only where `--token-stdin` asks for
-  it, and only for the three commands that reach a network. Not a file: that is a second copy
+- A GitHub API credential reaches the tool on standard input alone, only where `--token-stdin`
+  asks for it, and only for the three commands that reach a network. Not a file: that is a
+  second copy
   of the secret at rest, and making one safe needs a mode check that says nothing on a file
-  system without POSIX modes. Not an environment variable: that is inherited by every child
-  process and would cost the boundary above, and `--allow-env` besides. Standard input needs
+  system without POSIX modes. Not an environment variable: that could be inherited by a child
+  process and would cost `--allow-env` besides. Standard input needs
   no permission of its own, so the Deno flags the commands document do not change. The value
   is held for one run, reaches only the `Authorization: Bearer` header of each request to the
-  two fixed hosts, is written nowhere and is named by no refusal — the refusals report a
-  position instead. Reading standard input is the one part of this path that is a runtime
-  capability rather than this package's own code, so CI asserts it on Node, Bun and Deno
+  two fixed hosts, never reaches generic Git, is written nowhere and is named by no refusal —
+  the refusals report a position instead. Reading standard input is the one part of this path
+  that is a runtime capability rather than this package's own code, so CI asserts it on Node, Bun and Deno
   against the packed tarball.
 - The following are external compatibility and do not change without a version change: the
   commands and their flags, the lock schema (`placements` and a resolution's `kind` included),
@@ -131,11 +136,20 @@ tags follow that value; they are not separate version declarations.
   — no network, no environment, no subprocess. Under Deno that is enforceable with
   `--allow-read --allow-write`; on Node and Bun there is no sandbox to enforce it with, so it
   is a property of the code rather than a guarantee of the runtime. `add`, `update` and
-  `fetch` add HTTPS to `api.github.com` and `raw.githubusercontent.com`, through a transport
-  injected at the command boundary, and read no environment variable and start no subprocess
-  either. The four offline commands refuse `--token-stdin` rather than ignoring it, so the
-  boundary above is stated in the one place a person checks it. No redirect is followed: the fixed pair of hosts would otherwise hold for the first
-  request of a run only, so a `3xx` answer stops the run with nothing written.
+  `fetch` route `owner/repo` through HTTPS to `api.github.com` and
+  `raw.githubusercontent.com`; no redirect is followed, because the fixed pair of hosts would
+  otherwise hold for the first request only. Allowlisted SSH, scp-style SSH and HTTPS URLs
+  instead use installed Git/OpenSSH through an injected runner. This generic path preserves
+  trusted system/global configuration and non-prompting authentication, strips dangerous
+  per-run environment overrides, disables Git/OpenSSH prompts even on a TTY, and closes stdin.
+  Under Deno it therefore needs environment, temporary-directory read/write and
+  `--allow-run=git` permissions. The four offline commands refuse `--token-stdin` rather than
+  ignoring it, so their narrower boundary is stated in the one place a person checks it.
+- Every generic Git session is a detached process group and a temporary bare repository. Its
+  cumulative defaults are 120 seconds, 256 MiB of temporary disk, 1 MiB per extracted file
+  and 256 MiB across extracted files. A failed process, timeout or capacity excess terminates
+  descendants before temporary cleanup and cannot write cache, manifest or lock state. Raw
+  child diagnostics are suppressed; recovery points users to ordinary Git/OpenSSH setup.
 - The lock records what was resolved and nothing else — no tool version, no repository URL, no
   derivable path. Every one of those was a value no check consumed, and the tool's own
   version put a byte nobody verified into a byte-for-byte comparison: releasing a new
