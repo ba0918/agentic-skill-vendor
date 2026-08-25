@@ -122,7 +122,7 @@ jobs:
           "$PACKAGE_BIN" --help | grep -F 'usage: agentic-skill-vendor'
           "$PACKAGE_BIN" verify --root fixtures/contracts-raw/good
           "$PACKAGE_BIN" lint-selfcontain --root fixtures/contracts-basic/good
-          refused="$(printf 'ghp_ has a space' | "$PACKAGE_BIN" fetch --token-stdin --root fixtures/contracts-basic/good 2>&1 || true)"
+          refused="$(printf 'ghp_ has a space' | "$PACKAGE_BIN" fetch --token-stdin --root fixtures/contracts-remote/good 2>&1 || true)"
           echo "$refused" | grep -qF 'position 5'
 
       - uses: actions/setup-node@v4
@@ -136,7 +136,7 @@ jobs:
           "$PACKAGE_BIN" --help | grep -F 'usage: agentic-skill-vendor'
           "$PACKAGE_BIN" verify --root fixtures/contracts-raw/good
           "$PACKAGE_BIN" lint-selfcontain --root fixtures/contracts-basic/good
-          refused="$(printf 'ghp_ has a space' | "$PACKAGE_BIN" fetch --token-stdin --root fixtures/contracts-basic/good 2>&1 || true)"
+          refused="$(printf 'ghp_ has a space' | "$PACKAGE_BIN" fetch --token-stdin --root fixtures/contracts-remote/good 2>&1 || true)"
           echo "$refused" | grep -qF 'position 5'
 
       - name: Smoke-test the installed package on Bun 1.3
@@ -146,7 +146,7 @@ jobs:
           bun "$PACKAGE_ROOT/dist/cli.js" --help | grep -F 'usage: agentic-skill-vendor'
           bun "$PACKAGE_ROOT/dist/cli.js" verify --root fixtures/contracts-raw/good
           bun "$PACKAGE_ROOT/dist/cli.js" lint-selfcontain --root fixtures/contracts-basic/good
-          refused="$(printf 'ghp_ has a space' | bun "$PACKAGE_ROOT/dist/cli.js" fetch --token-stdin --root fixtures/contracts-basic/good 2>&1 || true)"
+          refused="$(printf 'ghp_ has a space' | bun "$PACKAGE_ROOT/dist/cli.js" fetch --token-stdin --root fixtures/contracts-remote/good 2>&1 || true)"
           echo "$refused" | grep -qF 'position 5'
 
       - uses: denoland/setup-deno@v2
@@ -168,5 +168,5 @@ jobs:
           # nothing but that the run did not crash. The read needs no permission
           # of its own: the flags here are the same --allow-read --allow-write
           # the offline commands take.
-          refused="$(printf 'ghp_ has a space' | deno run --allow-read --allow-write "$PACKAGE_ROOT/dist/cli.js" fetch --token-stdin --root fixtures/contracts-basic/good 2>&1 || true)"
+          refused="$(printf 'ghp_ has a space' | deno run --allow-read --allow-write "$PACKAGE_ROOT/dist/cli.js" fetch --token-stdin --root fixtures/contracts-remote/good 2>&1 || true)"
           echo "$refused" | grep -qF 'position 5'
