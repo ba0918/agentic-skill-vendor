@@ -38,9 +38,14 @@ import {
   requireOrdinaryFile,
   type RemoteClient,
   type RemoteSnapshot,
-  type SnapshotTarget,
   type TreeBlob,
 } from "./remote.ts";
+import {
+  contractsOf,
+  fetchRequests,
+  updateRequests,
+  type SnapshotRequest,
+} from "./snapshot-plan.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -216,53 +221,6 @@ async function updateTree(
   await pruneCache(root, prepared.resolved);
   for (const line of prepared.mapping.report) out(line);
   return 0;
-}
-
-export interface SnapshotRequest {
-  name: string;
-  repository: string;
-  target: SnapshotTarget;
-}
-
-export function updateRequests(declaration: Declaration): SnapshotRequest[] {
-  return Object.keys(declaration.sources)
-    .sort(compareStrings)
-    .map((name) => {
-      const source = declaration.sources[name];
-      return {
-        name,
-        repository: source.repository,
-        target: { kind: "ref" as const, ref: source.ref },
-      };
-    });
-}
-
-export function fetchRequests(
-  declaration: Declaration,
-  sources: LockSources,
-): SnapshotRequest[] {
-  const requests: SnapshotRequest[] = [];
-  for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
-    if (contractsOf(declaration, name).length === 0) continue;
-    const pinned = sources[name];
-    if (pinned === undefined) {
-      throw new ConfigError(
-        `${DECLARATION_FILE} registers the source ${name} but the lock ` +
-          `records no commit for it; run update to resolve one`,
-      );
-    }
-    requests.push({
-      name,
-      repository: pinned.repository,
-      target: {
-        kind: "pin",
-        revision: pinned.revision,
-        objectFormat: pinned.objectFormat ?? "sha1",
-        ref: declaration.sources[name].ref,
-      },
-    });
-  }
-  return requests;
 }
 
 async function withSnapshots<T>(
@@ -572,12 +530,6 @@ function requirePinnedSnapshot(
 }
 
 /** The contract ids one source is the origin of, in a fixed order. */
-function contractsOf(declaration: Declaration, source: string): string[] {
-  return Object.keys(declaration.contracts)
-    .filter((id) => declaration.contracts[id].source === source)
-    .sort(compareStrings);
-}
-
 /**
  * One contract's canonical text and the conformance tests beside it, fetched
  * and checked against the ids the commit itself gives them.
