@@ -7,11 +7,19 @@ export type Repository =
 const GITHUB_REPOSITORY =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SCP_REPOSITORY =
-  /^[A-Za-z0-9._-]+@[A-Za-z0-9][A-Za-z0-9._-]*:[^\s\\:]+(?:\/[^\s\\:]+)*$/;
+  /^[A-Za-z0-9._][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9._-]*:[^\s\\:]+(?:\/[^\s\\:]+)*$/;
 const SOURCE_NAME = /^[a-z0-9][a-z0-9._-]*$/;
 const SOURCE_NAME_LIMIT = 64;
 
 export function classifyRepository(repository: string): Repository {
+  if (
+    [...repository].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f;
+    })
+  ) {
+    throw invalidRepository(repository);
+  }
   if (GITHUB_REPOSITORY.test(repository)) {
     return { kind: "github", repository };
   }
@@ -69,6 +77,8 @@ function parseAllowedUrl(repository: string): URL {
   }
   if (
     parsed.hostname === "" ||
+    parsed.hostname.startsWith("-") ||
+    parsed.username.startsWith("-") ||
     parsed.pathname === "" ||
     parsed.pathname === "/" ||
     parsed.search !== "" ||

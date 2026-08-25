@@ -246,6 +246,26 @@ test("a declaration preserves allowlisted generic Git repository forms", () => {
   }
 });
 
+test("a declaration refuses repository scalars containing controls", () => {
+  for (const repository of [
+    "ssh://git@example.com/group/workflow.git\\0",
+    "ssh://git@example.com/group/workflow.git\\x1f",
+    "ssh://git@example.com/group/workflow.git\\x7f",
+  ]) {
+    expect(() =>
+      parseDeclaration(
+        [
+          "sources:",
+          "  workflow:",
+          `    repository: "${repository}"`,
+          "    ref: main",
+          "",
+        ].join("\n"),
+      ),
+    ).toThrow(ConfigError);
+  }
+});
+
 test("a ref that could steer the request it is placed in is refused", () => {
   for (const ref of ["../main", "-flag", "main~1", "with space", "main/"]) {
     const error = thrownBy(

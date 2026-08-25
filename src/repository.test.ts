@@ -41,6 +41,32 @@ test("credentials, plaintext and non-network repository forms are refused", () =
   }
 });
 
+test("option-like SSH users and hosts are refused before Git can read them", () => {
+  for (const repository of [
+    "-user@example.com:group/repository.git",
+    "ssh://git@-host/group/repository.git",
+    "ssh://-user@example.com/group/repository.git",
+  ]) {
+    expect(() => classifyRepository(repository), repository).toThrow(
+      ConfigError,
+    );
+  }
+});
+
+test("repository text containing C0 controls or DEL is refused before normalization", () => {
+  for (const repository of [
+    "ssh://git@exam\nple.com/group/repository.git",
+    "https://example.com/group/repository.git\u0000",
+    "git@example.com:group/repository.git\u001f",
+    "ssh://git@example.com/group/repository.git\u007f",
+  ]) {
+    expect(
+      () => classifyRepository(repository),
+      JSON.stringify(repository),
+    ).toThrow(ConfigError);
+  }
+});
+
 test("the default source name is the repository basename without its git suffix", () => {
   for (const repository of [
     "ba0918/repository",
