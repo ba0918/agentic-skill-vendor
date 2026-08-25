@@ -727,6 +727,84 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
       violations.push(`${path} forwards to the old placement owner`);
     }
   }
+  const ownerContracts: Array<[string, RegExp, string]> = [
+    [
+      "src/distribution/raw-contracts.ts",
+      /interface RawReading/,
+      "raw input model owner",
+    ],
+    [
+      "src/distribution/raw-contracts.ts",
+      /function rawMappingsOf/,
+      "raw mapping owner",
+    ],
+    [
+      "src/distribution/raw-contracts.ts",
+      /function readRawContracts/,
+      "raw reader owner",
+    ],
+    [
+      "src/distribution/raw-contracts.ts",
+      /function assertKindsAgree/,
+      "raw kind validation owner",
+    ],
+    [
+      "src/distribution/placement-plan.ts",
+      /function planMigration/,
+      "migration plan owner",
+    ],
+    [
+      "src/distribution/placement-plan.ts",
+      /function planSweep/,
+      "placement sweep owner",
+    ],
+    [
+      "src/distribution/placement-verify.ts",
+      /function expectedPlacements/,
+      "placement expectation owner",
+    ],
+    [
+      "src/distribution/lock-update.ts",
+      /function deriveResolutions/,
+      "lock derivation owner",
+    ],
+    [
+      "src/distribution/lock-update.ts",
+      /function rewriteReport/,
+      "lock rewrite report owner",
+    ],
+    [
+      "src/distribution/lock-update.ts",
+      /function unusedReport/,
+      "unused resolution report owner",
+    ],
+  ];
+  for (const [path, pattern, message] of ownerContracts) {
+    if (!pattern.test(sources.get(path) ?? "")) violations.push(message);
+  }
+  const placements = sources.get("src/distribution/placements.ts") ?? "";
+  if (
+    /function (?:rawMappingsOf|readRawContracts|deriveRawResolutions|assertKindsAgree|rawLockViolations|planMigration|planSweep|expectedPlacements)/.test(
+      placements,
+    )
+  ) {
+    violations.push("placements retains higher-level ownership");
+  }
+  const gen = sources.get("src/distribution/gen.ts") ?? "";
+  if (
+    /function (?:deriveResolutions|rewriteReport|unusedReport|rewrittenValues)/.test(
+      gen,
+    )
+  ) {
+    violations.push("gen retains lock derivation or reporting");
+  }
+  if (
+    /export \{ closureViolations, lockViolations \}/.test(
+      sources.get("src/distribution/generation-plan.ts") ?? "",
+    )
+  ) {
+    violations.push("generation plan re-exports lock diagnostics");
+  }
   return violations.sort();
 }
 
@@ -782,7 +860,9 @@ test("test helpers have no compatibility barrel or callers", async () => {
 });
 
 test("remaining Phase 2 modules own their implementations", async () => {
-  expect(remainingOwnerViolations(await repositorySources())).toStrictEqual([]);
+  const sources = await repositorySources();
+  expect(remainingOwnerViolations(sources)).toStrictEqual([]);
+  expect(sameDirectoryCycleEdges(sources)).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {
