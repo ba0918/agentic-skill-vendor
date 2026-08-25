@@ -493,6 +493,122 @@ test("fetch opens the lock pin and closes the snapshot after a blob failure", as
   });
 });
 
+test("fetch returns a cleanup failure after a snapshot was used successfully", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const bytes = new TextEncoder().encode(CONTRACT);
+    const objectId = await gitObjectIdOf(bytes);
+    let closed = 0;
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open() {
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [
+            {
+              path: "contracts/tdd-contract.md",
+              mode: "100644",
+              objectId,
+            },
+          ],
+          async fileAt() {
+            return bytes;
+          },
+          async close() {
+            closed++;
+            throw new ConfigError("injected cleanup failure");
+          },
+        };
+      },
+    };
+
+    await expect(
+      commandFetch(root, (line) => lines.push(line), client),
+    ).rejects.toThrow("injected cleanup failure");
+    expect(closed).toStrictEqual(1);
+  });
+});
+
+test("update closes an opened snapshot when the next source cannot open", async () => {
+  await withGoodTree(async (root) => {
+    await writeFile(
+      `${root}/vendor-manifest.yaml`,
+      [
+        "sources:",
+        "  first:",
+        "    repository: example/first",
+        "    ref: main",
+        "  second:",
+        "    repository: example/second",
+        "    ref: main",
+        "",
+      ].join("\n"),
+    );
+    let closed = 0;
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string) {
+        if (repository === "example/second") {
+          throw new ConfigError("injected open failure");
+        }
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [],
+          async fileAt() {
+            throw new Error("no blob should be read");
+          },
+          async close() {
+            closed++;
+          },
+        };
+      },
+    };
+
+    await expect(commandUpdate(root, () => {}, client)).rejects.toThrow(
+      "injected open failure",
+    );
+    expect(closed).toStrictEqual(1);
+  });
+});
+
+test("fetch refuses and closes a snapshot that differs from the lock pin", async () => {
+  for (const snapshotIdentity of [
+    { revision: "b".repeat(40), objectFormat: "sha1" as const },
+    { revision: REVISION, objectFormat: "sha256" as const },
+  ]) {
+    await withRemoteTree(async (root, lines) => {
+      let closed = 0;
+      const client = {
+        async defaultBranchOf() {
+          return "main";
+        },
+        async open() {
+          return {
+            ...snapshotIdentity,
+            blobs: [],
+            async fileAt() {
+              throw new Error("no blob should be read");
+            },
+            async close() {
+              closed++;
+            },
+          };
+        },
+      };
+
+      await expect(
+        commandFetch(root, (line) => lines.push(line), client),
+      ).rejects.toThrow("the snapshot opened for workflow");
+      expect(closed).toStrictEqual(1);
+    });
+  }
+});
+
 test("update takes a source back to the repository the table registers", async () => {
   await withRemoteTree(async (root, lines) => {
     // The way out of a lock and a table naming different repositories, and the
