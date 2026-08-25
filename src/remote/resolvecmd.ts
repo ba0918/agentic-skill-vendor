@@ -79,6 +79,7 @@ import {
 import { declaredIds } from "../contracts/declaration.ts";
 import { placeInCache, type CachedRevision } from "./cache-write.ts";
 import { writeLockSources } from "./lock-update.ts";
+import { collectSources as collectSourceRevisions } from "./source-collection.ts";
 
 /**
  * One revision on its way into the cache: the directory it is placed at, and
@@ -112,7 +113,12 @@ export async function commandFetch(
     client,
     fetchRequests(state.declaration, state.sources),
     async (snapshots) =>
-      await collectSources(snapshots, state.declaration, state.sources),
+      await collectSourceRevisions(
+        snapshots,
+        state.declaration,
+        state.sources,
+        sourceCollectors,
+      ),
   );
   await placeInCache(root, revisions);
   await pruneCache(root, state.sources);
@@ -181,10 +187,11 @@ async function updateTree(
         state,
         declarationText,
       );
-      const revisions = await collectSources(
+      const revisions = await collectSourceRevisions(
         snapshots,
         mapping.declaration,
         resolved,
+        sourceCollectors,
       );
       return { resolved, mapping, revisions };
     },
@@ -425,7 +432,7 @@ function resolveSources(
  * files hashes to — and that is why it stops the run instead of being reported
  * as a violation.
  */
-export async function collectSources(
+export async function legacyCollectSources(
   snapshots: Map<string, RemoteSnapshot>,
   declaration: Declaration,
   sources: LockSources,
@@ -644,6 +651,12 @@ async function collectRawMapping(
   }
   return files;
 }
+
+const sourceCollectors = {
+  assertPinned: requirePinnedSnapshot,
+  collectDocument: collectContract,
+  collectRaw: collectRawMapping,
+};
 
 /**
  * Refuses an entry whose own path does not stay inside the repository it is
