@@ -6,21 +6,28 @@ import {
   declaredIds,
   type SkillDeclaration,
 } from "../contracts/declaration.ts";
-import { MARKER_FILE } from "../contracts/raw.ts";
+import {
+  MARKER_FILE,
+  placedPathOf,
+  placementKeyOf,
+  srcKeyOf,
+} from "../contracts/raw.ts";
+import { createDistributionIgnore } from "../contracts/distribution-ignore.ts";
 import type { Placements, Resolution } from "../contracts/lock-model.ts";
 import type { Declaration, RawKind } from "../contracts/sources.ts";
 import { displayName } from "../filesystem/walk.ts";
+import type { PlacedFile } from "../filesystem/atomic-write.ts";
+import { joinRelative } from "../filesystem/ignore.ts";
 import { vendorHeader } from "./header.ts";
 import {
   assertDestNotIgnored,
-  driftDetail,
-  expectedPlacements,
+  firstDisagreement,
   observedDigest,
   observeDest,
   sameBytes,
-  selectionRemovalDetail,
+  type ObservedDest,
 } from "./placements.ts";
-import type { RawContracts } from "./raw-contracts.ts";
+import { rawMappingsOf, type RawContracts } from "./raw-contracts.ts";
 
 const LOCK_PREFIX = "vendor-lock.json";
 
@@ -133,3 +140,112 @@ export async function placementViolations(
   }
   return violations;
 }
+
+/**
+ * The placements the declarations and the table say each skill should have:
+ * dest → contract and src, without a digest, since the digest is the lock's.
+ */
+export function expectedPlacements(
+  skills: SkillDeclaration[],
+  declaration: Declaration,
+): Map<string, Map<string, { contract: string; src: string }>> {
+  const mappings = rawMappingsOf(declaration);
+  const expected = new Map<
+    string,
+    Map<string, { contract: string; src: string }>
+  >();
+  for (const skill of skills) {
+    const dests = new Map<string, { contract: string; src: string }>();
+    for (const id of skill.contracts) {
+      const rows = mappings.get(id);
+      if (rows === undefined) continue;
+      for (const mapping of rows) {
+        dests.set(placementKeyOf(mapping), {
+          contract: id,
+          src: srcKeyOf(mapping),
+        });
+      }
+    }
+    if (dests.size > 0) expected.set(skill.name, dests);
+  }
+  return expected;
+}
+
+/**
+ * The file a drifted dest disagrees on, where the canonical material is at
+ * hand to say; empty otherwise, since the lock pins a digest and nothing more.
+ */
+export function driftDetail(
+  raws: RawContracts,
+  contract: string,
+  dest: string,
+  kind: RawKind,
+  observed: ObservedDest,
+  site: string,
+): string {
+  const material = raws
+    .get(contract)
+    ?.materials?.find(
+      (m) => m.mapping.dest === dest && m.mapping.kind === kind,
+    );
+  if (material === undefined) return "";
+  const planned: PlacedFile[] = material.files.map((file) => ({
+    path: placedPathOf(material.mapping, file),
+    content: file.content,
+  }));
+  const counted: ObservedDest = {
+    ...observed,
+    entries: observed.entries.filter(
+      (entry) =>
+        entry.path !== MARKER_FILE && !observed.ignored.has(entry.path),
+    ),
+  };
+  const disagreement = firstDisagreement(counted, planned);
+  if (disagreement === null) return "";
+  const named = kind === "file" ? site : joinRelative(site, disagreement);
+  return ` — ${displayName(named)} differs`;
+}
+
+export function selectionRemovalDetail(
+  raws: RawContracts,
+  declaration: Declaration,
+  contract: string,
+  dest: string,
+  kind: RawKind,
+  observed: ObservedDest,
+  site: string,
+): string {
+  const material = raws
+    .get(contract)
+    ?.materials?.find(
+      (candidate) =>
+        candidate.mapping.dest === dest && candidate.mapping.kind === kind,
+    );
+  const origin = declaration.contracts[contract];
+  if (material === undefined || origin === undefined || kind !== "directory") {
+    return "";
+  }
+  const distribution = createDistributionIgnore(
+    declaration.ignore,
+    origin.ignore,
+  );
+  const removed = observed.entries.find(
+    (entry) =>
+      entry.path !== MARKER_FILE &&
+      !observed.ignored.has(entry.path) &&
+      distribution.excludes(entry.path),
+  );
+  if (removed === undefined) return "";
+  const named = joinRelative(site, removed.path);
+  return ` — ${displayName(named)} is no longer selected`;
+}
+
+/**
+ * verify's two checks over raw-byte contracts: the lock's placements against
+ * what the declarations and the table derive, and each recorded dest against
+ * the digest recorded for it.
+ *
+ * A (skill, dest) the first check reports is left out of the second, so one
+ * withdrawn skill is not named twice. The second check walks the lock's
+ * placements, not the table's: what was written is what the lock remembers.
+ */
