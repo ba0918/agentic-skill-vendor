@@ -33,8 +33,10 @@ const EXPECTED_SOURCE_FILES = [
   "src/gitprocess.test.ts",
   "src/gitprocess.ts",
   "src/header.ts",
-  "src/ignore.test.ts",
-  "src/ignore.ts",
+  "src/filesystem/ignore.test.ts",
+  "src/filesystem/ignore.ts",
+  "src/filesystem/walk.test.ts",
+  "src/filesystem/walk.ts",
   "src/lint.test.ts",
   "src/lint.ts",
   "src/manifest.test.ts",
@@ -66,8 +68,6 @@ const EXPECTED_SOURCE_FILES = [
   "src/token.ts",
   "src/verify.test.ts",
   "src/verify.ts",
-  "src/walk.test.ts",
-  "src/walk.ts",
 ] as const;
 
 async function sourceFiles(): Promise<string[]> {
@@ -113,6 +113,70 @@ function productionTestSupportEdges(sources: Map<string, string>): string[] {
   return violations.sort();
 }
 
+type Feature = "contracts" | "filesystem" | "root" | "unplaced";
+
+function featureOf(path: string): Feature {
+  const directory = path.split("/")[1];
+  if (directory === "filesystem" || directory === "contracts") {
+    return directory;
+  }
+  if (path === "src/errors.ts" || path === "src/records.ts") return "root";
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
+  if (name === "digest.ts") return "contracts";
+  return "unplaced";
+}
+
+function isProduction(path: string): boolean {
+  return !path.endsWith(".test.ts") && !path.startsWith("src/test-support/");
+}
+
+function filesystemEdgeIsAllowed(importer: string, imported: string): boolean {
+  const importedFeature = featureOf(imported);
+  if (importedFeature === "filesystem" || importedFeature === "root")
+    return true;
+  const finalImported =
+    imported === "src/digest.ts" ? "src/contracts/digest.ts" : imported;
+  return new Set([
+    "src/filesystem/walk.ts -> src/contracts/digest.ts",
+    "src/filesystem/ignore.ts -> src/contracts/digest.ts",
+  ]).has(`${importer} -> ${finalImported}`);
+}
+
+function filesystemBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "filesystem")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (!filesystemEdgeIsAllowed(importer, imported)) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function rootPrimitiveEdges(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (featureOf(importer) !== "root") continue;
+    for (const specifier of relativeImports(source)) {
+      violations.push(`${importer} -> ${importedPath(importer, specifier)}`);
+    }
+  }
+  return violations.sort();
+}
+
+async function repositorySources(): Promise<Map<string, string>> {
+  const sources = new Map<string, string>();
+  for (const path of await sourceFiles()) {
+    sources.set(path, await fs.readFile(`${ROOT}/${path}`, "utf8"));
+  }
+  return sources;
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -125,11 +189,9 @@ test("every source file occupies its frozen migration position", async () => {
 });
 
 test("production source cannot import test support", async () => {
-  const sources = new Map<string, string>();
-  for (const path of await sourceFiles()) {
-    sources.set(path, await fs.readFile(`${ROOT}/${path}`, "utf8"));
-  }
-  expect(productionTestSupportEdges(sources)).toStrictEqual([]);
+  expect(productionTestSupportEdges(await repositorySources())).toStrictEqual(
+    [],
+  );
 });
 
 test("a production import of test support names both paths", () => {
@@ -151,4 +213,32 @@ test("a side-effect import of test support names both paths", () => {
   expect(productionTestSupportEdges(sources)).toStrictEqual([
     "src/contracts/example.ts -> src/test-support/setup.ts",
   ]);
+});
+
+test("filesystem imports stay within their allowlist and exact temporary exception", async () => {
+  expect(filesystemBoundaryViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("an unapproved filesystem edge names both paths", () => {
+  const sources = new Map([
+    ["src/filesystem/walk.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(filesystemBoundaryViolations(sources)).toStrictEqual([
+    "src/filesystem/walk.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("a similar filesystem path does not inherit a temporary exception", () => {
+  const sources = new Map([
+    ["src/filesystem/nested/walk.ts", 'import "../../contracts/digest.ts";'],
+  ]);
+  expect(filesystemBoundaryViolations(sources)).toStrictEqual([
+    "src/filesystem/nested/walk.ts -> src/contracts/digest.ts",
+  ]);
+});
+
+test("root primitives import no internal feature", async () => {
+  expect(rootPrimitiveEdges(await repositorySources())).toStrictEqual([]);
 });

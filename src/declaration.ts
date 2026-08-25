@@ -18,7 +18,7 @@ import {
   isRegularFileOrAbsent,
   listEntries,
   readTextFile,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import { emptyRecord } from "./records.ts";
 
 /** Where the skills live, and what names a skill's own document. */

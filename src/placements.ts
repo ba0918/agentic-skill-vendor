@@ -47,13 +47,13 @@ import {
   readBytes,
   dirNameOf,
   walkFiles,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import {
   ancestorDirectories,
   type IgnoreRules,
   joinRelative,
   readIgnoreRules,
-} from "./ignore.ts";
+} from "./filesystem/ignore.ts";
 import { framedDigest } from "./raw.ts";
 import type { RawKind } from "./sources.ts";
 import {

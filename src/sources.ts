@@ -27,7 +27,7 @@ import {
   assertPlainChain,
   isRegularFileOrAbsent,
   readTextFile,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 
 /** The one file the declaration lives in. */
 export const DECLARATION_FILE = "vendor-manifest.yaml";

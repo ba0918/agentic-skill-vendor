@@ -34,7 +34,7 @@ import {
   isRegularFileOrAbsent,
   listEntries,
   readTextFile,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import {
   declaredIds,
   dependentIndex,

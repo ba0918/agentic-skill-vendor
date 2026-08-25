@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { dirNameOf } from "./walk.ts";
+import { dirNameOf } from "./filesystem/walk.ts";
 import {
   kindsOf,
   replaceWithSymlink,

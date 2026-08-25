@@ -32,7 +32,11 @@ import {
 } from "./sources.ts";
 import { emptyRecord } from "./records.ts";
 import { classifyRepository } from "./repository.ts";
-import { assertPlainChain, decodeUtf8, isRegularFileOrAbsent } from "./walk.ts";
+import {
+  assertPlainChain,
+  decodeUtf8,
+  isRegularFileOrAbsent,
+} from "./filesystem/walk.ts";
 import {
   dependenciesOf,
   type Dependencies,

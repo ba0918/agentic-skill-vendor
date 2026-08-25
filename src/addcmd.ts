@@ -19,7 +19,7 @@ import {
   readDeclaration,
   withSourceRegistration,
 } from "./sources.ts";
-import { isRegularFileOrAbsent, readTextFile } from "./walk.ts";
+import { isRegularFileOrAbsent, readTextFile } from "./filesystem/walk.ts";
 
 /**
  * Registers `repository` as a source and does what update does afterwards.

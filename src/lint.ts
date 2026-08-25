@@ -14,7 +14,7 @@ import {
   isDirectoryOrAbsent,
   readBytes,
   readEntries,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];

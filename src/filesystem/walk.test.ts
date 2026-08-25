@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import {
   atomicWriteDirectory,
   atomicWriteFile,
@@ -24,7 +24,7 @@ import {
   withGoodTree,
   withUnreadable,
   writeFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 const encoder = new TextEncoder();
 

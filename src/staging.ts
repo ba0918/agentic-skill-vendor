@@ -18,7 +18,7 @@ import {
   ensureParentDirectory,
   kindAt,
   type PlacedFile,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 
 export const STAGING_DIR = `${TOOL_DIR}/staging`;
 

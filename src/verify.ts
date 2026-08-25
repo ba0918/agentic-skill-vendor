@@ -10,7 +10,7 @@ import {
   displayName,
   isRegularFileOrAbsent,
   readBytes,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import { conformanceDigest } from "./conformance.ts";
 import type { SkillDeclaration } from "./declaration.ts";
 import {

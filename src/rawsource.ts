@@ -13,7 +13,7 @@ import {
   IGNORE_FILE,
   joinRelative,
   readIgnoreRules,
-} from "./ignore.ts";
+} from "./filesystem/ignore.ts";
 import {
   assertPlainChain,
   dirNameOf,
@@ -22,7 +22,7 @@ import {
   isRegularFileOrAbsent,
   readBytes,
   walkFiles,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import {
   MARKER_FILE,
   type RawFile,

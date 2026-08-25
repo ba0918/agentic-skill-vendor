@@ -51,7 +51,7 @@ import {
 } from "./manifest.ts";
 import { emptyRecord } from "./records.ts";
 import { MARKER_FILE, srcKeyOf } from "./raw.ts";
-import { IGNORE_FILE } from "./ignore.ts";
+import { IGNORE_FILE } from "./filesystem/ignore.ts";
 import {
   type Declaration,
   DECLARATION_FILE,
@@ -68,7 +68,7 @@ import {
   isRegularFileOrAbsent,
   type PlacedFile,
   readTextFile,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 import { locateTreeContracts, readTreeState, type TreeState } from "./gen.ts";
 import { declaredIds } from "./declaration.ts";
 

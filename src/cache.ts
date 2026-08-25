@@ -13,7 +13,7 @@
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
 import { compareStrings } from "./digest.ts";
-import { ancestorDirectories, readIgnoreRules } from "./ignore.ts";
+import { ancestorDirectories, readIgnoreRules } from "./filesystem/ignore.ts";
 import type { LockSources } from "./manifest.ts";
 import { TOOL_DIR } from "./sources.ts";
 import {
@@ -21,7 +21,7 @@ import {
   displayName,
   isDirectoryOrAbsent,
   listEntries,
-} from "./walk.ts";
+} from "./filesystem/walk.ts";
 
 /** Where fetched material is kept, relative to the tree root. */
 export const CACHE_DIR = `${TOOL_DIR}/cache`;
