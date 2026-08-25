@@ -427,9 +427,9 @@ test("update resolves the ref to the commit it names and records it in the lock"
     expect((await readLockFile(root)).sources).toStrictEqual({
       workflow: { repository: REPOSITORY, revision: REVISION },
     });
-    expect(lines).toContain(
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
       `resolved: workflow ${REVISION} (initial resolution)`,
-    );
+    ]);
   });
 });
 
@@ -644,6 +644,7 @@ test("update closes an opened snapshot when the next source cannot open", async 
       ].join("\n"),
     );
     const before = await snapshotTree(root);
+    const lines: string[] = [];
     let closed = 0;
     const client = {
       async defaultBranchOf() {
@@ -667,9 +668,12 @@ test("update closes an opened snapshot when the next source cannot open", async 
       },
     };
 
-    await expect(commandUpdate(root, () => {}, client)).rejects.toThrow(
-      "injected open failure",
-    );
+    await expect(
+      commandUpdate(root, (line) => lines.push(line), client),
+    ).rejects.toThrow("injected open failure");
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
+      `resolved: first ${REVISION} (initial resolution)`,
+    ]);
     expect(closed).toStrictEqual(1);
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
@@ -1114,12 +1118,21 @@ test("update that cannot fetch what it resolved leaves the tree exactly as it wa
         ? new Response("the host is down", { status: 503 })
         : await github.fetch(input)) as typeof fetch;
     const before = await snapshotTree(root);
+    const lines: string[] = [];
 
     await rejectedBy(
-      () => commandUpdate(root, () => {}, gitHubOver(unreachable)),
+      () =>
+        commandUpdate(
+          root,
+          (line) => lines.push(line),
+          gitHubOver(unreachable),
+        ),
       ConfigError,
     );
 
+    expect(lines.filter((line) => line.startsWith("resolved:"))).toStrictEqual([
+      `resolved: workflow ${REVISION} (initial resolution)`,
+    ]);
     expect(await snapshotTree(root)).toStrictEqual(before);
   });
 });

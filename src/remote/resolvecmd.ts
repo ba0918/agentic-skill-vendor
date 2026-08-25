@@ -13,7 +13,11 @@ import {
 } from "../filesystem/workdir.ts";
 import { pruneCache } from "./cache.ts";
 import { placeInCache } from "./cache-write.ts";
-import { resolveSources, writeLockSources } from "./lock-update.ts";
+import {
+  resolvedReport,
+  resolveSources,
+  writeLockSources,
+} from "./lock-update.ts";
 import type { RemoteClient, RemoteSnapshot } from "./remote.ts";
 import {
   fetchRequests,
@@ -73,11 +77,7 @@ async function updateTree(
     client,
     updateRequests(state.declaration),
     async (snapshots) => {
-      const resolution = resolveSources(
-        snapshots,
-        state.declaration,
-        state.sources,
-      );
+      const resolution = resolveSources(snapshots, state.declaration);
       const mapping = await mapDeclaredContracts(
         root,
         snapshots,
@@ -90,6 +90,14 @@ async function updateTree(
         resolution.sources,
       );
       return { resolution, mapping, revisions };
+    },
+    (name, snapshot) => {
+      const line = resolvedReport(
+        name,
+        state.sources[name]?.revision,
+        snapshot.revision,
+      );
+      if (line !== null) out(line);
     },
   );
 
@@ -107,10 +115,7 @@ async function updateTree(
     prepared.resolution.sources,
   );
   await pruneCache(root, prepared.resolution.sources);
-  for (const line of [
-    ...prepared.resolution.report,
-    ...prepared.mapping.report,
-  ]) {
+  for (const line of prepared.mapping.report) {
     out(line);
   }
   return 0;
@@ -120,16 +125,16 @@ async function withSnapshots<T>(
   client: RemoteClient,
   requests: SnapshotRequest[],
   use: (snapshots: Map<string, RemoteSnapshot>) => Promise<T>,
+  opened?: (name: string, snapshot: RemoteSnapshot) => void,
 ): Promise<T> {
   const snapshots = new Map<string, RemoteSnapshot>();
   let cleanupFailure: unknown;
   const result = await (async () => {
     try {
       for (const request of requests) {
-        snapshots.set(
-          request.name,
-          await client.open(request.repository, request.target),
-        );
+        const snapshot = await client.open(request.repository, request.target);
+        snapshots.set(request.name, snapshot);
+        opened?.(request.name, snapshot);
       }
       return await use(snapshots);
     } finally {
