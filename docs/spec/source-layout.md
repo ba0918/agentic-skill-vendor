@@ -160,3 +160,86 @@ Phase 1 と Phase 2 の両方が完了するまで version bump と release は�
 
 各 phase の初回 review では対象全体を確認し、修正後の review は指摘箇所と
 追加差分だけに限定する。
+
+## Phase 2 の固定設計
+
+Phase 2 は、行数を減らす作業ではなく、同じ理由で変更される規則を一つの場所へ集め、
+異なる理由で変更される処理を独立して検証できる単位へ分ける作業とする。
+
+### 暫定依存の所有権
+
+Phase 1 に残った4つの暫定importは、次の所有権へ整理して除去する。
+
+| 規則 | 所有者 | 理由 |
+| --- | --- | --- |
+| localeに依存しない決定的な文字列順序 | root primitiveの`src/ordering.ts` | digest固有ではなく、tool全体の出力と走査順を再現可能にする規則である |
+| cacheのdirectoryとfile path | `contracts` | fetchする側とofflineで読む側が共有する保存形式である |
+| repository作業directoryのignore判定と警告 | `filesystem` | cache以外のstaging directoryにも適用するfilesystem policyである |
+| cacheの列挙、prune、取得後のlifecycle | `remote` | remote materialを取得・更新した後の操作である |
+
+`common/`や`utils/`のように所有者を説明できない場所は作らない。`ordering.ts`は
+一つの明確なprimitiveだけを所有し、内部featureへ依存してはならない。
+
+### Module の裁定
+
+次のmoduleは複数の変更理由を持つため、同じfeature内で責務単位へ分ける。
+
+| Module | 分離する責務 |
+| --- | --- |
+| `distribution/placements.ts` | raw入力、配置計画とmigration・sweep、違反検査 |
+| `distribution/gen.ts` | contract探索、生成計画、書込み、lock導出とreport、command調停 |
+| `remote/resolvecmd.ts` | snapshot計画、source収集、cache配置、lock更新、command調停 |
+| `contracts/sources.ts` | schema検証とparse、line-preserving manifest編集 |
+| `contracts/manifest.ts` | lock modelと導出、JSON codecと検証、filesystem読取 |
+| `filesystem/walk.ts` | read・traversal・kind guard、atomic write |
+| `test-support/testing.ts` | CLI実行、fixture操作、filesystem補助、fake remote、assertion補助 |
+
+`remote/gitprocess.ts`は行数が多くても一体維持する。process groupの停止確認、source単位の
+resource budget、cleanup、停止未確認時のtemporary repository保持は一つの安全状態機械であり、
+別moduleへ分散すると拒否状態の組合せを機械検査しにくくなるためである。
+
+500行未満のmoduleも候補台帳では確認する。ただし、一つのtransport adapterや一つの
+command boundaryとして変更理由を説明でき、独立したtestを持つものは行数だけで分割しない。
+
+### 重複の裁定
+
+Productionの構文上の重複は、同時に変更される知識だけを統合する。callerごとに異なる
+拒否message、trust boundaryでの明示的なvalidator呼出し、異なる入力形式の防御は維持する。
+
+特に次を一つの正本へ寄せる。
+
+- documentとraw materialで共有する、sourceの登録・pin・cache不足の分類
+- `gen`と`verify`で共有する、kind確認からdocument・raw読取までのtree準備
+- placement pathから末尾separatorを除く正規化規則
+
+Testの重複は、全検出hitを知識groupへ対応付けたうえで裁定する。fixture作成、一時directoryの
+lifecycle、fake transportの組立、同じruntime matrixは統合候補とする。一方、assertion、期待値、
+security境界の入力、command固有の拒否契約、手計算したdigestなどproductionから独立すべき値は
+localに維持する。production実装と同じhelperで期待値を生成してはならない。
+
+### 固定台帳
+
+Group化した候補とその裁定はPhase 2 plan本体へ置く。`jscpd`の全hitから各groupへの対応表は、
+package、Git管理、CIへ含めず、local artifact storeのreview artifactとして保持する。
+
+Planには`jscpd`のversionと実行条件、対象commit、凍結日時、対応表artifactのpathとdigestを残す。
+対応表を修正する場合は既存artifactを上書きせずrevisionを追加し、planの参照を更新する。
+
+### Effect の固定
+
+変更前のtreeから、公開出力と副作用の順序をbaselineとして採取する。次は回数、順序、対象を
+変えない。
+
+- network requestのhost、引数、回数、順序
+- subprocessの引数、environment、回数、順序
+- credential用standard inputを読む時点と最大回数
+- filesystemのwrite、rename、deleteの対象と順序
+- resource budgetの集計単位
+- process停止確認、cleanup、retentionの順序
+- offline commandがnetworkやsubprocessへ到達しないこと
+
+Filesystem readは個々の`stat`回数を固定しない。ただし、読むtreeの範囲を広げず、同じtreeの
+重複走査を増やさず、symlink拒否、容量上限、外部結果を変えない。
+
+Phase 2は永続形式、migration、dependency、versionを変更しない。初回reviewだけ対象全体を読み、
+修正後は前回指摘とその修正で生じた追加差分だけをreviewする。
