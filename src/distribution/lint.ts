@@ -6,7 +6,7 @@
 // from verify (which decides identity).
 
 import * as fs from "node:fs/promises";
-import { ConfigError, describeCause, type Sink } from "./errors.ts";
+import { ConfigError, describeCause, type Sink } from "../errors.ts";
 import {
   assertTreeRoot,
   dirNameOf,
@@ -14,8 +14,8 @@ import {
   isDirectoryOrAbsent,
   readBytes,
   readEntries,
-} from "./filesystem/walk.ts";
-import { SKILLS_DIR } from "./contracts/declaration.ts";
+} from "../filesystem/walk.ts";
+import { SKILLS_DIR } from "../contracts/declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
 

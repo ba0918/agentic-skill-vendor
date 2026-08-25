@@ -70,7 +70,7 @@ test("every command the entry point names is answered by a module of its own", (
   // path they end in — so the import list is read as the list of names it is,
   // not as one name per module.
   const imported = new Set(
-    [...SOURCE.matchAll(/import \{([^}]+)\} from "\.\/\w+\.ts";/g)].flatMap(
+    [...SOURCE.matchAll(/import \{([^}]+)\} from "\.\/[^"]+\.ts";/g)].flatMap(
       (match) =>
         match[1].split(",").map((name) => name.trim().replace(/^type /, "")),
     ),
@@ -294,13 +294,18 @@ test("the commands that work offline reach no network, environment or subprocess
   expect(onlineSource).toContain('import("./git.ts")');
   expect(onlineSource).toContain('import("./gitprocess.ts")');
   expect(
-    (await importClosureOf("lint.ts")).has("contracts/digest.ts"),
+    (await importClosureOf("distribution/lint.ts")).has("contracts/digest.ts"),
   ).toStrictEqual(true);
   const resolverClosure = await importClosureOf("resolvecmd.ts");
   for (const name of CONCRETE_REMOTE_MODULES) {
     expect(resolverClosure.has(name), name).toStrictEqual(false);
   }
-  for (const entry of ["gen.ts", "verify.ts", "lint.ts", "selftest.ts"]) {
+  for (const entry of [
+    "distribution/gen.ts",
+    "distribution/verify.ts",
+    "distribution/lint.ts",
+    "selftest.ts",
+  ]) {
     const closure = await importClosureOf(entry);
     for (const name of CONCRETE_REMOTE_MODULES) {
       expect(closure.has(name), `${entry} -> ${name}`).toStrictEqual(false);

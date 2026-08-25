@@ -2,14 +2,14 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { dirNameOf } from "./filesystem/walk.ts";
+import { dirNameOf } from "../filesystem/walk.ts";
 import {
   kindsOf,
   replaceWithSymlink,
   runCli,
   withGoodTree,
   writeFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 async function lint(root: string) {
   return await runCli(["lint-selfcontain", "--root", root]);

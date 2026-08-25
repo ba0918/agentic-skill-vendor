@@ -33,25 +33,29 @@ const EXPECTED_SOURCE_FILES = [
   "src/contracts/sources.test.ts",
   "src/contracts/sources.ts",
   "src/errors.ts",
-  "src/gen.test.ts",
-  "src/gen.ts",
+  "src/distribution/gen.test.ts",
+  "src/distribution/gen.ts",
+  "src/distribution/header.ts",
+  "src/distribution/lint.test.ts",
+  "src/distribution/lint.ts",
+  "src/distribution/placements.test.ts",
+  "src/distribution/placements.ts",
+  "src/distribution/rawsource.test.ts",
+  "src/distribution/rawsource.ts",
+  "src/distribution/staging.test.ts",
+  "src/distribution/staging.ts",
+  "src/distribution/verify.test.ts",
+  "src/distribution/verify.ts",
   "src/git.test.ts",
   "src/git.ts",
   "src/github.test.ts",
   "src/github.ts",
   "src/gitprocess.test.ts",
   "src/gitprocess.ts",
-  "src/header.ts",
   "src/filesystem/ignore.test.ts",
   "src/filesystem/ignore.ts",
   "src/filesystem/walk.test.ts",
   "src/filesystem/walk.ts",
-  "src/lint.test.ts",
-  "src/lint.ts",
-  "src/placements.test.ts",
-  "src/placements.ts",
-  "src/rawsource.test.ts",
-  "src/rawsource.ts",
   "src/records.test.ts",
   "src/records.ts",
   "src/remote.ts",
@@ -59,15 +63,11 @@ const EXPECTED_SOURCE_FILES = [
   "src/resolvecmd.ts",
   "src/selftest.test.ts",
   "src/selftest.ts",
-  "src/staging.test.ts",
-  "src/staging.ts",
   "src/test-support/source-layout.test.ts",
   "src/test-support/testing.test.ts",
   "src/test-support/testing.ts",
   "src/token.test.ts",
   "src/token.ts",
-  "src/verify.test.ts",
-  "src/verify.ts",
 ] as const;
 
 async function sourceFiles(): Promise<string[]> {
@@ -113,7 +113,13 @@ function productionTestSupportEdges(sources: Map<string, string>): string[] {
   return violations.sort();
 }
 
-type Feature = "contracts" | "filesystem" | "root" | "unplaced";
+type Feature =
+  | "contracts"
+  | "distribution"
+  | "filesystem"
+  | "remote"
+  | "root"
+  | "unplaced";
 
 const CONTRACT_MODULES = new Set([
   "conformance.ts",
@@ -127,15 +133,31 @@ const CONTRACT_MODULES = new Set([
   "sources.ts",
 ]);
 
+const DISTRIBUTION_MODULES = new Set([
+  "gen.ts",
+  "header.ts",
+  "lint.ts",
+  "placements.ts",
+  "rawsource.ts",
+  "staging.ts",
+  "verify.ts",
+]);
+
 function featureOf(path: string): Feature {
   const directory = path.split("/")[1];
-  if (directory === "filesystem" || directory === "contracts") {
+  if (
+    directory === "filesystem" ||
+    directory === "contracts" ||
+    directory === "distribution"
+  ) {
     return directory;
   }
   if (path === "src/errors.ts" || path === "src/records.ts") return "root";
   const name = path.slice(path.lastIndexOf("/") + 1);
   if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
   if (CONTRACT_MODULES.has(name)) return "contracts";
+  if (DISTRIBUTION_MODULES.has(name)) return "distribution";
+  if (name === "cache.ts") return "remote";
   return "unplaced";
 }
 
@@ -194,6 +216,44 @@ function contractsBoundaryViolations(sources: Map<string, string>): string[] {
         importedFeature !== "filesystem" &&
         importedFeature !== "root"
       ) {
+        violations.push(`${importer} -> ${imported}`);
+      }
+    }
+  }
+  return violations.sort();
+}
+
+function distributionEdgeIsAllowed(
+  importer: string,
+  imported: string,
+): boolean {
+  const importedFeature = featureOf(imported);
+  if (
+    importedFeature === "distribution" ||
+    importedFeature === "contracts" ||
+    importedFeature === "filesystem" ||
+    importedFeature === "root"
+  ) {
+    return true;
+  }
+  const finalImported =
+    imported === "src/cache.ts" ? "src/remote/cache.ts" : imported;
+  return new Set([
+    "src/distribution/gen.ts -> src/remote/cache.ts",
+    "src/distribution/placements.ts -> src/remote/cache.ts",
+  ]).has(`${importer} -> ${finalImported}`);
+}
+
+function distributionBoundaryViolations(
+  sources: Map<string, string>,
+): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "distribution")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      if (!distributionEdgeIsAllowed(importer, imported)) {
         violations.push(`${importer} -> ${imported}`);
       }
     }
@@ -287,5 +347,29 @@ test("a contract import of a higher feature names both paths", () => {
   ]);
   expect(contractsBoundaryViolations(sources)).toStrictEqual([
     "src/contracts/digest.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("distribution imports stay within their allowlist and exact cache exceptions", async () => {
+  expect(
+    distributionBoundaryViolations(await repositorySources()),
+  ).toStrictEqual([]);
+});
+
+test("an unapproved distribution edge names both paths", () => {
+  const sources = new Map([
+    ["src/distribution/verify.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(distributionBoundaryViolations(sources)).toStrictEqual([
+    "src/distribution/verify.ts -> src/remote/cache.ts",
+  ]);
+});
+
+test("a similar distribution path does not inherit a cache exception", () => {
+  const sources = new Map([
+    ["src/distribution/nested/gen.ts", 'import "../../remote/cache.ts";'],
+  ]);
+  expect(distributionBoundaryViolations(sources)).toStrictEqual([
+    "src/distribution/nested/gen.ts -> src/remote/cache.ts",
   ]);
 });

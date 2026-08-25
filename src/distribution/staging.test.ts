@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { placeViaStaging, prepareStaging, STAGING_DIR } from "./staging.ts";
-import { withEmptyDir } from "./test-support/testing.ts";
+import { withEmptyDir } from "../test-support/testing.ts";
 
 test("a cross-filesystem staging refusal leaves the existing dest untouched", async () => {
   await withEmptyDir(async (root) => {

@@ -9,8 +9,8 @@
 // is why the device is checked before the old dest is removed.
 
 import * as fs from "node:fs/promises";
-import { ConfigError, describeCause } from "./errors.ts";
-import { TOOL_DIR } from "./contracts/sources.ts";
+import { ConfigError, describeCause } from "../errors.ts";
+import { TOOL_DIR } from "../contracts/sources.ts";
 import {
   assertPlainChain,
   dirNameOf,
@@ -18,7 +18,7 @@ import {
   ensureParentDirectory,
   kindAt,
   type PlacedFile,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 
 export const STAGING_DIR = `${TOOL_DIR}/staging`;
 

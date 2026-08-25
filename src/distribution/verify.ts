@@ -3,16 +3,16 @@
 // The four checks below do not depend on one another, and each is written so
 // that it stays meaningful while the others are failing.
 
-import type { Sink } from "./errors.ts";
-import { compareStrings, digestOfBytes } from "./contracts/digest.ts";
+import type { Sink } from "../errors.ts";
+import { compareStrings, digestOfBytes } from "../contracts/digest.ts";
 import {
   decodeUtf8,
   displayName,
   isRegularFileOrAbsent,
   readBytes,
-} from "./filesystem/walk.ts";
-import { conformanceDigest } from "./contracts/conformance.ts";
-import type { SkillDeclaration } from "./contracts/declaration.ts";
+} from "../filesystem/walk.ts";
+import { conformanceDigest } from "../contracts/conformance.ts";
+import type { SkillDeclaration } from "../contracts/declaration.ts";
 import {
   LOCK_FILE,
   type LockSources,
@@ -20,7 +20,7 @@ import {
   renderExpectedLock,
   type Resolutions,
   sourceViolations,
-} from "./contracts/manifest.ts";
+} from "../contracts/manifest.ts";
 import {
   closureViolations,
   conformanceDirectoriesOf,
@@ -33,11 +33,11 @@ import {
   vendorDirOf,
   vendorHeader,
 } from "./gen.ts";
-import type { ContractLocation, Declaration } from "./contracts/sources.ts";
+import type { ContractLocation, Declaration } from "../contracts/sources.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,
-} from "./contracts/placement-ownership.ts";
+} from "../contracts/placement-ownership.ts";
 import {
   assertKindsAgree,
   assertSrcsClearOfConformance,

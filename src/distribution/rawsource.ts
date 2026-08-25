@@ -7,13 +7,13 @@
 // ignore rules narrow anything — exclusion narrows what is digested, never
 // what is looked at.
 
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import {
   ancestorDirectories,
   IGNORE_FILE,
   joinRelative,
   readIgnoreRules,
-} from "./filesystem/ignore.ts";
+} from "../filesystem/ignore.ts";
 import {
   assertPlainChain,
   dirNameOf,
@@ -22,16 +22,16 @@ import {
   isRegularFileOrAbsent,
   readBytes,
   walkFiles,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 import {
   MARKER_FILE,
   type RawFile,
   type RawMaterial,
   srcKeyOf,
-} from "./contracts/raw.ts";
-import { compareStrings } from "./contracts/digest.ts";
-import type { RawMapping } from "./contracts/sources.ts";
-import { createDistributionIgnore } from "./contracts/distribution-ignore.ts";
+} from "../contracts/raw.ts";
+import { compareStrings } from "../contracts/digest.ts";
+import type { RawMapping } from "../contracts/sources.ts";
+import { createDistributionIgnore } from "../contracts/distribution-ignore.ts";
 
 /**
  * The files of every mapping of one raw-byte contract, or null where any src

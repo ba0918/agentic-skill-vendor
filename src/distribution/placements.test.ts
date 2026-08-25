@@ -5,7 +5,7 @@ import { assertSrcsClearOfConformance } from "./placements.ts";
 import {
   type ContractLocation,
   parseDeclaration,
-} from "./contracts/sources.ts";
+} from "../contracts/sources.ts";
 import {
   fakeGitHub,
   readLockFile,
@@ -14,7 +14,7 @@ import {
   withGoodTree,
   writeFile,
   writeLockFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 const RUNTIME = "tools/workflow-runtime";
 const DEST = "skills/release-notes/scripts/_runtime";

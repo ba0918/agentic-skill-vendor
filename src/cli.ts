@@ -10,12 +10,12 @@ import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { ConfigError, describeCause, type Sink } from "./errors.ts";
 import { commandAdd } from "./addcmd.ts";
-import { commandGen } from "./gen.ts";
+import { commandGen } from "./distribution/gen.ts";
 import { gitHubOver } from "./github.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
-import { commandVerify } from "./verify.ts";
+import { commandVerify } from "./distribution/verify.ts";
 import { readStandardInput, requireUsableToken } from "./token.ts";
-import { commandLint } from "./lint.ts";
+import { commandLint } from "./distribution/lint.ts";
 import { commandSelfTest } from "./selftest.ts";
 import {
   type RemoteClient,

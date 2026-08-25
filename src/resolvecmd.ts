@@ -69,7 +69,11 @@ import {
   type PlacedFile,
   readTextFile,
 } from "./filesystem/walk.ts";
-import { locateTreeContracts, readTreeState, type TreeState } from "./gen.ts";
+import {
+  locateTreeContracts,
+  readTreeState,
+  type TreeState,
+} from "./distribution/gen.ts";
 import { declaredIds } from "./contracts/declaration.ts";
 
 /**

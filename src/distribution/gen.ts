@@ -11,19 +11,19 @@
 // all" instead of restating it.
 
 import * as fs from "node:fs/promises";
-import { ConfigError, describeCause, type Sink } from "./errors.ts";
+import { ConfigError, describeCause, type Sink } from "../errors.ts";
 import {
   canonicalBody,
   CONTRACTS_DIR,
   compareStrings,
   contractPath,
   digestOfText,
-} from "./contracts/digest.ts";
+} from "../contracts/digest.ts";
 import {
   assertPlainContractPaths,
   conformanceDigest,
   conformanceDirectory,
-} from "./contracts/conformance.ts";
+} from "../contracts/conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
@@ -34,23 +34,23 @@ import {
   isRegularFileOrAbsent,
   listEntries,
   readTextFile,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 import {
   declaredIds,
   dependentIndex,
   readSkills,
   type SkillDeclaration,
   SKILLS_DIR,
-} from "./contracts/declaration.ts";
-import { emptyRecord } from "./records.ts";
+} from "../contracts/declaration.ts";
+import { emptyRecord } from "../records.ts";
 import { vendorHeader } from "./header.ts";
 import { placeViaStaging, prepareStaging } from "./staging.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,
-} from "./contracts/placement-ownership.ts";
+} from "../contracts/placement-ownership.ts";
 export { vendorHeader } from "./header.ts";
-import { cacheSiteOf, isIgnored, unignoredWarning } from "./cache.ts";
+import { cacheSiteOf, isIgnored, unignoredWarning } from "../cache.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -60,7 +60,7 @@ import {
   renderExpectedLock,
   type Resolution,
   type Resolutions,
-} from "./contracts/manifest.ts";
+} from "../contracts/manifest.ts";
 import {
   assertKindsAgree,
   assertRawCacheHolds,
@@ -86,7 +86,7 @@ import {
   withoutContractMapping,
   TOOL_DIR,
   VENDOR_SUBPATH,
-} from "./contracts/sources.ts";
+} from "../contracts/sources.ts";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;

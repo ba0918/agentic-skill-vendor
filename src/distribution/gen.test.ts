@@ -2,11 +2,11 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { planExpansion, vendorDirOf } from "./gen.ts";
-import { contractDigest } from "./contracts/digest.ts";
-import { parseDeclaration, reservedDestRefusal } from "./contracts/sources.ts";
-import { SKILLS_DIR } from "./contracts/declaration.ts";
+import { contractDigest } from "../contracts/digest.ts";
+import { parseDeclaration, reservedDestRefusal } from "../contracts/sources.ts";
+import { SKILLS_DIR } from "../contracts/declaration.ts";
 import {
   append,
   escapeThrough,
@@ -22,7 +22,7 @@ import {
   withUnreadable,
   writeFile,
   writeLockFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 const COPY = "skills/review-writer/references/vendor/verdict-format.md";
 const LOCK = "vendor-lock.json";
