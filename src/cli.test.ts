@@ -358,6 +358,22 @@ test("an empty standard input is refused rather than sent as a credential", asyn
   }
 });
 
+test("invalid add operands are refused before standard input is read", async () => {
+  for (const operands of [[], ["owner/repo", "name", "extra"]]) {
+    let reads = 0;
+    const result = await runCli(
+      ["add", ...operands, "--token-stdin"],
+      undefined,
+      () => {
+        reads += 1;
+        return "ghp_TestOnlyCredentialValue";
+      },
+    );
+    expect(result.code).toStrictEqual(2);
+    expect(reads).toStrictEqual(0);
+  }
+});
+
 test("the usage text says which commands the token is for", async () => {
   const result = await runCli(["--help"]);
   const usage = result.stdout.join("\n");

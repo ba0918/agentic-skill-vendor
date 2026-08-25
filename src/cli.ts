@@ -174,11 +174,12 @@ export async function run(
       invocation.tokenStdin ? requireUsableToken(readStdin()) : undefined;
     switch (invocation.command) {
       case "add":
+        requireRepository(invocation.operands);
         return await commandAdd(
           invocation.root,
           out,
           gitHubOver(transport, takeToken()),
-          requireRepository(invocation.operands),
+          invocation.operands[0],
           invocation.operands[1],
         );
       case "update":

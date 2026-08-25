@@ -7,21 +7,21 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-08-24
+## [0.5.0] - 2026-08-25
 
 ### Added
 
 - **A token for private and rate-limited sources.** `--token-stdin` reads a GitHub token from
   standard input and `add`, `update` and `fetch` send it as an `Authorization: Bearer` header
-  to both hosts, which is what a source in a private repository needs and what lifts the
-  hourly allowance from 60 requests to 5,000. Standard input rather than a file or an
-  environment variable: a pipe leaves no copy of the secret at rest, appears in no process
-  listing or shell history, and needs no permission of its own, so the Deno flags every
-  command documents are unchanged and nothing here reads the environment. The value is judged
-  before it is sent — printable ASCII, no spaces, at most 1024 characters, the trailing
-  newline trimmed — held for one run, written nowhere, and named by no refusal, which report
-  a position instead. `gen`, `verify`, `lint-selfcontain` and `self-test` refuse the flag:
-  they reach no network, and accepting it would contradict the boundary they state.
+  to both hosts, which is what a source in a private repository needs and gives authenticated
+  requests the allowance GitHub assigns to that credential and account. Standard input rather
+  than a file or an environment variable: a pipe leaves no copy of the secret at rest, appears
+  in no process listing or shell history, and needs no permission of its own, so the Deno flags
+  every command documents are unchanged and nothing here reads the environment. The value is
+  judged before it is sent — printable ASCII, no spaces, at most 1024 characters, with exactly
+  one trailing LF or CRLF removed — held for one run, written nowhere, and named by no refusal,
+  which report a position instead. `gen`, `verify`, `lint-selfcontain` and `self-test` refuse
+  the flag: they reach no network, and accepting it would contradict the boundary they state.
 
 - `gen` reports `unused: <id>` for a resolution the lock keeps that no skill declares any
   more — a declaration withdrawn while the canonical text stayed, which is not a retirement

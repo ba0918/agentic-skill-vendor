@@ -373,6 +373,13 @@ async function request(
         : { headers: { authorization: `Bearer ${token}` } }),
     });
   } catch (cause) {
+    if (token !== undefined) {
+      throw new ConfigError(
+        `cannot reach ${url}: the authenticated request failed before a ` +
+          "response arrived; transport details are omitted so they cannot " +
+          "repeat the credential",
+      );
+    }
     throw new ConfigError(`cannot reach ${url}: ${describeCause(cause)}`);
   }
   // A redirect is refused rather than followed. The two hosts are fixed here,
@@ -380,9 +387,13 @@ async function request(
   // chain alone: a Location naming any third-party host would be asked next
   // and whatever it answered would be read as the source's own bytes.
   if (response.status >= 300 && response.status < 400) {
+    const destination =
+      token === undefined
+        ? `, redirecting to ${JSON.stringify(response.headers.get("location"))}`
+        : ", redirecting to a location omitted because an authenticated " +
+          "response can repeat the credential there";
     throw new ConfigError(
-      `${url}: answered ${response.status}, redirecting to ` +
-        `${JSON.stringify(response.headers.get("location"))}; this tool ` +
+      `${url}: answered ${response.status}${destination}; this tool ` +
         `talks to two fixed hosts and follows no redirect, and these ` +
         `endpoints do not normally answer with one`,
     );
@@ -405,15 +416,14 @@ async function request(
  * refuses with the same status, and a message that named the rate limit
  * outright sent a reader to wait out an allowance that was never spent.
  *
- * Authenticated, the allowance is 5,000 an hour and is not what a person is
- * meeting. The credential is: one that never reached this repository, or one
- * that has expired. The 404 belongs in the same note because of a behaviour of
- * the raw content host that is worth stating outright — given an Authorization
- * header it cannot validate, it answers 404 for a file it serves anonymously
- * with 200. So a token that is merely wrong does not fail loudly on a public
- * source: it makes every file of it look absent. The run refuses either way,
- * because a failed request is never read here as "the source holds no such
- * file", and this is the line that says where to look.
+ * Authenticated, 401 and 404 point first to a credential that cannot reach the
+ * repository or has expired. The 404 belongs in the same note because the raw
+ * content host answers it for a credential it cannot validate even where the
+ * file is public. A 403 or 429 may instead be an authenticated rate limit, so
+ * that possibility stays visible beside credential and traffic-filter causes.
+ * The run refuses every one of them rather than reading a failed request as
+ * "the source holds no such file"; this line says where to look without
+ * pretending one cause is certain.
  */
 function refusalNote(status: number, authenticated: boolean): string {
   if (!authenticated) {
@@ -423,11 +433,16 @@ function refusalNote(status: number, authenticated: boolean): string {
       : "";
   }
   if (![401, 403, 404, 429].includes(status)) return "";
+  const rateLimit =
+    status === 403 || status === 429
+      ? "; an authenticated GitHub rate limit may also be exhausted"
+      : "";
   return (
     "; the token this run was given may not reach this repository or may " +
     "have expired — the raw content host answers 404 to a credential it " +
     "cannot use, even for a file it would serve without one — and anything " +
-    "filtering outbound traffic answers the same way"
+    "filtering outbound traffic answers the same way" +
+    rateLimit
   );
 }
 

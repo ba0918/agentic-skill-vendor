@@ -223,12 +223,33 @@ ignore が答えるのは「このリポジトリのチェックアウトがこ�
 - gen / verify: 従来どおりネットワーク・環境変数・サブプロセスに触れない。gen は
   キャッシュ欠損時に fetch の実行を指示して停止し、勝手に最新版を解決することはない
 
-取得は Web 標準の fetch() による HTTPS のみで行い、接続先は公開 GitHub の API と
-raw コンテンツ配信(api.github.com / raw.githubusercontent.com)に固定する。
+取得は Web 標準の fetch() による HTTPS のみで行い、接続先は GitHub.com の API と
+raw コンテンツ配信(api.github.com / raw.githubusercontent.com)に固定する。public / private
+のどちらのリポジトリも source にでき、private リポジトリと認証が必要な public
+リポジトリには、add / update / fetch の `--token-stdin` で GitHub token を渡す。
 リダイレクトは追跡しない — 3xx 応答は異常として何も書かずに停止する。追跡を許すと、
 固定したはずの接続先が最初の 1 要求にしか効かない。該当エンドポイントは通常
 リダイレクトを返さないため、返ってきた時点で異常として扱ってよい。
 git コマンド等のサブプロセスは取得側でも使わない。
+
+token は標準入力からだけ読み、引数・ファイル・環境変数からは読まない。標準入力を読むのは
+`--token-stdin` が指定されたときだけであり、このフラグをネットワークへ到達しない gen /
+verify / lint-selfcontain / self-test に指定した場合は、入力を読む前に拒否する。端末からの
+対話入力も拒否し、pipe で渡すことを要求する。command・option・operand の構文検査を先に
+完了し、それらを理由に拒否する run は標準入力を消費しない。
+
+入力は空でなく、1024文字以下、space を含まない printable ASCII (0x21–0x7e)だけを許す。
+producer が付ける末尾の LF または CRLF は、ちょうど1つだけ取り除く。それ以外の先頭・末尾
+空白、追加の改行、BOM、制御文字は拒否し、拒否メッセージには値を含めず不正な位置だけを
+載せる。上限を超える入力は全量をメモリへ読み込まず、上限超過を判定できた時点で停止する。
+
+受理した token はその run のメモリ内だけに保持し、api.github.com と
+raw.githubusercontent.com へ送る各要求の `Authorization: Bearer` header にだけ載せる。
+token を指定しない要求には Authorization header 自体を付けず、従来の未認証取得を保つ。
+認証済み要求の transport 例外は、例外文が credential を反復しうるため詳細を表示しない。
+認証済みの 3xx 応答も同じ理由で Location header の値を表示しない。その他の HTTP の拒否も
+token の値を表示せず、401 / 404 では到達権限または期限切れを、403 / 429 ではそれらに
+加えて認証済み要求の rate limit の可能性を案内する。
 
 ## verify の照合範囲
 
@@ -249,10 +270,11 @@ git コマンド等のサブプロセスは取得側でも使わない。
 
 ## 初期スコープ
 
-public GitHub のみ・認証なし・lock には commit SHA を必ず記録(manifest の ref は
-tag / branch 可)・transitive 依存(取得した契約がさらに別の出典を要求すること)なし・
-conformance script は実行せずデータとしてコピーするのみ。このスコープはブレストで
-合意した範囲であり、これを超える縮小・拡大は改めて合意してから行う。
+GitHub.com の public / private リポジトリを任意の token 認証付きで取得できる・lock には
+commit SHA を必ず記録(manifest の ref は tag / branch 可)・transitive 依存(取得した契約が
+さらに別の出典を要求すること)なし・conformance script は実行せずデータとしてコピーする
+のみ。このスコープはブレストで合意した範囲であり、これを超える縮小・拡大は改めて合意
+してから行う。
 
 ## スケール前提
 

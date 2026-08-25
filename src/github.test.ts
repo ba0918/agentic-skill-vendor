@@ -352,7 +352,7 @@ test("every request tells the transport not to follow a redirect itself", async 
   expect(asked.map((init) => init?.redirect)).toStrictEqual(["manual"]);
 });
 
-const TOKEN = "ghp_TestOnlyCredentialValue000000000000";
+const TOKEN = "test-only-credential-value-000000000000";
 
 /** Every Authorization header a run of `fn` put on the wire, in order. */
 async function authorizationsDuring(
@@ -404,11 +404,10 @@ test("the token reaches both hosts, because both of them serve a private source"
   ]);
 });
 
-test("a refused request tells an authenticated run to look at its token, not at the hourly allowance", async () => {
-  // The unauthenticated hint sends a reader to wait out an allowance they
-  // are not spending: a run carrying a credential has 5,000 requests an hour,
-  // and what answers 403 for it is a token without access to the source or
-  // one that has expired.
+test("an authenticated refusal names the causes that fit its status", async () => {
+  // A credential raises the primary allowance but does not make it infinite:
+  // 403 and 429 retain rate limiting as a possible cause, while 401 and 404
+  // point the reader at the credential without the unauthenticated hint.
   //
   // 404 is in the list for a behaviour of the raw content host that a person
   // will otherwise spend an afternoon on: handed an Authorization header it
@@ -425,6 +424,9 @@ test("a refused request tells an authenticated run to look at its token, not at 
     expect(error.message).toContain(`answered ${status}`);
     expect(error.message).toContain("token");
     expect(error.message).not.toContain("unauthenticated requests");
+    if (status === 403 || status === 429) {
+      expect(error.message).toContain("rate limit");
+    }
   }
 });
 
@@ -466,4 +468,41 @@ test("no refusal puts the token into its message", async () => {
     );
     expect(error.message).not.toContain(TOKEN);
   }
+});
+
+test("an authenticated redirect cannot repeat the token from Location", async () => {
+  // Response headers come from the remote peer. Treating Location as safe
+  // merely because the request URL contains no credential lets that peer put
+  // the Authorization value straight into a terminal or CI log.
+  const transport = (async () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: `https://elsewhere.invalid/${TOKEN}` },
+    })) as unknown as typeof fetch;
+
+  const error = await rejectedBy(
+    () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+    ConfigError,
+  );
+
+  expect(error.message).toContain("redirect");
+  expect(error.message).not.toContain(TOKEN);
+});
+
+test("a transport exception cannot put the token into its message", async () => {
+  const transport = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    throw new Error(
+      `transport failed for ${new Headers(init?.headers).get("authorization")}`,
+    );
+  }) as unknown as typeof fetch;
+
+  const error = await rejectedBy(
+    () => gitHubOver(transport, TOKEN).commitOf(REPOSITORY, "main"),
+    ConfigError,
+  );
+  expect(error.message).toContain("cannot reach");
+  expect(error.message).not.toContain(TOKEN);
 });

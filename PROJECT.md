@@ -106,10 +106,11 @@ tags follow that value; they are not separate version declarations.
   system without POSIX modes. Not an environment variable: that is inherited by every child
   process and would cost the boundary above, and `--allow-env` besides. Standard input needs
   no permission of its own, so the Deno flags the commands document do not change. The value
-  is held for one run, reaches one `Authorization: Bearer` header on both hosts, is written
-  nowhere and is named by no refusal — the refusals report a position instead. Reading
-  standard input is the one part of this path that is a runtime capability rather than this
-  package's own code, so CI asserts it on Node, Bun and Deno against the packed tarball.
+  is held for one run, reaches only the `Authorization: Bearer` header of each request to the
+  two fixed hosts, is written nowhere and is named by no refusal — the refusals report a
+  position instead. Reading standard input is the one part of this path that is a runtime
+  capability rather than this package's own code, so CI asserts it on Node, Bun and Deno
+  against the packed tarball.
 - The following are external compatibility and do not change without a version change: the
   commands and their flags, the lock schema (`placements` and a resolution's `kind` included),
   the declaration schema (`files` lines included), the exit codes, the digest algorithm and

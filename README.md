@@ -164,10 +164,9 @@ Withdrawing a contract — removing it from the skills' declarations and deletin
 text — is the same act at the other end: the next `gen` retires its resolution and reports
 `retired: <id>`, so the removal never happens silently.
 
-Taking it out of the declarations while leaving the canonical text in place is a different
-state, and not a retirement: the text is still there, so the lock goes on resolving the id.
-Every `gen` from then on says so, and goes on saying so, because it is a standing state
-rather than an event:
+When an id leaves every declaration but its canonical text remains locatable, its existing
+resolution is a different state, and not a retirement. Every `gen` from then on says so, and
+goes on saying so, because it is a standing state rather than an event:
 
 ```
 unused: <id> (no skill declares it; its resolution stays in the lock)
@@ -175,8 +174,11 @@ unused: <id> (no skill declares it; its resolution stays in the lock)
 
 The resolution is reported, not removed — deleting the digest would make a contract briefly
 out of use one to re-adopt from scratch when it comes back — and the exit code is untouched.
-A canonical text that no skill has ever declared says nothing at all: nothing resolves it, so
-a repository holding contracts purely for other repositories to fetch reports none of them.
+This does not override maintenance of the origins table: an undeclared document mapping is
+still pruned. If that mapping was the only way to locate a remote document, its resolution is
+retired normally. A canonical text that no skill has ever declared says nothing at all:
+nothing resolves it, so a repository holding contracts purely for other repositories to fetch
+reports none of them.
 
 ## Distributing files and directories as they are
 
@@ -368,12 +370,12 @@ that it reads none. A pipe leaves nothing behind, appears in no process listing 
 shell history, and needs no permission of its own — so the Deno flags above do not change,
 and `--token-stdin` needs no `--allow-env`.
 
-The token is held in memory for the length of one run, reaches one `Authorization` header,
-is written nowhere, and appears in no message this tool prints. It is judged before it is
-sent: printable ASCII with no spaces, at most 1024 characters, the trailing newline every
-producer leaves trimmed off. A value carrying a line break is refused by position — a header
-field is terminated by CRLF, so such a value would put headers of its own into the request —
-and the refusal names the position rather than the value.
+The token is held in memory for the length of one run, reaches only the `Authorization`
+header of each request, is written nowhere, and appears in no message this tool prints. It is
+judged before it is sent: printable ASCII with no spaces, at most 1024 characters, with exactly
+one trailing LF or CRLF removed. A value carrying any other line break is refused by position —
+a header field is terminated by CRLF, so such a value would put headers of its own into the
+request — and the refusal names the position rather than the value.
 
 `--token-stdin` is refused by `gen`, `verify`, `lint-selfcontain` and `self-test`. Those four
 reach no network, and a flag they accepted would quietly contradict the one thing this
@@ -387,7 +389,9 @@ Two things are worth knowing before the first run:
   no such contract", and the refusal says to look at the token — but a token that is merely
   expired makes a public source that worked yesterday look empty.
 - **The token is needed only where a fetch is.** `gen` and `verify` read the cache and the
-  tree, so CI that commits the cache, or that runs `verify` alone, needs no credential at all.
+  tree, and `verify` alone needs no credential. The cache is disposable and must not be
+  committed; a clean CI run that needs the complete canonical-text checks runs authenticated
+  `fetch` first, while offline `verify` still checks the committed copies and lock.
 
 ## Running it in CI
 
