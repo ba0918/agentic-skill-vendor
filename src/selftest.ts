@@ -11,8 +11,8 @@
 // whatever the implementation happened to produce.
 
 import type { Sink } from "./errors.ts";
-import { contractDigest, DIGEST_PREFIX } from "./digest.ts";
-import { conformanceDigestOfEntries } from "./conformance.ts";
+import { contractDigest, DIGEST_PREFIX } from "./contracts/digest.ts";
+import { conformanceDigestOfEntries } from "./contracts/conformance.ts";
 import { renderVendorFile } from "./gen.ts";
 
 const SELF_TEST_DOCUMENT =

@@ -10,7 +10,7 @@
 import { commandUpdateWithDeclaration } from "./resolvecmd.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import type { RemoteClient } from "./remote.ts";
-import { sourceNameFromRepository } from "./repository.ts";
+import { sourceNameFromRepository } from "./contracts/repository.ts";
 import {
   assertRepository,
   assertSourceName,
@@ -18,7 +18,7 @@ import {
   parseDeclaration,
   readDeclaration,
   withSourceRegistration,
-} from "./sources.ts";
+} from "./contracts/sources.ts";
 import { isRegularFileOrAbsent, readTextFile } from "./filesystem/walk.ts";
 
 /**

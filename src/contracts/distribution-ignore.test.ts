@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { createDistributionIgnore } from "./distribution-ignore.ts";
 
 test("a star excludes matching files below the mapping root", () => {

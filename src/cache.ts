@@ -12,10 +12,10 @@
 
 import * as fs from "node:fs/promises";
 import { ConfigError, describeCause } from "./errors.ts";
-import { compareStrings } from "./digest.ts";
+import { compareStrings } from "./contracts/digest.ts";
 import { ancestorDirectories, readIgnoreRules } from "./filesystem/ignore.ts";
-import type { LockSources } from "./manifest.ts";
-import { TOOL_DIR } from "./sources.ts";
+import type { LockSources } from "./contracts/manifest.ts";
+import { TOOL_DIR } from "./contracts/sources.ts";
 import {
   assertPlainChain,
   displayName,

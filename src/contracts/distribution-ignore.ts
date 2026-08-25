@@ -1,5 +1,5 @@
 import ignore from "ignore";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 
 export interface DistributionIgnore {
   excludes(relative: string): boolean;

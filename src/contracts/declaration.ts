@@ -6,7 +6,7 @@ import {
   mergeTag,
   Schema,
 } from "js-yaml";
-import { ConfigError, describeCause } from "./errors.ts";
+import { ConfigError, describeCause } from "../errors.ts";
 import {
   assertValidContractId,
   compareStrings,
@@ -18,8 +18,8 @@ import {
   isRegularFileOrAbsent,
   listEntries,
   readTextFile,
-} from "./filesystem/walk.ts";
-import { emptyRecord } from "./records.ts";
+} from "../filesystem/walk.ts";
+import { emptyRecord } from "../records.ts";
 
 /** Where the skills live, and what names a skill's own document. */
 export const SKILLS_DIR = "skills";

@@ -8,16 +8,16 @@
 // path, and writes it only after the path holds what the memory will say.
 
 import { ConfigError } from "./errors.ts";
-import { compareStrings } from "./digest.ts";
-import { createDistributionIgnore } from "./distribution-ignore.ts";
+import { compareStrings } from "./contracts/digest.ts";
+import { createDistributionIgnore } from "./contracts/distribution-ignore.ts";
 import type {
   LockSources,
   Placement,
   Placements,
   Resolution,
-} from "./manifest.ts";
+} from "./contracts/manifest.ts";
 import { cacheRevisionDirOf } from "./cache.ts";
-import { LOCAL_SOURCE } from "./sources.ts";
+import { LOCAL_SOURCE } from "./contracts/sources.ts";
 import {
   basenameOf,
   MARKER_FILE,
@@ -27,15 +27,15 @@ import {
   rawContractDigest,
   type RawMaterial,
   srcKeyOf,
-} from "./raw.ts";
-import type { Declaration, RawMapping } from "./sources.ts";
+} from "./contracts/raw.ts";
+import type { Declaration, RawMapping } from "./contracts/sources.ts";
 import { readRawMaterials } from "./rawsource.ts";
 import {
   declaredIds,
   dependentIndex,
   type SkillDeclaration,
   SKILLS_DIR,
-} from "./declaration.ts";
+} from "./contracts/declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
 import {
@@ -54,13 +54,13 @@ import {
   joinRelative,
   readIgnoreRules,
 } from "./filesystem/ignore.ts";
-import { framedDigest } from "./raw.ts";
-import type { RawKind } from "./sources.ts";
+import { framedDigest } from "./contracts/raw.ts";
+import type { RawKind } from "./contracts/sources.ts";
 import {
   derivePlacementMigrationComponents,
   type PlacementMigrationComponent,
   type RecordedDestination,
-} from "./placement-ownership.ts";
+} from "./contracts/placement-ownership.ts";
 
 /**
  * What one raw-byte contract's material is, and who answers for it.

@@ -15,14 +15,23 @@ const EXPECTED_SOURCE_FILES = [
   "src/cache.ts",
   "src/cli.test.ts",
   "src/cli.ts",
-  "src/conformance.test.ts",
-  "src/conformance.ts",
-  "src/declaration.test.ts",
-  "src/declaration.ts",
-  "src/digest.test.ts",
-  "src/digest.ts",
-  "src/distribution-ignore.test.ts",
-  "src/distribution-ignore.ts",
+  "src/contracts/conformance.test.ts",
+  "src/contracts/conformance.ts",
+  "src/contracts/declaration.test.ts",
+  "src/contracts/declaration.ts",
+  "src/contracts/digest.test.ts",
+  "src/contracts/digest.ts",
+  "src/contracts/distribution-ignore.test.ts",
+  "src/contracts/distribution-ignore.ts",
+  "src/contracts/manifest.test.ts",
+  "src/contracts/manifest.ts",
+  "src/contracts/placement-ownership.test.ts",
+  "src/contracts/placement-ownership.ts",
+  "src/contracts/raw.ts",
+  "src/contracts/repository.test.ts",
+  "src/contracts/repository.ts",
+  "src/contracts/sources.test.ts",
+  "src/contracts/sources.ts",
   "src/errors.ts",
   "src/gen.test.ts",
   "src/gen.ts",
@@ -39,26 +48,17 @@ const EXPECTED_SOURCE_FILES = [
   "src/filesystem/walk.ts",
   "src/lint.test.ts",
   "src/lint.ts",
-  "src/manifest.test.ts",
-  "src/manifest.ts",
-  "src/placement-ownership.test.ts",
-  "src/placement-ownership.ts",
   "src/placements.test.ts",
   "src/placements.ts",
-  "src/raw.ts",
   "src/rawsource.test.ts",
   "src/rawsource.ts",
   "src/records.test.ts",
   "src/records.ts",
   "src/remote.ts",
-  "src/repository.test.ts",
-  "src/repository.ts",
   "src/resolvecmd.test.ts",
   "src/resolvecmd.ts",
   "src/selftest.test.ts",
   "src/selftest.ts",
-  "src/sources.test.ts",
-  "src/sources.ts",
   "src/staging.test.ts",
   "src/staging.ts",
   "src/test-support/source-layout.test.ts",
@@ -115,6 +115,18 @@ function productionTestSupportEdges(sources: Map<string, string>): string[] {
 
 type Feature = "contracts" | "filesystem" | "root" | "unplaced";
 
+const CONTRACT_MODULES = new Set([
+  "conformance.ts",
+  "declaration.ts",
+  "digest.ts",
+  "distribution-ignore.ts",
+  "manifest.ts",
+  "placement-ownership.ts",
+  "raw.ts",
+  "repository.ts",
+  "sources.ts",
+]);
+
 function featureOf(path: string): Feature {
   const directory = path.split("/")[1];
   if (directory === "filesystem" || directory === "contracts") {
@@ -123,7 +135,7 @@ function featureOf(path: string): Feature {
   if (path === "src/errors.ts" || path === "src/records.ts") return "root";
   const name = path.slice(path.lastIndexOf("/") + 1);
   if (name === "walk.ts" || name === "ignore.ts") return "filesystem";
-  if (name === "digest.ts") return "contracts";
+  if (CONTRACT_MODULES.has(name)) return "contracts";
   return "unplaced";
 }
 
@@ -164,6 +176,26 @@ function rootPrimitiveEdges(sources: Map<string, string>): string[] {
     if (featureOf(importer) !== "root") continue;
     for (const specifier of relativeImports(source)) {
       violations.push(`${importer} -> ${importedPath(importer, specifier)}`);
+    }
+  }
+  return violations.sort();
+}
+
+function contractsBoundaryViolations(sources: Map<string, string>): string[] {
+  const violations: string[] = [];
+  for (const [importer, source] of sources) {
+    if (!isProduction(importer) || featureOf(importer) !== "contracts")
+      continue;
+    for (const specifier of relativeImports(source)) {
+      const imported = importedPath(importer, specifier);
+      const importedFeature = featureOf(imported);
+      if (
+        importedFeature !== "contracts" &&
+        importedFeature !== "filesystem" &&
+        importedFeature !== "root"
+      ) {
+        violations.push(`${importer} -> ${imported}`);
+      }
     }
   }
   return violations.sort();
@@ -241,4 +273,19 @@ test("a similar filesystem path does not inherit a temporary exception", () => {
 
 test("root primitives import no internal feature", async () => {
   expect(rootPrimitiveEdges(await repositorySources())).toStrictEqual([]);
+});
+
+test("contract imports stay within contracts, filesystem, and root", async () => {
+  expect(contractsBoundaryViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
+});
+
+test("a contract import of a higher feature names both paths", () => {
+  const sources = new Map([
+    ["src/contracts/digest.ts", 'import "../remote/cache.ts";'],
+  ]);
+  expect(contractsBoundaryViolations(sources)).toStrictEqual([
+    "src/contracts/digest.ts -> src/remote/cache.ts",
+  ]);
 });

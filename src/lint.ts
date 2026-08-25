@@ -15,7 +15,7 @@ import {
   readBytes,
   readEntries,
 } from "./filesystem/walk.ts";
-import { SKILLS_DIR } from "./declaration.ts";
+import { SKILLS_DIR } from "./contracts/declaration.ts";
 
 const PARENT_ESCAPE_TOKENS = ["../", "..\\"];
 

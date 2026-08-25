@@ -28,10 +28,10 @@ import {
   type RawFile,
   type RawMaterial,
   srcKeyOf,
-} from "./raw.ts";
-import { compareStrings } from "./digest.ts";
-import type { RawMapping } from "./sources.ts";
-import { createDistributionIgnore } from "./distribution-ignore.ts";
+} from "./contracts/raw.ts";
+import { compareStrings } from "./contracts/digest.ts";
+import type { RawMapping } from "./contracts/sources.ts";
+import { createDistributionIgnore } from "./contracts/distribution-ignore.ts";
 
 /**
  * The files of every mapping of one raw-byte contract, or null where any src

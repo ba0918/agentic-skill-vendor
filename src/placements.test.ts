@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { conformanceDirectoriesOf } from "./gen.ts";
 import { assertSrcsClearOfConformance } from "./placements.ts";
-import { type ContractLocation, parseDeclaration } from "./sources.ts";
+import {
+  type ContractLocation,
+  parseDeclaration,
+} from "./contracts/sources.ts";
 import {
   fakeGitHub,
   readLockFile,

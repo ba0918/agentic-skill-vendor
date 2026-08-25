@@ -1,6 +1,6 @@
-import type { GitObjectFormat } from "./digest.ts";
+import type { GitObjectFormat } from "./contracts/digest.ts";
 import { ConfigError } from "./errors.ts";
-import { classifyRepository } from "./repository.ts";
+import { classifyRepository } from "./contracts/repository.ts";
 
 export interface TreeBlob {
   path: string;

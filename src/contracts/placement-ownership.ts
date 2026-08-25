@@ -1,5 +1,5 @@
 import type { SkillDeclaration } from "./declaration.ts";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import type { Placement } from "./manifest.ts";
 import type { Declaration } from "./sources.ts";
 

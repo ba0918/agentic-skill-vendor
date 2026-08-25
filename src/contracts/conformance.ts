@@ -13,14 +13,14 @@ import {
   isDirectoryOrAbsent,
   readBytes,
   walkFiles,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 import {
   ancestorDirectories,
   IGNORE_FILE,
   joinRelative,
   readIgnoreRules,
   treeDirectoryOf,
-} from "./filesystem/ignore.ts";
+} from "../filesystem/ignore.ts";
 
 export interface ConformanceEntry {
   path: string;

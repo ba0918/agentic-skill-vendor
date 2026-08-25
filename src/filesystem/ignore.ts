@@ -5,7 +5,7 @@
 // second copy of it, and a copy of a rule set diverges silently.
 
 import ignore, { type Ignore } from "ignore";
-import { compareStrings } from "../digest.ts";
+import { compareStrings } from "../contracts/digest.ts";
 import { isRegularFileOrAbsent, readTextFile } from "./walk.ts";
 
 /** The file git reads its rules from, in every directory that has one. */

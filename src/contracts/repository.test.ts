@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { classifyRepository, sourceNameFromRepository } from "./repository.ts";
 
 test("an owner/repo pair selects the GitHub API transport", () => {

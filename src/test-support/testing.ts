@@ -1,9 +1,13 @@
 import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "../cli.ts";
-import { compareStrings, gitObjectIdOf, sha256Hex } from "../digest.ts";
+import {
+  compareStrings,
+  gitObjectIdOf,
+  sha256Hex,
+} from "../contracts/digest.ts";
 import type { RemoteClient } from "../remote.ts";
 
 const LOCK_FILE = "vendor-lock.json";
@@ -97,8 +101,8 @@ export async function importClosureOf(entry: string): Promise<Set<string>> {
       new URL(`../${name}`, import.meta.url),
       "utf8",
     );
-    for (const match of source.matchAll(/from "\.\/([\w.-]+\.ts)"/g)) {
-      pending.push(match[1]);
+    for (const match of source.matchAll(/from "(\.{1,2}\/[^"']+\.ts)"/g)) {
+      pending.push(posix.normalize(posix.join(posix.dirname(name), match[1])));
     }
   }
   return reached;

@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { ConfigError } from "./errors.ts";
-import { contractDigest, gitObjectIdOf } from "./digest.ts";
+import { contractDigest, gitObjectIdOf } from "./contracts/digest.ts";
 import { CACHE_DIR, cacheRevisionDirOf, cacheSiteOf } from "./cache.ts";
 import { gitHubOver } from "./github.ts";
-import { parseDeclaration } from "./sources.ts";
+import { parseDeclaration } from "./contracts/sources.ts";
 import { commandFetch, commandUpdate } from "./resolvecmd.ts";
 import {
   escapeThrough,

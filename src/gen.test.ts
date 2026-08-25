@@ -4,9 +4,9 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "./errors.ts";
 import { planExpansion, vendorDirOf } from "./gen.ts";
-import { contractDigest } from "./digest.ts";
-import { parseDeclaration, reservedDestRefusal } from "./sources.ts";
-import { SKILLS_DIR } from "./declaration.ts";
+import { contractDigest } from "./contracts/digest.ts";
+import { parseDeclaration, reservedDestRefusal } from "./contracts/sources.ts";
+import { SKILLS_DIR } from "./contracts/declaration.ts";
 import {
   append,
   escapeThrough,

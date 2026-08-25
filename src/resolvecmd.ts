@@ -33,7 +33,7 @@ import {
   contractPath,
   gitObjectIdOf,
   type GitObjectFormat,
-} from "./digest.ts";
+} from "./contracts/digest.ts";
 import { ConfigError, type Sink } from "./errors.ts";
 import {
   requireOrdinaryFile,
@@ -48,9 +48,9 @@ import {
   type LockSource,
   type LockSources,
   renderExpectedLock,
-} from "./manifest.ts";
+} from "./contracts/manifest.ts";
 import { emptyRecord } from "./records.ts";
-import { MARKER_FILE, srcKeyOf } from "./raw.ts";
+import { MARKER_FILE, srcKeyOf } from "./contracts/raw.ts";
 import { IGNORE_FILE } from "./filesystem/ignore.ts";
 import {
   type Declaration,
@@ -60,7 +60,7 @@ import {
   parseDeclaration,
   type RawMapping,
   withContractMapping,
-} from "./sources.ts";
+} from "./contracts/sources.ts";
 import {
   atomicWriteDirectory,
   atomicWriteFile,
@@ -70,7 +70,7 @@ import {
   readTextFile,
 } from "./filesystem/walk.ts";
 import { locateTreeContracts, readTreeState, type TreeState } from "./gen.ts";
-import { declaredIds } from "./declaration.ts";
+import { declaredIds } from "./contracts/declaration.ts";
 
 /**
  * One revision on its way into the cache: the directory it is placed at, and

@@ -13,7 +13,7 @@ import {
   withGoodTree,
 } from "./test-support/testing.ts";
 import { run, startedThisProgram } from "./cli.ts";
-import { gitObjectIdOf } from "./digest.ts";
+import { gitObjectIdOf } from "./contracts/digest.ts";
 import type { RemoteClient, SnapshotTarget } from "./remote.ts";
 
 const SOURCE = await fs.readFile(new URL("./cli.ts", import.meta.url), "utf8");
@@ -293,9 +293,9 @@ test("the commands that work offline reach no network, environment or subprocess
   );
   expect(onlineSource).toContain('import("./git.ts")');
   expect(onlineSource).toContain('import("./gitprocess.ts")');
-  expect((await importClosureOf("lint.ts")).has("digest.ts")).toStrictEqual(
-    true,
-  );
+  expect(
+    (await importClosureOf("lint.ts")).has("contracts/digest.ts"),
+  ).toStrictEqual(true);
   const resolverClosure = await importClosureOf("resolvecmd.ts");
   for (const name of CONCRETE_REMOTE_MODULES) {
     expect(resolverClosure.has(name), name).toStrictEqual(false);

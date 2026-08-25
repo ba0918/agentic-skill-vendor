@@ -15,9 +15,9 @@
 // file that does not exist.
 
 import { load as parseYaml } from "js-yaml";
-import { ConfigError, describeCause } from "./errors.ts";
+import { ConfigError, describeCause } from "../errors.ts";
 import { assertValidContractId, contractPath } from "./digest.ts";
-import { emptyRecord } from "./records.ts";
+import { emptyRecord } from "../records.ts";
 import { SKILLS_DIR } from "./declaration.ts";
 import { MARKER_FILE } from "./raw.ts";
 import { readDistributionIgnore } from "./distribution-ignore.ts";
@@ -27,7 +27,7 @@ import {
   assertPlainChain,
   isRegularFileOrAbsent,
   readTextFile,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 
 /** The one file the declaration lives in. */
 export const DECLARATION_FILE = "vendor-manifest.yaml";

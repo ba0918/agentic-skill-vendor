@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ConfigError } from "./errors.ts";
-import type { GitObjectFormat } from "./digest.ts";
+import type { GitObjectFormat } from "./contracts/digest.ts";
 
 export type GitFailureStage =
   | "ref resolution"

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "./errors.ts";
-import { gitObjectIdOf } from "./digest.ts";
+import { gitObjectIdOf } from "./contracts/digest.ts";
 import {
   commitUrl,
   gitHubOver,

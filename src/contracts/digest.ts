@@ -5,7 +5,7 @@
 // decides identity lives here, where a test can state a document and its digest
 // side by side.
 
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 
 /** The prefix every digest this tool writes carries. */
 export const DIGEST_PREFIX = "sha256:";

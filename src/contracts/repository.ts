@@ -1,4 +1,4 @@
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 
 export type Repository =
   | { kind: "github"; repository: string }

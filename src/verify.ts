@@ -4,15 +4,15 @@
 // that it stays meaningful while the others are failing.
 
 import type { Sink } from "./errors.ts";
-import { compareStrings, digestOfBytes } from "./digest.ts";
+import { compareStrings, digestOfBytes } from "./contracts/digest.ts";
 import {
   decodeUtf8,
   displayName,
   isRegularFileOrAbsent,
   readBytes,
 } from "./filesystem/walk.ts";
-import { conformanceDigest } from "./conformance.ts";
-import type { SkillDeclaration } from "./declaration.ts";
+import { conformanceDigest } from "./contracts/conformance.ts";
+import type { SkillDeclaration } from "./contracts/declaration.ts";
 import {
   LOCK_FILE,
   type LockSources,
@@ -20,7 +20,7 @@ import {
   renderExpectedLock,
   type Resolutions,
   sourceViolations,
-} from "./manifest.ts";
+} from "./contracts/manifest.ts";
 import {
   closureViolations,
   conformanceDirectoriesOf,
@@ -33,11 +33,11 @@ import {
   vendorDirOf,
   vendorHeader,
 } from "./gen.ts";
-import type { ContractLocation, Declaration } from "./sources.ts";
+import type { ContractLocation, Declaration } from "./contracts/sources.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,
-} from "./placement-ownership.ts";
+} from "./contracts/placement-ownership.ts";
 import {
   assertKindsAgree,
   assertSrcsClearOfConformance,

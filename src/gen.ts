@@ -18,12 +18,12 @@ import {
   compareStrings,
   contractPath,
   digestOfText,
-} from "./digest.ts";
+} from "./contracts/digest.ts";
 import {
   assertPlainContractPaths,
   conformanceDigest,
   conformanceDirectory,
-} from "./conformance.ts";
+} from "./contracts/conformance.ts";
 import {
   assertPlainChain,
   assertTreeRoot,
@@ -41,14 +41,14 @@ import {
   readSkills,
   type SkillDeclaration,
   SKILLS_DIR,
-} from "./declaration.ts";
+} from "./contracts/declaration.ts";
 import { emptyRecord } from "./records.ts";
 import { vendorHeader } from "./header.ts";
 import { placeViaStaging, prepareStaging } from "./staging.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,
-} from "./placement-ownership.ts";
+} from "./contracts/placement-ownership.ts";
 export { vendorHeader } from "./header.ts";
 import { cacheSiteOf, isIgnored, unignoredWarning } from "./cache.ts";
 import {
@@ -60,7 +60,7 @@ import {
   renderExpectedLock,
   type Resolution,
   type Resolutions,
-} from "./manifest.ts";
+} from "./contracts/manifest.ts";
 import {
   assertKindsAgree,
   assertRawCacheHolds,
@@ -86,7 +86,7 @@ import {
   withoutContractMapping,
   TOOL_DIR,
   VENDOR_SUBPATH,
-} from "./sources.ts";
+} from "./contracts/sources.ts";
 
 export function vendorDirOf(skill: string): string {
   return `${SKILLS_DIR}/${skill}/${VENDOR_SUBPATH}`;

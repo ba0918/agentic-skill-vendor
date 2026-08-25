@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import {
   collectConformanceEntries,
   conformanceDigest,
@@ -14,7 +14,7 @@ import {
   snapshotTree,
   withGoodTree,
   writeFile,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 
 const encoder = new TextEncoder();
 

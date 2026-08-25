@@ -19,7 +19,7 @@
 // confusion the rename removes.
 
 import * as fs from "node:fs/promises";
-import { ConfigError, describeCause } from "./errors.ts";
+import { ConfigError, describeCause } from "../errors.ts";
 import { assertValidContractId, compareStrings } from "./digest.ts";
 import { assertPlainContractPaths } from "./conformance.ts";
 import {
@@ -30,13 +30,13 @@ import {
   isTreeRelativePath,
   reservedDestRefusal,
 } from "./sources.ts";
-import { emptyRecord } from "./records.ts";
+import { emptyRecord } from "../records.ts";
 import { classifyRepository } from "./repository.ts";
 import {
   assertPlainChain,
   decodeUtf8,
   isRegularFileOrAbsent,
-} from "./filesystem/walk.ts";
+} from "../filesystem/walk.ts";
 import {
   dependenciesOf,
   type Dependencies,

@@ -83,7 +83,7 @@ test("self-test fails when the digest it computes stops matching its vector", as
     // the separator, which changes what every contract digests to.
     const result = await runAltered(
       dir,
-      "digest.ts",
+      "contracts/digest.ts",
       'while (start < lines.length && lines[start] === "") start++;',
       'while (start < lines.length && lines[start] === "\\u0000") start++;',
     );
@@ -110,7 +110,7 @@ test("self-test fails when the conformance framing stops matching its vector", a
   await withEmptyDir(async (dir) => {
     const result = await runAltered(
       dir,
-      "raw.ts",
+      "contracts/raw.ts",
       "encoder.encode(`${entry.path}\\0${entry.content.length}\\0`)",
       "encoder.encode(`${entry.path}\\0${entry.content.length}\\0\\0`)",
     );

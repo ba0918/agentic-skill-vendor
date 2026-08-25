@@ -4,12 +4,12 @@ import {
   snapshotTree,
   thrownBy,
   withGoodTree,
-} from "./test-support/testing.ts";
+} from "../test-support/testing.ts";
 import { expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { ConfigError } from "./errors.ts";
+import { ConfigError } from "../errors.ts";
 import { parseContractDeclarations } from "./declaration.ts";
 
 function skill(frontmatter: string): string {
