@@ -200,7 +200,7 @@ test("the add command names the repository as its one argument", async () => {
 test("add with no repository named is a usage error", async () => {
   const result = await runCli(["add"]);
   expect(result.code).toStrictEqual(2);
-  expect(result.stderr.join("\n")).toContain("owner/repo");
+  expect(result.stderr.join("\n")).toContain("repository");
 });
 
 test("the update command moves every registered pin", async () => {

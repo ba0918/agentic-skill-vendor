@@ -388,6 +388,13 @@ test("the usage text says which commands the token is for", async () => {
   expect(usage).toContain("add, update and fetch");
 });
 
+test("the usage text accepts every supported repository form", async () => {
+  const result = await runCli(["--help"]);
+  const usage = result.stdout.join("\n");
+  expect(usage).toContain("add <repository> [name]");
+  expect(usage).not.toContain("add <owner/repo>");
+});
+
 const GENERIC_REPOSITORY =
   "ssh://git@example.invalid/group/shared-contracts.git";
 const GENERIC_ID = "generic-contract";

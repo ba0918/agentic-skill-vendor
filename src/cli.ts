@@ -27,7 +27,7 @@ const USAGE = [
   "usage: agentic-skill-vendor <command> [--root <path>]",
   "",
   "commands:",
-  "  add <owner/repo> [name]  register a source and take up what it holds",
+  "  add <repository> [name]  register a source and take up what it holds",
   "  update                   move every pin to what its ref names now",
   "  fetch                    fill the cache with what the lock pins",
   "  gen                      write the current contract text into every skill",
@@ -141,7 +141,7 @@ function refuseToken(command: string, tokenStdin: boolean): void {
  */
 function requireRepository(operands: string[]): string {
   if (operands.length === 0) {
-    throw new ConfigError(`add needs an owner/repo to register\n${USAGE}`);
+    throw new ConfigError(`add needs a repository to register\n${USAGE}`);
   }
   if (operands.length > 2) {
     throw new ConfigError(`unexpected argument: ${operands[2]}\n${USAGE}`);
