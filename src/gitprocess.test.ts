@@ -23,6 +23,9 @@ class FakeHost implements GitProcessHost {
   neverComplete = false;
   diskBytesAfterWait: number | undefined;
   removalFailures = 0;
+  groupTerminationCompletion: Promise<void> = Promise.resolve();
+  groupTerminationFailure = false;
+  readonly events: string[] = [];
 
   now(): number {
     return this.nowValue;
@@ -42,6 +45,7 @@ class FakeHost implements GitProcessHost {
       this.removalFailures -= 1;
       return Promise.reject(new Error("injected removal failure"));
     }
+    this.events.push("temporary removal");
     this.removed.push(path);
     return Promise.resolve();
   }
@@ -77,7 +81,16 @@ class FakeHost implements GitProcessHost {
         ? new Promise(() => {})
         : Promise.resolve({ code }),
       terminateGroup: async () => {
+        this.events.push("group termination requested");
         this.killed += 1;
+      },
+      waitForGroupTermination: async () => {
+        this.events.push("group termination wait started");
+        if (this.groupTerminationFailure) {
+          throw new Error("injected raw termination diagnostic");
+        }
+        await this.groupTerminationCompletion;
+        this.events.push("group termination completed");
       },
     };
   }
@@ -344,6 +357,57 @@ test("reports only a safe stage and removes temporary state after child failure"
   expect(error.message).not.toContain("secret");
   await session.close();
   expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+});
+
+test("waits for descendant group termination before temporary cleanup after the direct child closes", async () => {
+  let completeGroupTermination: () => void = () => {};
+  const host = new FakeHost();
+  host.exitCodes.push(128);
+  host.groupTerminationCompletion = new Promise<void>((resolve) => {
+    completeGroupTermination = resolve;
+  });
+  const opening = gitOver(createGitProcessRunner(host), {
+    interactive: false,
+  }).open("ssh://example.invalid/a.git", {
+    kind: "pin",
+    revision: SHA1,
+    objectFormat: "sha1",
+  });
+  void opening.catch(() => {});
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(host.events).toContain("group termination requested");
+  expect(host.events).not.toContain("temporary removal");
+
+  completeGroupTermination();
+  await expect(opening).rejects.toThrow("commit fetch");
+  expect(host.events).toEqual([
+    "group termination requested",
+    "group termination wait started",
+    "group termination completed",
+    "temporary removal",
+  ]);
+});
+
+test("retains temporary state when descendant group termination cannot be confirmed", async () => {
+  const host = new FakeHost();
+  host.exitCodes.push(128);
+  host.groupTerminationFailure = true;
+
+  const refusal = await gitOver(createGitProcessRunner(host), {
+    interactive: false,
+  })
+    .open("ssh://example.invalid/a.git", {
+      kind: "pin",
+      revision: SHA1,
+      objectFormat: "sha1",
+    })
+    .catch((cause) => cause);
+
+  expect(refusal).toBeInstanceOf(ConfigError);
+  expect(refusal.message).toContain("termination could not be confirmed");
+  expect(refusal.message).not.toContain("raw termination diagnostic");
+  expect(host.removed).toEqual([]);
 });
 
 test("a failed temporary removal remains retryable", async () => {

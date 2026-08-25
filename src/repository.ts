@@ -18,7 +18,7 @@ export function classifyRepository(repository: string): Repository {
       return codePoint <= 0x1f || codePoint === 0x7f;
     })
   ) {
-    throw invalidRepository(repository);
+    throw invalidRepository();
   }
   if (GITHUB_REPOSITORY.test(repository)) {
     return { kind: "github", repository };
@@ -29,14 +29,14 @@ export function classifyRepository(repository: string): Repository {
   if (repository.startsWith("ssh://") || repository.startsWith("https://")) {
     const parsed = parseAllowedUrl(repository);
     if (parsed.protocol === "https:" && (parsed.username || parsed.password)) {
-      throw invalidRepository(repository);
+      throw invalidRepository();
     }
     if (parsed.protocol === "ssh:" && parsed.password) {
-      throw invalidRepository(repository);
+      throw invalidRepository();
     }
     return { kind: "git", repository };
   }
-  throw invalidRepository(repository);
+  throw invalidRepository();
 }
 
 export function sourceNameFromRepository(repository: string): string {
@@ -73,7 +73,7 @@ function parseAllowedUrl(repository: string): URL {
   try {
     parsed = new URL(repository);
   } catch {
-    throw invalidRepository(repository);
+    throw invalidRepository();
   }
   if (
     parsed.hostname === "" ||
@@ -86,13 +86,13 @@ function parseAllowedUrl(repository: string): URL {
     repository.includes("%") ||
     /[\s\\]/.test(repository)
   ) {
-    throw invalidRepository(repository);
+    throw invalidRepository();
   }
   return parsed;
 }
 
-function invalidRepository(repository: string): ConfigError {
+function invalidRepository(): ConfigError {
   return new ConfigError(
-    `repository must be an owner/repo pair or an allowlisted SSH or HTTPS URL, found ${JSON.stringify(repository)}`,
+    "repository must be an owner/repo pair or an allowlisted SSH or HTTPS URL",
   );
 }

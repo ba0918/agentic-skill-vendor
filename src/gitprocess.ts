@@ -57,6 +57,7 @@ export interface RunningProcess {
   stdout: AsyncIterable<Uint8Array>;
   completion: Promise<{ code: number | null }>;
   terminateGroup(): Promise<void>;
+  waitForGroupTermination(): Promise<void>;
 }
 
 export interface GitProcessHost {
@@ -143,6 +144,7 @@ class BoundedGitProcessSession implements GitProcessSession {
   readonly #limits: Readonly<GitLimits>;
   readonly #temporaryDirectory: string;
   #aggregateBytes = 0;
+  #cleanupSafe = true;
   #closed = false;
 
   constructor(
@@ -202,9 +204,10 @@ class BoundedGitProcessSession implements GitProcessSession {
     const process = this.#host.start(this.#invocation(command));
     let running = true;
     const monitor = this.#monitor(() => running);
+    let read: Promise<void> | undefined;
     try {
       let fileBytes = 0;
-      const read = (async () => {
+      read = (async () => {
         for await (const chunk of process.stdout) {
           fileBytes += chunk.length;
           if (
@@ -241,7 +244,17 @@ class BoundedGitProcessSession implements GitProcessSession {
       }
     } catch (cause) {
       running = false;
-      await process.terminateGroup().catch(() => {});
+      this.#cleanupSafe = false;
+      try {
+        await process.terminateGroup();
+        await process.waitForGroupTermination();
+        await Promise.allSettled([read]);
+        this.#cleanupSafe = true;
+      } catch {
+        throw new ConfigError(
+          `${command.stage} failed: process group termination could not be confirmed; temporary repository was retained`,
+        );
+      }
       if (cause instanceof GitResourceError) {
         await this.close().catch(() => {});
       }
@@ -256,6 +269,11 @@ class BoundedGitProcessSession implements GitProcessSession {
 
   async close(): Promise<void> {
     if (this.#closed) return;
+    if (!this.#cleanupSafe) {
+      throw new ConfigError(
+        "Git process group termination could not be confirmed; temporary repository was retained",
+      );
+    }
     await this.#host.removeTemporaryDirectory(this.#temporaryDirectory);
     this.#closed = true;
   }
@@ -360,22 +378,64 @@ function nodeGitProcessHost(): GitProcessHost {
         completion,
         async terminateGroup() {
           if (child.pid === undefined) return;
-          try {
-            process.kill(-child.pid, "SIGTERM");
-          } catch {
-            child.kill("SIGTERM");
-          }
+          requireProcessGroupSupport();
+          if (!signalProcessGroup(child.pid, "SIGTERM")) return;
           await new Promise((resolve) => setTimeout(resolve, 100));
-          if (child.exitCode !== null) return;
-          try {
-            process.kill(-child.pid, "SIGKILL");
-          } catch {
-            child.kill("SIGKILL");
+          if (!processGroupExists(child.pid)) return;
+          signalProcessGroup(child.pid, "SIGKILL");
+        },
+        async waitForGroupTermination() {
+          if (child.pid === undefined) return;
+          requireProcessGroupSupport();
+          const deadline = Date.now() + 5_000;
+          while (processGroupExists(child.pid)) {
+            if (Date.now() >= deadline) {
+              throw new Error("process group termination was not observable");
+            }
+            await new Promise((resolve) => setTimeout(resolve, 25));
           }
         },
       };
     },
   };
+}
+
+function requireProcessGroupSupport(): void {
+  if (process.platform === "win32") {
+    throw new Error("process group termination is not observable");
+  }
+}
+
+function signalProcessGroup(
+  pid: number,
+  signal: "SIGTERM" | "SIGKILL",
+): boolean {
+  try {
+    process.kill(-pid, signal);
+    return true;
+  } catch (cause) {
+    if (isNoSuchProcess(cause)) return false;
+    throw new Error("process group signaling failed");
+  }
+}
+
+function processGroupExists(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (cause) {
+    if (isNoSuchProcess(cause)) return false;
+    throw new Error("process group termination is not observable");
+  }
+}
+
+function isNoSuchProcess(cause: unknown): boolean {
+  return (
+    typeof cause === "object" &&
+    cause !== null &&
+    "code" in cause &&
+    cause.code === "ESRCH"
+  );
 }
 
 async function directoryBytes(path: string): Promise<number> {

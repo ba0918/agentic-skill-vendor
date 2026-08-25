@@ -41,6 +41,23 @@ test("credentials, plaintext and non-network repository forms are refused", () =
   }
 });
 
+test("credential-bearing repository refusals do not repeat the credential component", () => {
+  const fakeCredential = "obviously-fake-credential-marker";
+  let refusal: unknown;
+  try {
+    classifyRepository(
+      `https://user:${fakeCredential}@example.com/group/repository.git`,
+    );
+  } catch (cause) {
+    refusal = cause;
+  }
+  expect(refusal).toBeInstanceOf(ConfigError);
+  if (!(refusal instanceof ConfigError)) {
+    throw new Error("expected a repository refusal");
+  }
+  expect(refusal.message).not.toContain(fakeCredential);
+});
+
 test("option-like SSH users and hosts are refused before Git can read them", () => {
   for (const repository of [
     "-user@example.com:group/repository.git",

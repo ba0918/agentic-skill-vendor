@@ -451,6 +451,46 @@ test("update uses one opened snapshot for its pin, listing and every blob", asyn
   });
 });
 
+test("fetch passes the manifest ref with the lock pin to the remote client", async () => {
+  await withRemoteTree(async (root, lines) => {
+    const bytes = new TextEncoder().encode(CONTRACT);
+    const objectId = await gitObjectIdOf(bytes);
+    const client = {
+      async defaultBranchOf() {
+        return "main";
+      },
+      async open(repository: string, target: unknown) {
+        expect(repository).toStrictEqual(REPOSITORY);
+        expect(target).toStrictEqual({
+          kind: "pin",
+          revision: REVISION,
+          objectFormat: "sha1",
+          ref: "main",
+        });
+        return {
+          revision: REVISION,
+          objectFormat: "sha1" as const,
+          blobs: [
+            {
+              path: "contracts/tdd-contract.md",
+              mode: "100644",
+              objectId,
+            },
+          ],
+          async fileAt() {
+            return bytes;
+          },
+          async close() {},
+        };
+      },
+    };
+
+    expect(
+      await commandFetch(root, (line) => lines.push(line), client),
+    ).toStrictEqual(0);
+  });
+});
+
 test("fetch opens the lock pin and closes the snapshot after a blob failure", async () => {
   await withRemoteTree(async (root, lines) => {
     const before = await snapshotTree(root);
@@ -465,6 +505,7 @@ test("fetch opens the lock pin and closes the snapshot after a blob failure", as
           kind: "pin",
           revision: REVISION,
           objectFormat: "sha1",
+          ref: "main",
         });
         return {
           revision: REVISION,

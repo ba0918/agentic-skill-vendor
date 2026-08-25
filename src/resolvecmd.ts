@@ -253,6 +253,7 @@ function fetchRequests(
         kind: "pin",
         revision: pinned.revision,
         objectFormat: pinned.objectFormat ?? "sha1",
+        ref: declaration.sources[name].ref,
       },
     });
   }
