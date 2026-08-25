@@ -105,8 +105,10 @@ commit の object id を lock に記録する。その同じ commit tree から 
 ref の問い合わせ後に branch が動いても、lock と cache が別 commit を指す状態を
 作らない。
 
-`fetch` は lock の object id を直接取得する。server が object id の直接指定を拒否した
-場合だけ manifest の ref を取得し、実際の object id が lock と完全一致することを確認する。
+`fetch` は lock の object id を直接取得する。object id の直接 fetch が理由を問わず失敗し、
+manifest に ref がある場合は、その ref の fetch を試してよい。ただしこれは取得経路の
+fallback であって採用版の fallback ではない。実際に fetch した commit の object id が
+lock の object id と完全一致するときだけ受理し、一致しなければ何も受理せず停止する。
 
 ref が別 commit へ移動していた場合や、lock の commit が取得不能な場合は停止する。
 現在の ref へ黙って切り替えない。採用版を変更できる command は `update` だけである。
@@ -155,8 +157,10 @@ process group の終了を試みる。OS が停止を確認できる場合は、
 削除する。確認できない場合は安全側に倒し、OS の一時ディレクトリ配下にある
 `agentic-skill-git-` prefix の当該一時bare repositoryを削除せず保持する。どちらの場合も
 既存cache、manifest、lockを変更せず、生の子 process 標準エラーを報告へ転載しない。保持物を
-復旧するには、まず関連する process group が停止したことを確認し、その後、その正確な保持
-ディレクトリだけを手動で削除する。停止確認後は、その正確なディレクトリだけを対象にした
+保持した場合、拒否メッセージは正確な外側の `agentic-skill-git-*` ディレクトリと detached
+process group の識別子を示す。復旧するには、まずその識別子の process group が停止したことを
+確認し、その後、メッセージが示した正確な保持ディレクトリだけを手動で削除する。停止確認後は、
+その正確なディレクトリだけを対象にした
 再帰削除を許可するが、OS の一時ディレクトリの root や親ディレクトリを再帰削除せず、glob や
 未解決の変数で対象を選ばない。
 

@@ -105,7 +105,8 @@ tags follow that value; they are not separate version declarations.
 - The published artifact keeps those two external rather than bundling them, so a consuming
   repository's audit sees the dependency graph the tool actually has.
 - A GitHub API credential reaches the tool on standard input alone, only where `--token-stdin`
-  asks for it, and only for the three commands that reach a network. Not a file: that is a
+  asks for it and a GitHub API source is actually used, at most once per run. Only the three
+  commands that reach a network accept the flag. Not a file: that is a
   second copy
   of the secret at rest, and making one safe needs a mode check that says nothing on a file
   system without POSIX modes. Not an environment variable: that could be inherited by a child
@@ -145,14 +146,16 @@ tags follow that value; they are not separate version declarations.
   Under Deno it therefore needs environment, temporary-directory read/write and
   `--allow-run=git` permissions. The four offline commands refuse `--token-stdin` rather than
   ignoring it, so their narrower boundary is stated in the one place a person checks it.
-- Every generic Git session is a detached process group and a temporary bare repository. Its
-  cumulative defaults are 120 seconds, 256 MiB of temporary disk, 1 MiB per extracted file
+- Every generic Git command runs in its own detached process group, and each fetched snapshot
+  uses a temporary bare repository. The source-wide cumulative defaults are 120 seconds,
+  256 MiB of temporary disk, 1 MiB per extracted file
   and 256 MiB across extracted files. A failed process, timeout or capacity excess normally
   terminates the detached group and deletes its temporary bare repository. If the OS cannot
   confirm that the group has stopped, the tool fails safely and retains that exact repository
   under the OS temporary directory with the `agentic-skill-git-` prefix. Cache, manifest and
-  lock state remain unchanged, and raw child diagnostics are suppressed. Recovery requires
-  first confirming that the related group has stopped, then manually deleting only that exact
+  lock state remain unchanged, and raw child diagnostics are suppressed. The refusal identifies
+  the exact outer retained directory and detached process group. Recovery requires first
+  confirming that the named group has stopped, then manually deleting only that exact
   retained directory; recursive removal is allowed for that exact directory after confirmation.
   Never recursively clean the OS temporary root or a parent directory, choose a target with a
   glob, or rely on unresolved variables.

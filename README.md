@@ -135,15 +135,15 @@ skills/<name>/references/vendor/<id>.md   the copy this tool writes into that sk
 skills/<name>/<dest>                      a raw-byte contract's copy, where the table says
 vendor-manifest.yaml                      origins and raw-byte source-to-destination mappings
 vendor-lock.json                          the lock: the digest recorded for each contract
-.agentic-skill-vendor/                    the cache of fetched text — never committed
+.agentic-skill-vendor/                    fetched cache and raw-byte staging — never committed
 ```
 
 The last three are the tool's own files. `vendor-manifest.yaml` is needed when a contract comes
 from another repository or when raw files or directories are distributed, because it records
 their origins and source-to-destination mappings. It is not needed when every contract is a
-local document at its standard `contracts/<id>.md` path. `.agentic-skill-vendor/` appears only
-after a repository fetches a contract from another repository; a repository using only local
-documents has the lock and generated copies, as it always did.
+local document at its standard `contracts/<id>.md` path. `.agentic-skill-vendor/` appears after
+a repository fetches a contract from another repository or stages a raw-byte distribution; a
+repository using only local documents has the lock and generated copies, as it always did.
 
 ## Changing a contract
 
@@ -320,8 +320,8 @@ bunx agentic-skill-vendor add https://git.example.com/team/contracts.git
 The repository text is preserved exactly. Without the optional source name, the final path
 component becomes the name after a trailing `.git` is removed; give a name explicitly if that
 component is not a usable source name. Plain `http://`, `file://`, local paths, unsupported
-remote helpers, option-like inputs and HTTP(S) URLs containing a username, password or token
-are rejected before Git starts.
+remote helpers, option-like inputs, HTTP(S) URLs containing a username, password or token, and
+SSH URLs containing a password are rejected before Git starts.
 
 Generic sources require Git at runtime and OpenSSH for SSH URLs. They reuse the user's normal
 system/global Git and SSH setup, including an SSH agent, private keys, `known_hosts` and stored
@@ -338,9 +338,10 @@ repository, 1 MiB for one extracted file and 256 MiB for all extracted files. A 
 capacity failure or acquisition error normally terminates the detached Git process group and
 deletes its temporary bare repository. If the OS cannot confirm that the process group has
 stopped, the tool fails safely and retains that exact temporary bare repository under the OS
-temporary directory with the `agentic-skill-git-` prefix instead of deleting it. In either case,
+temporary directory with the `agentic-skill-git-` prefix instead of deleting it. The refusal names
+that exact outer directory and the detached process group identifier. In either case,
 the existing cache, manifest and lock remain unchanged, and raw child stderr is suppressed. To
-recover a retained repository, first confirm that its related process group has stopped, then
+recover a retained repository, first confirm that the named process group has stopped, then
 manually delete only that exact retained directory; recursive removal is allowed for that exact
 directory after confirmation. Never recursively clean the OS temporary root or a parent directory,
 choose a target with a glob, or rely on unresolved variables. Both SHA-1
