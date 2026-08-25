@@ -522,6 +522,22 @@ function testSupportOwnershipViolations(
   return violations;
 }
 
+function lockOwnershipViolations(sources: Map<string, string>): string[] {
+  const manifest = sources.get("src/contracts/manifest.ts") ?? "";
+  const codec = sources.get("src/contracts/lock-codec.ts") ?? "";
+  const model = sources.get("src/contracts/lock-model.ts") ?? "";
+  const violations: string[] = [];
+  if (/function canonicalJson/.test(manifest))
+    violations.push("manifest canonicalJson");
+  if (/function buildLock/.test(manifest))
+    violations.push("manifest buildLock");
+  if (!/function canonicalJson/.test(codec))
+    violations.push("codec implementation");
+  if (!/function buildLock/.test(model))
+    violations.push("model implementation");
+  return violations;
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -537,6 +553,10 @@ test("test support responsibilities have one final owner", async () => {
   expect(
     testSupportOwnershipViolations(await repositorySources()),
   ).toStrictEqual([]);
+});
+
+test("lock model and codec responsibilities have one final owner", async () => {
+  expect(lockOwnershipViolations(await repositorySources())).toStrictEqual([]);
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {
