@@ -23,17 +23,18 @@ import {
   sourceViolations,
 } from "../contracts/manifest.ts";
 import {
-  closureViolations,
-  conformanceDirectoriesOf,
   listVendorEntries,
+  readContracts,
+  vendorDirOf,
+} from "./contract-discovery.ts";
+import { closureViolations, lockViolations } from "./generation-plan.ts";
+import {
+  conformanceDirectoriesOf,
   locateTreeContracts,
   lockedOrDeclared,
-  lockViolations,
-  readContracts,
   readTreeState,
-  vendorDirOf,
-  vendorHeader,
-} from "./gen.ts";
+} from "./tree-materials.ts";
+import { vendorHeader } from "./header.ts";
 import type { ContractLocation, Declaration } from "../contracts/sources.ts";
 import {
   assertFinalDestinationsDisjoint,
