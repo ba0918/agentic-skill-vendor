@@ -22,38 +22,40 @@ it is never committed.
 
 | Path | What it holds |
 |---|---|
-| `src/cli.ts` | The entry point: argument parsing and routing, no logic of its own |
+| `src/cli.ts` | The package entry point: started-program detection and the CLI runner re-export |
+| `src/cli/run.ts` | Argument parsing and routing, standard input, output, and exit codes |
 | `src/errors.ts` | `ConfigError` and what the exit codes mean |
 | `src/records.ts` | Prototype-free maps for keys the tree supplies, so `__proto__` and inherited property names behave as ordinary keys |
-| `src/digest.ts` | Canonical text, digests, contract ids — pure, no file system |
-| `src/walk.ts` | The guarded file-system primitives: the symlink-refusing walk, the atomic write, the checks other modules call before reading |
-| `src/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
-| `src/conformance.ts` | The conformance framing rules and tree collection |
-| `src/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
-| `src/manifest.ts` | The lock, in one canonical rendering, and what that rendering takes from the table of origins rather than from the lock |
-| `src/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
-| `src/distribution-ignore.ts` | Validation and matching of the shared and contract-specific distribution `ignore` rules |
-| `src/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
-| `src/token.ts` | The GitHub API credential: taken from standard input, judged before it can become a header, named by no refusal |
-| `src/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
-| `src/repository.ts` | Pure allowlist classification of GitHub shorthand and generic SSH/HTTPS repository forms |
-| `src/remote.ts` | The snapshot lifecycle shared by remote transports and the repository-kind router |
-| `src/git.ts` | Generic Git snapshots: ref/pin acquisition, tree listing and streamed object verification over an injected runner |
-| `src/gitprocess.ts` | The real shell-free, non-interactive Git process group and its cumulative time, disk and extraction budgets |
-| `src/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
-| `src/addcmd.ts` | `add`: registering a source, then everything `update` does |
-| `src/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
-| `src/header.ts` | The generated-copy header, shared by document copies and raw-byte markers |
-| `src/raw.ts` | Raw-byte contracts, pure: the shared framing, the contract digest and the placement digest |
-| `src/rawsource.ts` | Reading a raw-byte contract's files from the tree or the cache, with the refusals that go with it |
-| `src/placement-ownership.ts` | Pure per-skill final-dest conflict checks and old-to-final overlap component derivation |
-| `src/placements.ts` | Distributing raw-byte contracts: the gate, ownership-migration state classification, the sweep, the placement record, and verify's checks over them |
-| `src/staging.ts` | Building a raw-byte dest under the tool's directory and renaming it into the skill |
-| `src/verify.ts` | The four independent identity checks |
-| `src/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
-| `src/selftest.ts` | The environment smoke check and its hand-computed vectors |
-| `src/{name}.test.ts` | Each module's tests, beside the module |
-| `src/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
+| `src/filesystem/walk.ts` | The guarded file-system primitives: the symlink-refusing walk, the atomic write, the checks other modules call before reading |
+| `src/filesystem/ignore.ts` | `.gitignore` rules, resolved the way git orders them |
+| `src/contracts/digest.ts` | Canonical text, digests, contract ids — pure, no file system |
+| `src/contracts/conformance.ts` | The conformance framing rules and tree collection |
+| `src/contracts/declaration.ts` | Frontmatter parsing, the declaration schema, what each skill declares |
+| `src/contracts/manifest.ts` | The lock, in one canonical rendering, and what that rendering takes from the table of origins rather than from the lock |
+| `src/contracts/sources.ts` | The table of where each contract comes from: its schema, and the line-by-line editing that keeps a person's own lines intact |
+| `src/contracts/distribution-ignore.ts` | Validation and matching of the shared and contract-specific distribution `ignore` rules |
+| `src/contracts/repository.ts` | Pure allowlist classification of GitHub shorthand and generic SSH/HTTPS repository forms |
+| `src/contracts/raw.ts` | Raw-byte contracts, pure: the shared framing, the contract digest and the placement digest |
+| `src/contracts/placement-ownership.ts` | Pure per-skill final-dest conflict checks and old-to-final overlap component derivation |
+| `src/distribution/gen.ts` | Distribution: the lock derived from the canonical text, and writing both |
+| `src/distribution/header.ts` | The generated-copy header, shared by document copies and raw-byte markers |
+| `src/distribution/rawsource.ts` | Reading a raw-byte contract's files from the tree or the cache, with the refusals that go with it |
+| `src/distribution/placements.ts` | Distributing raw-byte contracts: the gate, ownership-migration state classification, the sweep, the placement record, and verify's checks over them |
+| `src/distribution/staging.ts` | Building a raw-byte dest under the tool's directory and renaming it into the skill |
+| `src/distribution/verify.ts` | The four independent identity checks |
+| `src/distribution/lint.ts` | `lint-selfcontain`: nothing inside a skill points above it |
+| `src/remote/cache.ts` | Where fetched text is kept — a revision's directory is the unit a whole fetch is placed at — how it is cleared, and whether the repository ignores it |
+| `src/remote/token.ts` | The GitHub API credential: taken from standard input, judged before it can become a header, named by no refusal |
+| `src/remote/github.ts` | The two hosts, the request shapes and the response schema — over an injected transport |
+| `src/remote/remote.ts` | The snapshot lifecycle shared by remote transports and the repository-kind router |
+| `src/remote/git.ts` | Generic Git snapshots: ref/pin acquisition, tree listing and streamed object verification over an injected runner |
+| `src/remote/gitprocess.ts` | The real shell-free, non-interactive Git process group and its cumulative time, disk and extraction budgets |
+| `src/remote/resolvecmd.ts` | `fetch` and `update`, and the fetch-then-verify-then-write path they share |
+| `src/remote/addcmd.ts` | `add`: registering a source, then everything `update` does |
+| `src/diagnostics/selftest.ts` | The environment smoke check and its hand-computed vectors |
+| `src/{feature}/{name}.test.ts` | Each module's tests, beside the module |
+| `src/test-support/testing.ts` | Test-only helpers: fixture cloning and in-process CLI runs |
+| `src/test-support/source-layout.test.ts` | The frozen file inventory and import-boundary architecture checks |
 | `fixtures/contracts-basic/good/` | A tree that verifies clean, cloned per test case |
 | `fixtures/contracts-remote/good/` | The same, for a tree taking one contract from another repository — committed with the cache that contract's text sits in, so the offline guarantee is checked against a tree that actually has one |
 | `fixtures/contracts-raw/good/` | The same, for a tree distributing raw bytes — a directory of scripts and one file — into two skills at the dests its table names |
