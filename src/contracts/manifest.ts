@@ -33,11 +33,7 @@ import {
 } from "./source-schema.ts";
 import { emptyRecord } from "../records.ts";
 import { classifyRepository } from "./repository.ts";
-import {
-  assertPlainChain,
-  decodeUtf8,
-  isRegularFileOrAbsent,
-} from "../filesystem/walk.ts";
+import { assertPlainChain, isRegularFileOrAbsent } from "../filesystem/walk.ts";
 import { dependenciesOf, type SkillDeclaration } from "./declaration.ts";
 
 /** The one file the lock lives in. */
@@ -63,7 +59,7 @@ import {
   type Resolution,
   type Resolutions,
 } from "./lock-model.ts";
-import { canonicalJson } from "./lock-codec.ts";
+import { canonicalJson, decodeLock, emptyDecodedLock } from "./lock-codec.ts";
 export { buildLock } from "./lock-model.ts";
 export type {
   LockSource,
@@ -320,6 +316,9 @@ interface Lock {
   sources: LockSources;
 }
 
+const pickObject = legacyPickObject;
+const requireDigest = legacyRequireDigest;
+
 /**
  * An empty map of resolutions, and the only place one is made.
  *
@@ -340,12 +339,7 @@ export async function readLock(root: string): Promise<Lock> {
   // looked at the path. A tree with no lock still has no resolutions.
   if (!(await isRegularFileOrAbsent(root, LOCK_FILE))) {
     await assertNoSupersededLock(root);
-    return {
-      recordedSkills: new Set(),
-      resolutions: emptyResolutions(),
-      placements: emptyPlacements(),
-      sources: emptySources(),
-    };
+    return emptyDecodedLock();
   }
   let bytes: Uint8Array;
   try {
@@ -353,38 +347,7 @@ export async function readLock(root: string): Promise<Lock> {
   } catch (cause) {
     throw new ConfigError(`cannot read ${LOCK_FILE}: ${describeCause(cause)}`);
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decodeUtf8(bytes, LOCK_FILE));
-  } catch (cause) {
-    if (cause instanceof ConfigError) throw cause;
-    throw new ConfigError(
-      `${LOCK_FILE}: not readable JSON: ${describeCause(cause)}`,
-    );
-  }
-  const document = pickObject(parsed, "");
-  const rawDependencies = document["dependencies"];
-  // A manifest must carry both halves of the lock. The one empty lock is the
-  // whole file being absent, which is answered before JSON is ever read; a
-  // file present but missing a half is a hand-corrupted state, and reading it
-  // as "no skills recorded" would let the next gen forget every skill the tree
-  // records a dependency list for.
-  //
-  // A manifest written by a superseded form of this tool is refused by the
-  // same check rather than by a format marker: the earlier form wrapped both
-  // halves in a `lock` key, so its dependencies are not where a manifest keeps
-  // them and the absence of the field is itself the mark of the old form.
-  if (rawDependencies === undefined) {
-    throw new ConfigError(`${LOCK_FILE}: has no dependencies key`);
-  }
-  return {
-    recordedSkills: new Set(
-      Object.keys(pickObject(rawDependencies, "dependencies")),
-    ),
-    resolutions: validateResolutions(document),
-    placements: validatePlacements(document),
-    sources: validateSources(document),
-  };
+  return decodeLock(bytes);
 }
 
 /** An empty map of placements, and the only place one is made. */
@@ -401,7 +364,9 @@ function emptyPlacements(): Placements {
  * reason a revision is: text that was never checked is text an edit can steer
  * into a deletion outside the tree.
  */
-function validatePlacements(document: Record<string, unknown>): Placements {
+export function legacyValidatePlacements(
+  document: Record<string, unknown>,
+): Placements {
   const raw = document["placements"];
   if (raw === undefined) return emptyPlacements();
   const skills = pickObject(raw, "placements");
@@ -483,7 +448,9 @@ function emptySources(): LockSources {
  * only local contracts unreadable — the opposite of the two halves the lock
  * has always carried, where an absent key marks a file somebody cut in half.
  */
-function validateSources(document: Record<string, unknown>): LockSources {
+export function legacyValidateSources(
+  document: Record<string, unknown>,
+): LockSources {
   const raw = document["sources"];
   if (raw === undefined) return emptySources();
   const entries = pickObject(raw, "sources");
@@ -555,7 +522,9 @@ async function assertNoSupersededLock(root: string): Promise<void> {
   );
 }
 
-function validateResolutions(document: Record<string, unknown>): Resolutions {
+export function legacyValidateResolutions(
+  document: Record<string, unknown>,
+): Resolutions {
   const raw = document["resolutions"];
   // The same refusal as a lock missing its dependencies, for the other half:
   // the lock this tool writes always carries both, and reading an absent half
@@ -591,7 +560,10 @@ function validateResolutions(document: Record<string, unknown>): Resolutions {
   return resolutions;
 }
 
-function pickObject(value: unknown, path: string): Record<string, unknown> {
+export function legacyPickObject(
+  value: unknown,
+  path: string,
+): Record<string, unknown> {
   if (value === undefined) return {};
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     throw new ConfigError(
@@ -601,7 +573,7 @@ function pickObject(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function requireDigest(value: unknown, path: string): string {
+export function legacyRequireDigest(value: unknown, path: string): string {
   return requireMatch(value, DIGEST_FORM, path, "a sha256 digest");
 }
 
