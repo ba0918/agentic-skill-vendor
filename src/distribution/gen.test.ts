@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ConfigError } from "../errors.ts";
-import { planExpansion } from "./gen.ts";
+import { planExpansion } from "./generation-plan.ts";
 import { vendorDirOf } from "./contract-discovery.ts";
 import { contractDigest } from "../contracts/digest.ts";
 import {

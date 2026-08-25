@@ -10,21 +10,16 @@
 // module would write, so both share one answer to "may this tree be expanded at
 // all" instead of restating it.
 
-import * as fs from "node:fs/promises";
-import { ConfigError, describeCause, type Sink } from "../errors.ts";
+import { ConfigError, type Sink } from "../errors.ts";
+import type { PlacedFile } from "../filesystem/atomic-write.ts";
 import { contractPath } from "../contracts/digest.ts";
 import { compareStrings } from "../ordering.ts";
 import { conformanceDigest } from "../contracts/conformance.ts";
 import {
-  assertPlainChain,
   displayName,
   isRegularFileOrAbsent,
   readTextFile,
 } from "../filesystem/walk.ts";
-import {
-  atomicWriteFile,
-  type PlacedFile,
-} from "../filesystem/atomic-write.ts";
 import {
   declaredIds,
   dependentIndex,
@@ -32,12 +27,7 @@ import {
 } from "../contracts/declaration.ts";
 import { emptyRecord } from "../records.ts";
 import { vendorHeader } from "./header.ts";
-import { placeViaStaging, prepareStaging } from "./staging.ts";
 export { vendorHeader } from "./header.ts";
-import {
-  unignoredWorkDirectoryWarning,
-  workDirectoryIsIgnored,
-} from "../filesystem/workdir.ts";
 import {
   assertPinnedRepositories,
   LOCK_FILE,
@@ -61,8 +51,10 @@ import {
   DECLARATION_FILE,
   LOCAL_SOURCE,
   parseDeclaration,
-  TOOL_DIR,
 } from "../contracts/source-schema.ts";
+import { planExpansion } from "./generation-plan.ts";
+import { executePlan } from "./generation-write.ts";
+import { closureViolations } from "./lock-update.ts";
 import {
   withContractMapping,
   withoutContractMapping,
@@ -119,7 +111,7 @@ interface WritePlan {
  * tree is never half-updated because of something the run could have known in
  * advance.
  */
-export async function planExpansion(
+export async function buildExpansionPlan(
   root: string,
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
@@ -213,62 +205,11 @@ export async function planExpansion(
  * leftover as an extra, and running gen again answered 0 again, so the tree
  * stayed in a state one command called clean and the other called a violation.
  */
-export async function executePlan(
-  root: string,
-  plan: WritePlan,
-  out: Sink = () => {},
-): Promise<void> {
-  for (const file of plan.files) {
-    await atomicWriteFile(root, file.site, file.content);
-  }
-  if (plan.placed.length > 0 || plan.sweeps.length > 0) {
-    if (!(await workDirectoryIsIgnored(root, TOOL_DIR))) {
-      out(unignoredWorkDirectoryWarning(TOOL_DIR));
-    }
-  }
-  if (plan.placed.length > 0) await prepareStaging(root);
-  for (const dest of plan.placed) {
-    await placeViaStaging(root, dest.site, dest.what);
-  }
-  // The raw-byte sweeps go before the lock, unlike the document removals
-  // below. The lock is the only memory of a raw-byte dest: written first, a
-  // sweep that then failed would leave a directory nothing remembers. What
-  // the sweep can lose is only what the gate confirmed this tool wrote.
-  const swept = await removeEach(root, plan.sweeps);
-  if (swept !== null) throw swept;
-  await atomicWriteFile(root, plan.lock.site, plan.lock.content);
-  const failed = await removeEach(root, plan.removals);
-  if (failed !== null) throw failed;
-}
-
 /**
  * Removes every site, attempting each before reporting any, so one file that
  * cannot be cleared does not leave the rest standing behind it. The refusal
  * names the first failure, or null where all went.
  */
-async function removeEach(
-  root: string,
-  sites: string[],
-): Promise<ConfigError | null> {
-  const failures: { site: string; cause: unknown }[] = [];
-  for (const site of sites) {
-    try {
-      await assertPlainChain(root, site);
-      // A path already gone is the state this asks for, not a failure: `force`
-      // is what separates "there is nothing to remove" from "this could not be
-      // removed", and only the second is worth stopping over.
-      await fs.rm(`${root}/${site}`, { recursive: true, force: true });
-    } catch (cause) {
-      failures.push({ site, cause });
-    }
-  }
-  if (failures.length === 0) return null;
-  const [first] = failures;
-  return new ConfigError(
-    `cannot remove ${displayName(first.site)}: ${describeCause(first.cause)}`,
-  );
-}
-
 /**
  * The declared contracts whose canonical text the tree does not hold.
  *
@@ -279,7 +220,7 @@ async function removeEach(
  * there is different in kind — it cannot be rewritten from, and a run that
  * carried on would drop the resolution of a contract a skill still declares.
  */
-export function closureViolations(
+export function legacyClosureViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
   locations: Map<string, ContractLocation>,
@@ -331,7 +272,7 @@ export function closureViolations(
  * a change to which contracts one of them walks would land in one half and not
  * the other, and the gap would read as a clean tree.
  */
-export function lockViolations(
+export function legacyLockViolations(
   skills: SkillDeclaration[],
   contracts: Map<string, CanonicalContract | null>,
   resolutions: Resolutions,
