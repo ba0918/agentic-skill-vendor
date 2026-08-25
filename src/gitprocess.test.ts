@@ -13,6 +13,7 @@ const encoder = new TextEncoder();
 const SHA1 = "1".repeat(40);
 
 class FakeHost implements GitProcessHost {
+  temporaryDirectory = "/tmp/agentic-skill-git-test";
   nowValue = 0;
   diskBytes = 0;
   readonly invocations: ProcessInvocation[] = [];
@@ -39,7 +40,7 @@ class FakeHost implements GitProcessHost {
     return Promise.resolve();
   }
   createTemporaryDirectory(): Promise<string> {
-    return Promise.resolve("/tmp/fake-git-source");
+    return Promise.resolve(this.temporaryDirectory);
   }
   removeTemporaryDirectory(path: string): Promise<void> {
     if (this.removalFailures > 0) {
@@ -76,6 +77,7 @@ class FakeHost implements GitProcessHost {
     const chunks = this.outputs.shift() ?? [];
     const code = this.exitCodes.shift() ?? 0;
     return {
+      processGroupId: 4242,
       stdout: (async function* () {
         for (const chunk of chunks) yield chunk;
       })(),
@@ -121,7 +123,9 @@ test("uses shell-free fixed repository arguments and preserves only trusted conf
   if (fetch === undefined) throw new Error("expected a Git invocation");
   expect(fetch.command).toBe("git");
   expect(fetch.shell).toBe(false);
-  expect(fetch.args).toContain("--git-dir=/tmp/fake-git-source/repository.git");
+  expect(fetch.args).toContain(
+    "--git-dir=/tmp/agentic-skill-git-test/repository.git",
+  );
   expect(fetch.args).toContain("core.hooksPath=/dev/null");
   expect(fetch.args).toContain("http.sslVerify=true");
   expect(fetch.args).not.toContain("checkout");
@@ -365,7 +369,7 @@ test("terminates the process group when the cumulative source deadline is exceed
     }),
   ).rejects.toThrow("timeout");
   expect(host.killed).toBe(1);
-  expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+  expect(host.removed).toEqual([host.temporaryDirectory]);
 });
 
 test("terminates the process group when the temporary repository exceeds its cap", async () => {
@@ -385,7 +389,7 @@ test("terminates the process group when the temporary repository exceeds its cap
     }),
   ).rejects.toThrow("temporary repository capacity");
   expect(host.killed).toBe(1);
-  expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+  expect(host.removed).toEqual([host.temporaryDirectory]);
 });
 
 test("reports only a safe stage and removes temporary state after child failure", async () => {
@@ -406,7 +410,7 @@ test("reports only a safe stage and removes temporary state after child failure"
   expect(error.message).toContain("connection or authentication");
   expect(error.message).not.toContain("secret");
   await session.close();
-  expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+  expect(host.removed).toEqual([host.temporaryDirectory]);
 });
 
 test("waits for descendant group termination before temporary cleanup after the direct child closes", async () => {
@@ -441,7 +445,7 @@ test("waits for descendant group termination before temporary cleanup after the 
 
 test("retains temporary state when descendant group termination cannot be confirmed", async () => {
   const host = new FakeHost();
-  host.exitCodes.push(128);
+  host.exitCodes.push(0, 0, 0, 0, 128);
   host.groupTerminationFailure = true;
 
   const refusal = await gitOver(createGitProcessRunner(host), {
@@ -451,12 +455,72 @@ test("retains temporary state when descendant group termination cannot be confir
       kind: "pin",
       revision: SHA1,
       objectFormat: "sha1",
+      ref: "main",
     })
     .catch((cause) => cause);
 
   expect(refusal).toBeInstanceOf(ConfigError);
   expect(refusal.message).toContain("termination could not be confirmed");
+  expect(refusal.message).toContain(host.temporaryDirectory);
+  expect(refusal.message).toContain("4242");
+  expect(refusal.message).toContain("confirm");
+  expect(refusal.message).toContain("recursively deleting only");
+  expect(refusal.message).not.toContain(
+    `${host.temporaryDirectory}/repository.git`,
+  );
+  expect(refusal.message).not.toContain("ssh://example.invalid/a.git");
+  expect(refusal.message).not.toContain("Authorization: secret");
   expect(refusal.message).not.toContain("raw termination diagnostic");
+  expect(host.invocations).toHaveLength(5);
+  expect(host.removed).toEqual([]);
+});
+
+test("default branch failure preserves the retained repository recovery refusal", async () => {
+  const host = new FakeHost();
+  host.exitCodes.push(128);
+  host.groupTerminationFailure = true;
+
+  const refusal = await gitOver(createGitProcessRunner(host), {
+    interactive: false,
+  })
+    .defaultBranchOf("ssh://example.invalid/a.git")
+    .catch((cause) => cause);
+
+  expect(refusal).toBeInstanceOf(ConfigError);
+  expect(refusal.message).toContain(host.temporaryDirectory);
+  expect(refusal.message).toContain("4242");
+  expect(refusal.message).toContain("recursively deleting only");
+  expect(refusal.message).not.toContain("raw termination diagnostic");
+  expect(refusal.message).not.toContain("ssh://example.invalid/a.git");
+  expect(refusal.message).not.toContain("Authorization: secret");
+  expect(host.invocations).toHaveLength(1);
+  expect(host.removed).toEqual([]);
+});
+
+test("retained repository paths are quoted as one-line round-trippable data", async () => {
+  const host = new FakeHost();
+  host.temporaryDirectory =
+    "/tmp/agentic-skill-git-line\n\u001b space;$()'\"test";
+  host.exitCodes.push(128);
+  host.groupTerminationFailure = true;
+
+  const refusal = await gitOver(createGitProcessRunner(host), {
+    interactive: false,
+  })
+    .defaultBranchOf("ssh://example.invalid/a.git")
+    .catch((cause) => cause);
+
+  expect(refusal).toBeInstanceOf(ConfigError);
+  expect(refusal.message.split("\n")).toHaveLength(1);
+  const encodedPath = refusal.message.match(
+    /retained temporary repository: (.+); detached process group:/,
+  )?.[1];
+  expect(encodedPath).toBeDefined();
+  if (encodedPath === undefined) throw new Error("expected an encoded path");
+  expect(JSON.parse(encodedPath)).toBe(host.temporaryDirectory);
+  expect(refusal.message).toContain(JSON.stringify(host.temporaryDirectory));
+  expect(refusal.message).not.toContain(host.temporaryDirectory);
+  expect(refusal.message).not.toContain("rm -");
   expect(host.removed).toEqual([]);
 });
 
@@ -468,5 +532,5 @@ test("a failed temporary removal remains retryable", async () => {
   });
   await expect(session.close()).rejects.toThrow("injected removal failure");
   await session.close();
-  expect(host.removed).toEqual(["/tmp/fake-git-source"]);
+  expect(host.removed).toEqual([host.temporaryDirectory]);
 });

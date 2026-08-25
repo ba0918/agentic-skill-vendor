@@ -58,6 +58,7 @@ export interface ProcessInvocation {
 }
 
 export interface RunningProcess {
+  processGroupId: number | undefined;
   stdout: AsyncIterable<Uint8Array>;
   completion: Promise<{ code: number | null }>;
   terminateGroup(): Promise<void>;
@@ -160,6 +161,7 @@ class BoundedGitProcessSession implements GitProcessSession {
   #aggregateBytes = 0;
   #cleanupSafe = true;
   #closed = false;
+  #terminalFailure: ConfigError | undefined;
 
   constructor(
     host: GitProcessHost,
@@ -209,6 +211,7 @@ class BoundedGitProcessSession implements GitProcessSession {
     command: GitProcessCommand,
     take: (chunk: Uint8Array) => void,
   ): Promise<void> {
+    if (this.#terminalFailure !== undefined) throw this.#terminalFailure;
     if (this.#closed) throw new ConfigError("Git source session is closed");
     const before = await this.#budgetFailure();
     if (before !== undefined) {
@@ -268,9 +271,15 @@ class BoundedGitProcessSession implements GitProcessSession {
         await Promise.allSettled([read]);
         this.#cleanupSafe = true;
       } catch {
-        throw new ConfigError(
-          `${command.stage} failed: process group termination could not be confirmed; temporary repository was retained`,
+        const retainedDirectory = JSON.stringify(this.#temporaryDirectory);
+        this.#terminalFailure = new ConfigError(
+          `${command.stage} failed: process group termination could not be confirmed; ` +
+            `retained temporary repository: ${retainedDirectory}; ` +
+            `detached process group: ${process.processGroupId ?? "unavailable"}; ` +
+            `confirm that group has stopped before recursively deleting only ` +
+            `this exact directory: ${retainedDirectory}`,
         );
+        throw this.#terminalFailure;
       }
       if (cause instanceof GitResourceError) {
         await this.close().catch(() => {});
@@ -289,6 +298,7 @@ class BoundedGitProcessSession implements GitProcessSession {
   }
 
   async close(): Promise<void> {
+    if (this.#terminalFailure !== undefined) throw this.#terminalFailure;
     if (this.#closed) return;
     if (!this.#cleanupSafe) {
       throw new ConfigError(
@@ -408,6 +418,7 @@ function nodeGitProcessHost(): GitProcessHost {
         child.once("close", (code) => resolve({ code }));
       });
       return {
+        processGroupId: child.pid,
         stdout: child.stdout ?? emptyChunks(),
         completion,
         async terminateGroup() {
