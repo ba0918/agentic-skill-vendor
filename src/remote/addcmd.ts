@@ -17,8 +17,8 @@ import {
   DECLARATION_FILE,
   parseDeclaration,
   readDeclaration,
-  withSourceRegistration,
-} from "../contracts/sources.ts";
+} from "../contracts/source-schema.ts";
+import { withSourceRegistration } from "../contracts/source-edit.ts";
 import { isRegularFileOrAbsent, readTextFile } from "../filesystem/walk.ts";
 
 /**

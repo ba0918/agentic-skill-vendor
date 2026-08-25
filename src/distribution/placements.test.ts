@@ -5,7 +5,7 @@ import { assertSrcsClearOfConformance } from "./placements.ts";
 import {
   type ContractLocation,
   parseDeclaration,
-} from "../contracts/sources.ts";
+} from "../contracts/source-schema.ts";
 import {
   fakeGitHub,
   readLockFile,

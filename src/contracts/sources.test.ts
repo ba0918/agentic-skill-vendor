@@ -1,12 +1,11 @@
 import { expect, test } from "bun:test";
 import { ConfigError } from "../errors.ts";
+import { parseDeclaration, readDeclaration } from "./source-schema.ts";
 import {
-  parseDeclaration,
-  readDeclaration,
   withContractMapping,
   withoutContractMapping,
   withSourceRegistration,
-} from "./sources.ts";
+} from "./source-edit.ts";
 import { thrownBy, withEmptyDir } from "../test-support/testing.ts";
 
 test("a declaration is read as the sources it registers and the origin of each contract", () => {

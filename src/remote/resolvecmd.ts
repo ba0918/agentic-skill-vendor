@@ -58,8 +58,8 @@ import {
   originPathOf,
   parseDeclaration,
   type RawMapping,
-  withContractMapping,
-} from "../contracts/sources.ts";
+} from "../contracts/source-schema.ts";
+import { withContractMapping } from "../contracts/source-edit.ts";
 import {
   dirNameOf,
   isRegularFileOrAbsent,

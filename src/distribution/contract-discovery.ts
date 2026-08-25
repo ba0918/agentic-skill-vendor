@@ -23,7 +23,7 @@ import {
   LOCAL_SOURCE,
   originPathOf,
   VENDOR_SUBPATH,
-} from "../contracts/sources.ts";
+} from "../contracts/source-schema.ts";
 import { rawMappingsOf } from "./raw-contracts.ts";
 import type { ConformancePosition } from "./raw-contracts.ts";
 

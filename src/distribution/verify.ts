@@ -26,7 +26,10 @@ import { listVendorEntries, vendorDirOf } from "./contract-discovery.ts";
 import { closureViolations, lockViolations } from "./generation-plan.ts";
 import { prepareTreeMaterials, readTreeState } from "./tree-materials.ts";
 import { vendorHeader } from "./header.ts";
-import type { ContractLocation, Declaration } from "../contracts/sources.ts";
+import type {
+  ContractLocation,
+  Declaration,
+} from "../contracts/source-schema.ts";
 import {
   deriveRawResolutions,
   isRawId,

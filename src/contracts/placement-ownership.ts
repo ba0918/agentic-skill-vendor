@@ -1,7 +1,7 @@
 import type { SkillDeclaration } from "./declaration.ts";
 import { ConfigError } from "../errors.ts";
 import type { Placement } from "./manifest.ts";
-import type { Declaration } from "./sources.ts";
+import type { Declaration } from "./source-schema.ts";
 
 export interface FinalDestination {
   skill: string;

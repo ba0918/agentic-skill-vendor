@@ -30,7 +30,7 @@ import {
   destsCollide,
   isTreeRelativePath,
   reservedDestRefusal,
-} from "./sources.ts";
+} from "./source-schema.ts";
 import { emptyRecord } from "../records.ts";
 import { classifyRepository } from "./repository.ts";
 import {

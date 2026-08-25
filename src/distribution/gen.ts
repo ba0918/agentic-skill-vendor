@@ -59,10 +59,12 @@ import {
   DECLARATION_FILE,
   LOCAL_SOURCE,
   parseDeclaration,
+  TOOL_DIR,
+} from "../contracts/source-schema.ts";
+import {
   withContractMapping,
   withoutContractMapping,
-  TOOL_DIR,
-} from "../contracts/sources.ts";
+} from "../contracts/source-edit.ts";
 import {
   lockedOrDeclared,
   prepareTreeMaterials,

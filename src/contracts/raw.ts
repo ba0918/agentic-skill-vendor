@@ -10,7 +10,7 @@
 
 import { concatBytes, digestOfBytes } from "./digest.ts";
 import { compareStrings } from "../ordering.ts";
-import type { RawMapping } from "./sources.ts";
+import type { RawMapping } from "./source-schema.ts";
 
 /** One file of a raw-byte contract: where it sits relative to its src. */
 export interface RawFile {

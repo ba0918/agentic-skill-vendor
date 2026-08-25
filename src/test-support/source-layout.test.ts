@@ -31,7 +31,6 @@ const EXPECTED_SOURCE_FILES = [
   "src/contracts/source-edit.ts",
   "src/contracts/source-schema.ts",
   "src/contracts/sources.test.ts",
-  "src/contracts/sources.ts",
   "src/contracts/lock-codec.ts",
   "src/contracts/lock-model.ts",
   "src/diagnostics/selftest.test.ts",
@@ -133,10 +132,19 @@ async function sourceFiles(): Promise<string[]> {
     ["ls-files", "--cached", "--others", "--exclude-standard", "--", "src"],
     { cwd: ROOT },
   );
-  return stdout
+  const candidates = stdout
     .split("\n")
     .filter((path) => path.endsWith(".ts"))
     .sort();
+  const present = await Promise.all(
+    candidates.map(async (path) =>
+      fs.stat(`${ROOT}/${path}`).then(
+        () => true,
+        () => false,
+      ),
+    ),
+  );
+  return candidates.filter((_, index) => present[index]);
 }
 
 function relativeImports(source: string): string[] {
@@ -608,6 +616,19 @@ function discoveryOwnershipViolations(sources: Map<string, string>): string[] {
   });
 }
 
+function sourceOwnershipViolations(sources: Map<string, string>): string[] {
+  const schema = sources.get("src/contracts/source-schema.ts") ?? "";
+  const edit = sources.get("src/contracts/source-edit.ts") ?? "";
+  const violations: string[] = [];
+  if (sources.has("src/contracts/sources.ts"))
+    violations.push("legacy sources module");
+  if (!/function parseDeclaration/.test(schema))
+    violations.push("schema parser");
+  if (!/function withContractMapping/.test(edit))
+    violations.push("line editor");
+  return violations;
+}
+
 test("every source file occupies its frozen migration position", async () => {
   const actual = await sourceFiles();
   const expected: string[] = [...EXPECTED_SOURCE_FILES];
@@ -639,6 +660,12 @@ test("contract discovery owns discovery without a same-directory module cycle", 
   const sources = await repositorySources();
   expect(discoveryOwnershipViolations(sources)).toStrictEqual([]);
   expect(sameDirectoryCycleEdges(sources)).toStrictEqual([]);
+});
+
+test("source schema and line editing have final owners", async () => {
+  expect(sourceOwnershipViolations(await repositorySources())).toStrictEqual(
+    [],
+  );
 });
 
 test("the Phase 2 target inventory and final feature edges are complete", async () => {

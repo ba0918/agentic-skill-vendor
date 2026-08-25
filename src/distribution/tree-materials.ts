@@ -15,7 +15,7 @@ import {
   type ContractLocation,
   type Declaration,
   readDeclaration,
-} from "../contracts/sources.ts";
+} from "../contracts/source-schema.ts";
 import {
   assertFinalDestinationsDisjoint,
   finalRawDestinations,
