@@ -22,7 +22,7 @@
 // neither.
 
 import { pruneCache } from "./cache.ts";
-import { CACHE_DIR, cacheRevisionDirOf } from "../contracts/cache.ts";
+import { CACHE_DIR } from "../contracts/cache.ts";
 import {
   unignoredWorkDirectoryWarning,
   workDirectoryIsIgnored,
@@ -41,7 +41,6 @@ import {
   type TreeBlob,
 } from "./remote.ts";
 import {
-  contractsOf,
   fetchRequests,
   updateRequests,
   type SnapshotRequest,
@@ -58,7 +57,6 @@ import {
   type Declaration,
   DECLARATION_FILE,
   isTreeRelativePath,
-  originPathOf,
   parseDeclaration,
   type RawMapping,
 } from "../contracts/source-schema.ts";
@@ -77,7 +75,7 @@ import {
   type TreeState,
 } from "../distribution/tree-materials.ts";
 import { declaredIds } from "../contracts/declaration.ts";
-import { placeInCache, type CachedRevision } from "./cache-write.ts";
+import { placeInCache } from "./cache-write.ts";
 import { writeLockSources } from "./lock-update.ts";
 import { collectSources as collectSourceRevisions } from "./source-collection.ts";
 
@@ -432,68 +430,6 @@ function resolveSources(
  * files hashes to — and that is why it stops the run instead of being reported
  * as a violation.
  */
-export async function legacyCollectSources(
-  snapshots: Map<string, RemoteSnapshot>,
-  declaration: Declaration,
-  sources: LockSources,
-): Promise<CachedRevision[]> {
-  const revisions: CachedRevision[] = [];
-  for (const name of Object.keys(declaration.sources).sort(compareStrings)) {
-    const contracts = contractsOf(declaration, name);
-    if (contracts.length === 0) continue;
-    const pinned = sources[name];
-    // Nothing here can decide which commit that would be. Resolving a ref is
-    // what update does, and doing it quietly on the way past would adopt a
-    // version nobody reviewed — the one thing the split between the two
-    // commands exists to prevent.
-    if (pinned === undefined) {
-      throw new ConfigError(
-        `${DECLARATION_FILE} registers the source ${name} but the lock ` +
-          `records no commit for it; run update to resolve one`,
-      );
-    }
-    const snapshot = snapshots.get(name);
-    if (snapshot === undefined) {
-      throw new ConfigError(`no snapshot was opened for the source ${name}`);
-    }
-    requirePinnedSnapshot(snapshot, pinned, name);
-    const listing = snapshot.blobs;
-    const files: PlacedFile[] = [];
-    for (const id of contracts) {
-      const origin = declaration.contracts[id];
-      if (origin.files !== undefined) {
-        for (const mapping of origin.files) {
-          files.push(
-            ...(await collectRawMapping(
-              snapshot,
-              pinned,
-              listing,
-              id,
-              mapping,
-            )),
-          );
-        }
-        continue;
-      }
-      files.push(
-        ...(await collectContract(
-          snapshot,
-          pinned,
-          listing,
-          id,
-          originPathOf(id, origin),
-          name,
-        )),
-      );
-    }
-    revisions.push({
-      site: cacheRevisionDirOf(name, pinned.revision),
-      files,
-    });
-  }
-  return revisions;
-}
-
 function requirePinnedSnapshot(
   snapshot: RemoteSnapshot,
   pinned: LockSource,
