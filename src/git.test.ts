@@ -471,7 +471,7 @@ test("closes the process session when tree parsing fails", async () => {
   expect(session.closed).toBe(true);
 });
 
-test("ignores an unrelated non-UTF-8 path while keeping valid tree entries", async () => {
+test("rejects a non-UTF-8 tree path and closes the process session", async () => {
   const runner = new FakeRunner();
   const opening = gitOver(runner, { interactive: false }).open(
     "https://example.invalid/group/project.git",
@@ -506,13 +506,8 @@ test("ignores an unrelated non-UTF-8 path while keeping valid tree entries", asy
     ],
     invalid,
   );
-  expect((await opening).blobs).toEqual([
-    {
-      mode: "100644",
-      objectId: "4".repeat(40),
-      path: "contracts/a.md",
-    },
-  ]);
+  await expect(opening).rejects.toThrow("not valid UTF-8");
+  expect(session.closed).toBe(true);
 });
 
 test("streams tree metadata larger than one file without a whole-tree file cap", async () => {

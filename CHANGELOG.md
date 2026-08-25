@@ -7,6 +7,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Remote sources now support arbitrary Git hosts over allowlisted SSH, scp-style SSH, and
+  HTTPS repository URLs. The noninteractive transport reuses native Git/OpenSSH authentication,
+  verifies exact pins for SHA-1 and SHA-256 repositories, and bounds temporary repository disk,
+  per-file extraction, aggregate extraction, and cleanup.
+
 ## [0.5.0] - 2026-08-25
 
 ### Added
