@@ -9,7 +9,7 @@
 
 import { commandUpdate } from "./resolvecmd.ts";
 import { ConfigError, type Sink } from "./errors.ts";
-import type { GitHubClient } from "./github.ts";
+import type { RemoteClient } from "./remote.ts";
 import {
   assertRepository,
   assertSourceName,
@@ -35,7 +35,7 @@ import {
 export async function commandAdd(
   root: string,
   out: Sink,
-  client: GitHubClient,
+  client: RemoteClient,
   repository: string,
   named: string | undefined,
 ): Promise<number> {

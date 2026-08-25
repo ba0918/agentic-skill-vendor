@@ -21,6 +21,12 @@
 import { ConfigError, describeCause } from "./errors.ts";
 import { concatBytes } from "./digest.ts";
 import { isUsableRef } from "./sources.ts";
+import type {
+  RemoteClient,
+  RemoteSnapshot,
+  SnapshotTarget,
+  TreeBlob,
+} from "./remote.ts";
 
 /** The API host, and the host serving file content at a commit. */
 const API_HOST = "https://api.github.com";
@@ -71,33 +77,7 @@ export function rawUrl(
   )}/${encodePath(path)}`;
 }
 
-/**
- * One entry a commit holds: where it sits, the mode the commit lists it at,
- * and the object id the commit's own listing gives for its bytes.
- *
- * The id travels with the path because the two are one answer. Asked for
- * separately, the pair could describe two different commits, and the check a
- * download is judged against would be judging it against the wrong one.
- *
- * The mode travels with them so that whoever is about to take a file judges
- * it, rather than this listing. The listing covers a whole repository, and
- * which of it this tool consumes is decided far from here.
- */
-export interface TreeBlob {
-  path: string;
-  mode: string;
-  objectId: string;
-}
-
-/**
- * What a run may ask of the network, and nothing else.
- *
- * Four questions, each with one URL behind it. Everything above this interface
- * — which contracts to look for, what to do with the bytes — is decided
- * offline, so the network is never asked anything that depends on what an
- * earlier answer contained.
- */
-export interface GitHubClient {
+interface GitHubOperations {
   /** The branch a repository hands out when a ref is not named. */
   defaultBranchOf(repository: string): Promise<string>;
   /** The commit a ref names right now, as a 40-digit SHA. */
@@ -192,8 +172,8 @@ const LISTING_LIMIT = 8 * 1024 * 1024;
 export function gitHubOver(
   transport: typeof fetch,
   token?: string,
-): GitHubClient {
-  return {
+): RemoteClient {
+  const operations: GitHubOperations = {
     async commitOf(repository, ref) {
       const url = commitUrl(repository, ref);
       const document = requireObject(
@@ -318,6 +298,28 @@ export function gitHubOver(
         FILE_LIMIT,
         token,
       );
+    },
+  };
+  return {
+    defaultBranchOf: operations.defaultBranchOf,
+    async open(
+      repository: string,
+      target: SnapshotTarget,
+    ): Promise<RemoteSnapshot> {
+      const revision =
+        target.kind === "ref"
+          ? await operations.commitOf(repository, target.ref)
+          : target.revision;
+      const blobs = await operations.blobsAt(repository, revision);
+      return {
+        revision,
+        objectFormat: "sha1",
+        blobs,
+        async fileAt(path) {
+          return await operations.fileAt(repository, revision, path);
+        },
+        async close() {},
+      };
     },
   };
 }
