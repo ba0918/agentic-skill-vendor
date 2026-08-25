@@ -60,13 +60,20 @@ HTTPS の認証は Git credential helper へ委譲する。TLS 証明書の検�
 GitHub API transport の `--token-stdin` は従来どおり GitHub の固定 host だけに
 適用する。汎用 Git transport の認証には使用しない。
 
-## 対話実行と CI
+## 認証済み環境と CI
 
-標準入力が対話端末の場合、通常の Git/OpenSSH の認証 prompt と host key prompt を
-許す。ただし host key の判断は OpenSSH に任せ、ツールが回答を代行しない。
+汎用 Git transport は、標準入力が対話端末かどうかにかかわらず常に非対話で実行する。
+Git の terminal prompt と OpenSSH の対話認証を無効化し、子 process の標準入力を閉じる。
+これにより、全実行を独立した process group に置き、timeout または容量超過時に子孫を
+終了してから一時 repository を破棄できる。
 
-CI や pipe などの非対話環境では terminal prompt を無効化する。SSH agent や
-credential helper で非対話認証できなければ、入力待ちにせず失敗する。
+SSH agent、秘密鍵、既知の host key、保存済み credential helper など、通常の
+`git pull` が入力なしで使える認証状態はそのまま再利用する。追加の username、password、
+鍵の passphrase、host key 確認が必要なら入力待ちにせず失敗する。
+
+初回認証や host key 確認は、利用者が通常の Git/OpenSSH を直接実行して済ませる。失敗時は
+生の子 process 出力を転載せず、通常の Git で対象 repository の認証と接続確認を完了して
+から再実行するよう案内する。ツール自身は認証情報を仲介しない。
 
 同じ repository URL が別端末でも取得できることは保証しない。manifest と lock が
 記録するのは取得対象と採用版であり、SSH鍵、credential、`known_hosts` などの接続設定は
@@ -147,7 +154,7 @@ groupを終了する。一時bare repositoryを破棄し、既存cache、manifes
 
 ## error
 
-非対話環境では、Git、SSH、credential helperが出した生の標準エラーをツールの報告へ
+汎用 Git transport では、Git、SSH、credential helperが出した生の標準エラーをツールの報告へ
 転載しない。外部 command の出力には、credentialや内部接続設定が含まれる可能性があり、
 未知の値を完全にredactすることはできないためである。
 

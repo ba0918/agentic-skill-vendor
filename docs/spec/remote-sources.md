@@ -231,6 +231,10 @@ SSH、scp 風 SSH、HTTPS の repository URL には、利用環境の Git/OpenSS
 Git transport を使う。受理する URL、認証、subprocess、取得版、resource limit の契約は
 git-transports.md で定義する。
 
+汎用 Git transport は常に非対話で実行する。通常の `git pull` が入力なしで成功する
+SSH agent、秘密鍵、`known_hosts`、保存済み credential helper は再利用するが、初回認証や
+host key 確認の prompt はツール内で扱わない。必要な初回設定は通常の Git/OpenSSH で済ませる。
+
 `add`、`update`、`fetch` だけが network へ到達する。汎用 Git source がある場合、この 3
 command だけが Git subprocess を起動できる。`gen`、`verify`、`lint-selfcontain`、
 `self-test` は network、environment、subprocess へ触れない。
