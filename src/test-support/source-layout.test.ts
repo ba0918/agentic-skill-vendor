@@ -645,17 +645,17 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
   const checks: Array<[string, RegExp, string]> = [
     [
       "src/distribution/placements.ts",
-      /function (?:planPlacements|placementViolations)/,
+      /function (?:planPlacements|placementViolations|buildPlacementPlan|checkPlacementViolations)/,
       "placements owns extracted logic",
     ],
     [
       "src/distribution/gen.ts",
-      /function (?:planExpansion|executePlan|closureViolations|lockViolations)/,
+      /function (?:planExpansion|executePlan|closureViolations|lockViolations|buildExpansionPlan|legacyClosureViolations|legacyLockViolations)/,
       "gen owns extracted logic",
     ],
     [
       "src/contracts/manifest.ts",
-      /function (?:validatePlacements|validateSources|validateResolutions|pickObject|requireDigest)/,
+      /function (?:validatePlacements|validateSources|validateResolutions|pickObject|requireDigest|legacyValidatePlacements|legacyValidateSources|legacyValidateResolutions|legacyPickObject|legacyRequireDigest)/,
       "manifest owns serialized validation",
     ],
     [
@@ -665,7 +665,7 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
     ],
     [
       "src/remote/resolvecmd.ts",
-      /function (?:updateRequests|fetchRequests|writeLockSources|collectSources|placeInCache)/,
+      /function (?:updateRequests|fetchRequests|writeLockSources|collectSources|placeInCache|legacyCollectSources)/,
       "resolvecmd owns extracted logic",
     ],
   ];
@@ -692,6 +692,18 @@ function remainingOwnerViolations(sources: Map<string, string>): string[] {
       ).test(sources.get(path) ?? "")
     ) {
       violations.push(`${path} re-exports ${oldOwner}`);
+    }
+  }
+  for (const path of [
+    "src/distribution/placement-plan.ts",
+    "src/distribution/placement-verify.ts",
+  ]) {
+    if (
+      /\.\.\.args|buildPlacementPlan|checkPlacementViolations/.test(
+        sources.get(path) ?? "",
+      )
+    ) {
+      violations.push(`${path} forwards to the old placement owner`);
     }
   }
   return violations.sort();
